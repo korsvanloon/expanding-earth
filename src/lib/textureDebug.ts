@@ -1,9 +1,10 @@
 import * as THREE from 'three'
+import atmosphereVertexShader from '../shaders/atmosphere-vertex.glsl'
+import atmosphereFragmentShader from '../shaders/atmosphere-fragment.glsl'
 import vertexShader from '../shaders/vertex.glsl'
 import fragmentShader from '../shaders/fragment.glsl'
 import createCamera from './camera'
 import { createControls } from './initEarth'
-import { nextImageData } from './plate'
 
 const earth = {
   animate: 1,
@@ -12,8 +13,6 @@ const earth = {
   scaleA: 0.5,
   scaleB: 1,
 }
-
-console.log(fragmentShader)
 
 type Earth = typeof earth
 
@@ -28,28 +27,43 @@ async function main() {
     map: northAmerica,
     alphaMap: ageMap,
     backgroundColor: 0x0000dd,
-    position: new THREE.Vector3(0, 0, 200),
+    position: new THREE.Vector3(0, -200, -100),
   })
 
-  const sphere = new THREE.Mesh(
-    new THREE.SphereGeometry(100, 50, 50),
-    new THREE.ShaderMaterial({
-      vertexShader,
-      fragmentShader,
-    }),
-    // new THREE.MeshBasicMaterial({
-    //   map: colorAgeMap,
-    // }),
-  )
+  const [sphere, atmosphere] = createSphereWithGlow({
+    radius: 100,
+    globeTexture: colorAgeMap,
+  })
 
   const camera = createCamera()
-  const scene = createScene(camera, backgroundPlane, canvasPlane, sphere)
-  const renderer = new THREE.WebGLRenderer()
+  const scene = createScene(camera, backgroundPlane, canvasPlane, sphere, atmosphere)
+  const renderer = new THREE.WebGLRenderer({ antialias: true })
   createControls(camera, renderer.domElement)
+
+  const origins = [
+    new THREE.Vector2(0, 1),
+    new THREE.Vector2(0, 0.25),
+    new THREE.Vector2(0, 0.5),
+    new THREE.Vector2(0, 0.75),
+    new THREE.Vector2(0.25, 0.25),
+    new THREE.Vector2(0.25, 0.5),
+    new THREE.Vector2(0.25, 0.75),
+    new THREE.Vector2(0.5, 0.25),
+    new THREE.Vector2(0.5, 0.5),
+    new THREE.Vector2(0.5, 0.75),
+    new THREE.Vector2(0.75, 0.25),
+    new THREE.Vector2(0.75, 0.5),
+    new THREE.Vector2(0.75, 0.75),
+    new THREE.Vector2(1, 0.25),
+    new THREE.Vector2(1, 0.5),
+    new THREE.Vector2(1, 0.75),
+  ]
 
   // Animation Loop
   async function update() {
-    updateMaterial(canvasPlane.material, earthAge(nextEarthAnimation(earth)))
+    const age = earthAge(nextEarthAnimation(earth))
+    updatePlaneMaterial(canvasPlane.material, age)
+    updateSphereMaterial(sphere.material, age, origins)
 
     renderer.render(scene, camera)
     requestAnimationFrame(update)
@@ -84,18 +98,21 @@ async function main() {
 
 export default main
 
-function updateMaterial(material: THREE.MeshBasicMaterial, age: number) {
+function updatePlaneMaterial(material: THREE.MeshBasicMaterial, age: number) {
   const offset = -0.6 * age + 0.6
   const repeat = 1.2 * age - 0.2
   material.alphaTest = Math.max(0, 1 - (age - 0.5) * 2)
   material.map?.offset.set(offset, offset)
   material.map?.repeat.set(repeat, repeat)
+}
 
-  // if (material.map?.image) {
-  //   const image = nextImageData(material.map.image)
-  //   material.map.image = image
-  //   material.map.needsUpdate = true
-  // }
+function updateSphereMaterial(
+  material: THREE.ShaderMaterial,
+  age: number,
+  origins: THREE.Vector2[],
+) {
+  material.uniforms.age.value = age
+  material.uniforms.origins.value = origins
 }
 
 const earthAge = (earth: Earth) =>
@@ -142,16 +159,13 @@ const createPlaneWithBackground = ({
     new THREE.PlaneGeometry(width, height),
     new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }),
   )
-  background.position.x = position.x
-  background.position.y = position.y
-  background.position.z = position.z
+  background.position.copy(position)
 
   const plane = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
     new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }),
   )
-  plane.position.x = position.x
-  plane.position.y = position.y
+  plane.position.copy(position)
   plane.position.z = position.z + 1
 
   map.repeat.set(1, 1)
@@ -166,4 +180,54 @@ const createPlaneWithBackground = ({
   plane.material = material
 
   return [background, plane]
+}
+
+const createSphereWithGlow = ({
+  radius,
+  position = new THREE.Vector3(0, 0, 0),
+  globeTexture,
+}: {
+  position?: THREE.Vector3
+  globeTexture: THREE.Texture
+  radius: number
+}) => {
+  const sphere = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 50, 50),
+    new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        globeTexture: { value: globeTexture },
+        age: { value: 0 },
+        origins: {
+          value: [
+            new THREE.Vector2(0.25, 0.25),
+            new THREE.Vector2(0.25, 0.5),
+            new THREE.Vector2(0.25, 0.75),
+            new THREE.Vector2(0.5, 0.25),
+            new THREE.Vector2(0.5, 0.5),
+            new THREE.Vector2(0.5, 0.75),
+            new THREE.Vector2(0.75, 0.25),
+            new THREE.Vector2(0.75, 0.5),
+            new THREE.Vector2(0.75, 0.75),
+          ],
+        },
+      },
+    }),
+  )
+  sphere.position.copy(position)
+
+  const atmosphere = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 50, 50),
+    new THREE.ShaderMaterial({
+      vertexShader: atmosphereVertexShader,
+      fragmentShader: atmosphereFragmentShader,
+      blending: THREE.AdditiveBlending,
+      side: THREE.BackSide,
+    }),
+  )
+  atmosphere.scale.set(1.1, 1.1, 1.1)
+  atmosphere.position.copy(position)
+
+  return [sphere, atmosphere]
 }

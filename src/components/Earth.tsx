@@ -1,15 +1,13 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import main from '../lib/textureDebug'
 
 const App = () => {
-  const [once, setOnce] = useState(true)
-
   useEffect(() => {
-    if (once) {
-      main()
-      setOnce(false)
+    const result = main()
+    return () => {
+      result.then((r) => r())
     }
-  }, [once])
+  }, [])
   return (
     <>
       <div id="container" style={{ width: '100vw', height: '100vh' }}></div>
