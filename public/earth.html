@@ -1,0 +1,2682 @@
+<!DOCTYPE html>
+<!-- saved from url=(0060)https://www.interactive-earth.com/earth/plate-tectonics.html -->
+<html lang="en">
+  <head>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <title>Plate Tectonics Visualization - Interactive Earth</title>
+
+    <meta
+      name="viewport"
+      content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0"
+    />
+    <link
+      href="https://www.interactive-earth.com/favicon.ico"
+      rel="shortcut icon"
+      type="image/vnd.microsoft.icon"
+    />
+    <style>
+      a:hover {
+        color: #ccc;
+      }
+      a:link,
+      a,
+      a:visited {
+        color: #44abda;
+        text-decoration: none;
+      }
+      #instructions {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 350px;
+        background: #efefef;
+        color: #000;
+        font-size: 13px;
+      }
+      #nxtbtn div {
+        width: 100%;
+        text-align: center;
+      }
+      #instructions p {
+        padding: 3px 10px;
+      }
+      #instructions li {
+        padding: 2px 10px;
+      }
+      h2 {
+        background-color: #44abda;
+        width: 100%;
+        margin: 0;
+        line-height: 50px;
+        color: #fff;
+        text-align: center;
+      }
+      body,
+      html,
+      #container {
+        background-color: #000;
+        margin: 0;
+        height: 100%;
+        padding: 0;
+        color: #111;
+        font: 11px 'Lucida Grande', sans-serif;
+        line-height: normal;
+        width: 100%;
+      }
+      .clasp {
+        text-align: center;
+        width: 100%;
+      }
+      .clasp a {
+        width: 100%;
+        display: block;
+        background-color: #000;
+        color: #eee;
+        font: 11px 'Lucida Grande', sans-serif;
+        line-height: normal;
+        text-shadow: 0 -1px 0 #111;
+      }
+      .clasp:hover {
+        background-color: #111;
+      }
+    </style>
+    <script data-dapp-detection="">
+      !(function () {
+        let e = !1
+        function n() {
+          if (!e) {
+            const n = document.createElement('meta')
+            ;(n.name = 'dapp-detected'), document.head.appendChild(n), (e = !0)
+          }
+        }
+        if (window.hasOwnProperty('ethereum')) {
+          if (((window.__disableDappDetectionInsertion = !0), void 0 === window.ethereum)) return
+          n()
+        } else {
+          var t = window.ethereum
+          Object.defineProperty(window, 'ethereum', {
+            configurable: !0,
+            enumerable: !1,
+            set: function (e) {
+              window.__disableDappDetectionInsertion || n(), (t = e)
+            },
+            get: function () {
+              if (!window.__disableDappDetectionInsertion) {
+                const e = arguments.callee
+                ;(e &&
+                  e.caller &&
+                  e.caller.toString &&
+                  -1 !== e.caller.toString().indexOf('getOwnPropertyNames')) ||
+                  n()
+              }
+              return t
+            },
+          })
+        }
+      })()
+    </script>
+    <style type="text/css">
+      .dg ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        clear: both;
+      }
+      .dg.ac {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 0;
+        z-index: 0;
+      }
+      .dg:not(.ac) .main {
+        overflow: hidden;
+      }
+      .dg.main {
+        -webkit-transition: opacity 0.1s linear;
+        -o-transition: opacity 0.1s linear;
+        -moz-transition: opacity 0.1s linear;
+        transition: opacity 0.1s linear;
+      }
+      .dg.main.taller-than-window {
+        overflow-y: auto;
+      }
+      .dg.main.taller-than-window .close-button {
+        opacity: 1;
+        margin-top: -1px;
+        border-top: 1px solid #2c2c2c;
+      }
+      .dg.main ul.closed .close-button {
+        opacity: 1 !important;
+      }
+      .dg.main:hover .close-button,
+      .dg.main .close-button.drag {
+        opacity: 1;
+      }
+      .dg.main .close-button {
+        -webkit-transition: opacity 0.1s linear;
+        -o-transition: opacity 0.1s linear;
+        -moz-transition: opacity 0.1s linear;
+        transition: opacity 0.1s linear;
+        border: 0;
+        line-height: 19px;
+        height: 20px;
+        cursor: pointer;
+        text-align: center;
+        background-color: #000;
+      }
+      .dg.main .close-button.close-top {
+        position: relative;
+      }
+      .dg.main .close-button.close-bottom {
+        position: absolute;
+      }
+      .dg.main .close-button:hover {
+        background-color: #111;
+      }
+      .dg.a {
+        float: right;
+        margin-right: 15px;
+        overflow-y: visible;
+      }
+      .dg.a.has-save > ul.close-top {
+        margin-top: 0;
+      }
+      .dg.a.has-save > ul.close-bottom {
+        margin-top: 27px;
+      }
+      .dg.a.has-save > ul.closed {
+        margin-top: 0;
+      }
+      .dg.a .save-row {
+        top: 0;
+        z-index: 1002;
+      }
+      .dg.a .save-row.close-top {
+        position: relative;
+      }
+      .dg.a .save-row.close-bottom {
+        position: fixed;
+      }
+      .dg li {
+        -webkit-transition: height 0.1s ease-out;
+        -o-transition: height 0.1s ease-out;
+        -moz-transition: height 0.1s ease-out;
+        transition: height 0.1s ease-out;
+        -webkit-transition: overflow 0.1s linear;
+        -o-transition: overflow 0.1s linear;
+        -moz-transition: overflow 0.1s linear;
+        transition: overflow 0.1s linear;
+      }
+      .dg li:not(.folder) {
+        cursor: auto;
+        height: 27px;
+        line-height: 27px;
+        padding: 0 4px 0 5px;
+      }
+      .dg li.folder {
+        padding: 0;
+        border-left: 4px solid rgba(0, 0, 0, 0);
+      }
+      .dg li.title {
+        cursor: pointer;
+        margin-left: -4px;
+      }
+      .dg .closed li:not(.title),
+      .dg .closed ul li,
+      .dg .closed ul li > * {
+        height: 0;
+        overflow: hidden;
+        border: 0;
+      }
+      .dg .cr {
+        clear: both;
+        padding-left: 3px;
+        height: 27px;
+        overflow: hidden;
+      }
+      .dg .property-name {
+        cursor: default;
+        float: left;
+        clear: left;
+        width: 40%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dg .c {
+        float: left;
+        width: 60%;
+        position: relative;
+      }
+      .dg .c input[type='text'] {
+        border: 0;
+        margin-top: 4px;
+        padding: 3px;
+        width: 100%;
+        float: right;
+      }
+      .dg .has-slider input[type='text'] {
+        width: 30%;
+        margin-left: 0;
+      }
+      .dg .slider {
+        float: left;
+        width: 66%;
+        margin-left: -5px;
+        margin-right: 0;
+        height: 19px;
+        margin-top: 4px;
+      }
+      .dg .slider-fg {
+        height: 100%;
+      }
+      .dg .c input[type='checkbox'] {
+        margin-top: 7px;
+      }
+      .dg .c select {
+        margin-top: 5px;
+      }
+      .dg .cr.function,
+      .dg .cr.function .property-name,
+      .dg .cr.function *,
+      .dg .cr.boolean,
+      .dg .cr.boolean * {
+        cursor: pointer;
+      }
+      .dg .cr.color {
+        overflow: visible;
+      }
+      .dg .selector {
+        display: none;
+        position: absolute;
+        margin-left: -9px;
+        margin-top: 23px;
+        z-index: 10;
+      }
+      .dg .c:hover .selector,
+      .dg .selector.drag {
+        display: block;
+      }
+      .dg li.save-row {
+        padding: 0;
+      }
+      .dg li.save-row .button {
+        display: inline-block;
+        padding: 0px 6px;
+      }
+      .dg.dialogue {
+        background-color: #222;
+        width: 460px;
+        padding: 15px;
+        font-size: 13px;
+        line-height: 15px;
+      }
+      #dg-new-constructor {
+        padding: 10px;
+        color: #222;
+        font-family: Monaco, monospace;
+        font-size: 10px;
+        border: 0;
+        resize: none;
+        box-shadow: inset 1px 1px 1px #888;
+        word-wrap: break-word;
+        margin: 12px 0;
+        display: block;
+        width: 440px;
+        overflow-y: scroll;
+        height: 100px;
+        position: relative;
+      }
+      #dg-local-explain {
+        display: none;
+        font-size: 11px;
+        line-height: 17px;
+        border-radius: 3px;
+        background-color: #333;
+        padding: 8px;
+        margin-top: 10px;
+      }
+      #dg-local-explain code {
+        font-size: 10px;
+      }
+      #dat-gui-save-locally {
+        display: none;
+      }
+      .dg {
+        color: #eee;
+        font: 11px 'Lucida Grande', sans-serif;
+        text-shadow: 0 -1px 0 #111;
+      }
+      .dg.main::-webkit-scrollbar {
+        width: 5px;
+        background: #1a1a1a;
+      }
+      .dg.main::-webkit-scrollbar-corner {
+        height: 0;
+        display: none;
+      }
+      .dg.main::-webkit-scrollbar-thumb {
+        border-radius: 5px;
+        background: #676767;
+      }
+      .dg li:not(.folder) {
+        background: #1a1a1a;
+        border-bottom: 1px solid #2c2c2c;
+      }
+      .dg li.save-row {
+        line-height: 25px;
+        background: #dad5cb;
+        border: 0;
+      }
+      .dg li.save-row select {
+        margin-left: 5px;
+        width: 108px;
+      }
+      .dg li.save-row .button {
+        margin-left: 5px;
+        margin-top: 1px;
+        border-radius: 2px;
+        font-size: 9px;
+        line-height: 7px;
+        padding: 4px 4px 5px 4px;
+        background: #c5bdad;
+        color: #fff;
+        text-shadow: 0 1px 0 #b0a58f;
+        box-shadow: 0 -1px 0 #b0a58f;
+        cursor: pointer;
+      }
+      .dg li.save-row .button.gears {
+        background: #c5bdad
+          url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAsAAAANCAYAAAB/9ZQ7AAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAQJJREFUeNpiYKAU/P//PwGIC/ApCABiBSAW+I8AClAcgKxQ4T9hoMAEUrxx2QSGN6+egDX+/vWT4e7N82AMYoPAx/evwWoYoSYbACX2s7KxCxzcsezDh3evFoDEBYTEEqycggWAzA9AuUSQQgeYPa9fPv6/YWm/Acx5IPb7ty/fw+QZblw67vDs8R0YHyQhgObx+yAJkBqmG5dPPDh1aPOGR/eugW0G4vlIoTIfyFcA+QekhhHJhPdQxbiAIguMBTQZrPD7108M6roWYDFQiIAAv6Aow/1bFwXgis+f2LUAynwoIaNcz8XNx3Dl7MEJUDGQpx9gtQ8YCueB+D26OECAAQDadt7e46D42QAAAABJRU5ErkJggg==)
+          2px 1px no-repeat;
+        height: 7px;
+        width: 8px;
+      }
+      .dg li.save-row .button:hover {
+        background-color: #bab19e;
+        box-shadow: 0 -1px 0 #b0a58f;
+      }
+      .dg li.folder {
+        border-bottom: 0;
+      }
+      .dg li.title {
+        padding-left: 16px;
+        background: #000
+          url(data:image/gif;base64,R0lGODlhBQAFAJEAAP////Pz8////////yH5BAEAAAIALAAAAAAFAAUAAAIIlI+hKgFxoCgAOw==)
+          6px 10px no-repeat;
+        cursor: pointer;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      .dg .closed li.title {
+        background-image: url(data:image/gif;base64,R0lGODlhBQAFAJEAAP////Pz8////////yH5BAEAAAIALAAAAAAFAAUAAAIIlGIWqMCbWAEAOw==);
+      }
+      .dg .cr.boolean {
+        border-left: 3px solid #806787;
+      }
+      .dg .cr.color {
+        border-left: 3px solid;
+      }
+      .dg .cr.function {
+        border-left: 3px solid #e61d5f;
+      }
+      .dg .cr.number {
+        border-left: 3px solid #2fa1d6;
+      }
+      .dg .cr.number input[type='text'] {
+        color: #2fa1d6;
+      }
+      .dg .cr.string {
+        border-left: 3px solid #1ed36f;
+      }
+      .dg .cr.string input[type='text'] {
+        color: #1ed36f;
+      }
+      .dg .cr.function:hover,
+      .dg .cr.boolean:hover {
+        background: #111;
+      }
+      .dg .c input[type='text'] {
+        background: #303030;
+        outline: none;
+      }
+      .dg .c input[type='text']:hover {
+        background: #3c3c3c;
+      }
+      .dg .c input[type='text']:focus {
+        background: #494949;
+        color: #fff;
+      }
+      .dg .c .slider {
+        background: #303030;
+        cursor: ew-resize;
+      }
+      .dg .c .slider-fg {
+        background: #2fa1d6;
+        max-width: 100%;
+      }
+      .dg .c .slider:hover {
+        background: #3c3c3c;
+      }
+      .dg .c .slider:hover .slider-fg {
+        background: #44abda;
+      }
+    </style>
+    <style type="text/css">
+      .dg ul {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+        width: 100%;
+        clear: both;
+      }
+      .dg.ac {
+        position: fixed;
+        top: 0;
+        left: 0;
+        right: 0;
+        height: 0;
+        z-index: 0;
+      }
+      .dg:not(.ac) .main {
+        overflow: hidden;
+      }
+      .dg.main {
+        -webkit-transition: opacity 0.1s linear;
+        -o-transition: opacity 0.1s linear;
+        -moz-transition: opacity 0.1s linear;
+        transition: opacity 0.1s linear;
+      }
+      .dg.main.taller-than-window {
+        overflow-y: auto;
+      }
+      .dg.main.taller-than-window .close-button {
+        opacity: 1;
+        margin-top: -1px;
+        border-top: 1px solid #2c2c2c;
+      }
+      .dg.main ul.closed .close-button {
+        opacity: 1 !important;
+      }
+      .dg.main:hover .close-button,
+      .dg.main .close-button.drag {
+        opacity: 1;
+      }
+      .dg.main .close-button {
+        -webkit-transition: opacity 0.1s linear;
+        -o-transition: opacity 0.1s linear;
+        -moz-transition: opacity 0.1s linear;
+        transition: opacity 0.1s linear;
+        border: 0;
+        line-height: 19px;
+        height: 20px;
+        cursor: pointer;
+        text-align: center;
+        background-color: #000;
+      }
+      .dg.main .close-button.close-top {
+        position: relative;
+      }
+      .dg.main .close-button.close-bottom {
+        position: absolute;
+      }
+      .dg.main .close-button:hover {
+        background-color: #111;
+      }
+      .dg.a {
+        float: right;
+        margin-right: 15px;
+        overflow-y: visible;
+      }
+      .dg.a.has-save > ul.close-top {
+        margin-top: 0;
+      }
+      .dg.a.has-save > ul.close-bottom {
+        margin-top: 27px;
+      }
+      .dg.a.has-save > ul.closed {
+        margin-top: 0;
+      }
+      .dg.a .save-row {
+        top: 0;
+        z-index: 1002;
+      }
+      .dg.a .save-row.close-top {
+        position: relative;
+      }
+      .dg.a .save-row.close-bottom {
+        position: fixed;
+      }
+      .dg li {
+        -webkit-transition: height 0.1s ease-out;
+        -o-transition: height 0.1s ease-out;
+        -moz-transition: height 0.1s ease-out;
+        transition: height 0.1s ease-out;
+        -webkit-transition: overflow 0.1s linear;
+        -o-transition: overflow 0.1s linear;
+        -moz-transition: overflow 0.1s linear;
+        transition: overflow 0.1s linear;
+      }
+      .dg li:not(.folder) {
+        cursor: auto;
+        height: 27px;
+        line-height: 27px;
+        padding: 0 4px 0 5px;
+      }
+      .dg li.folder {
+        padding: 0;
+        border-left: 4px solid rgba(0, 0, 0, 0);
+      }
+      .dg li.title {
+        cursor: pointer;
+        margin-left: -4px;
+      }
+      .dg .closed li:not(.title),
+      .dg .closed ul li,
+      .dg .closed ul li > * {
+        height: 0;
+        overflow: hidden;
+        border: 0;
+      }
+      .dg .cr {
+        clear: both;
+        padding-left: 3px;
+        height: 27px;
+        overflow: hidden;
+      }
+      .dg .property-name {
+        cursor: default;
+        float: left;
+        clear: left;
+        width: 40%;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+      .dg .c {
+        float: left;
+        width: 60%;
+        position: relative;
+      }
+      .dg .c input[type='text'] {
+        border: 0;
+        margin-top: 4px;
+        padding: 3px;
+        width: 100%;
+        float: right;
+      }
+      .dg .has-slider input[type='text'] {
+        width: 30%;
+        margin-left: 0;
+      }
+      .dg .slider {
+        float: left;
+        width: 66%;
+        margin-left: -5px;
+        margin-right: 0;
+        height: 19px;
+        margin-top: 4px;
+      }
+      .dg .slider-fg {
+        height: 100%;
+      }
+      .dg .c input[type='checkbox'] {
+        margin-top: 7px;
+      }
+      .dg .c select {
+        margin-top: 5px;
+      }
+      .dg .cr.function,
+      .dg .cr.function .property-name,
+      .dg .cr.function *,
+      .dg .cr.boolean,
+      .dg .cr.boolean * {
+        cursor: pointer;
+      }
+      .dg .cr.color {
+        overflow: visible;
+      }
+      .dg .selector {
+        display: none;
+        position: absolute;
+        margin-left: -9px;
+        margin-top: 23px;
+        z-index: 10;
+      }
+      .dg .c:hover .selector,
+      .dg .selector.drag {
+        display: block;
+      }
+      .dg li.save-row {
+        padding: 0;
+      }
+      .dg li.save-row .button {
+        display: inline-block;
+        padding: 0px 6px;
+      }
+      .dg.dialogue {
+        background-color: #222;
+        width: 460px;
+        padding: 15px;
+        font-size: 13px;
+        line-height: 15px;
+      }
+      #dg-new-constructor {
+        padding: 10px;
+        color: #222;
+        font-family: Monaco, monospace;
+        font-size: 10px;
+        border: 0;
+        resize: none;
+        box-shadow: inset 1px 1px 1px #888;
+        word-wrap: break-word;
+        margin: 12px 0;
+        display: block;
+        width: 440px;
+        overflow-y: scroll;
+        height: 100px;
+        position: relative;
+      }
+      #dg-local-explain {
+        display: none;
+        font-size: 11px;
+        line-height: 17px;
+        border-radius: 3px;
+        background-color: #333;
+        padding: 8px;
+        margin-top: 10px;
+      }
+      #dg-local-explain code {
+        font-size: 10px;
+      }
+      #dat-gui-save-locally {
+        display: none;
+      }
+      .dg {
+        color: #eee;
+        font: 11px 'Lucida Grande', sans-serif;
+        text-shadow: 0 -1px 0 #111;
+      }
+      .dg.main::-webkit-scrollbar {
+        width: 5px;
+        background: #1a1a1a;
+      }
+      .dg.main::-webkit-scrollbar-corner {
+        height: 0;
+        display: none;
+      }
+      .dg.main::-webkit-scrollbar-thumb {
+        border-radius: 5px;
+        background: #676767;
+      }
+      .dg li:not(.folder) {
+        background: #1a1a1a;
+        border-bottom: 1px solid #2c2c2c;
+      }
+      .dg li.save-row {
+        line-height: 25px;
+        background: #dad5cb;
+        border: 0;
+      }
+      .dg li.save-row select {
+        margin-left: 5px;
+        width: 108px;
+      }
+      .dg li.save-row .button {
+        margin-left: 5px;
+        margin-top: 1px;
+        border-radius: 2px;
+        font-size: 9px;
+        line-height: 7px;
+        padding: 4px 4px 5px 4px;
+        background: #c5bdad;
+        color: #fff;
+        text-shadow: 0 1px 0 #b0a58f;
+        box-shadow: 0 -1px 0 #b0a58f;
+        cursor: pointer;
+      }
+      .dg li.save-row .button.gears {
+        background: #c5bdad
+          url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAsAAAANCAYAAAB/9ZQ7AAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAQJJREFUeNpiYKAU/P//PwGIC/ApCABiBSAW+I8AClAcgKxQ4T9hoMAEUrxx2QSGN6+egDX+/vWT4e7N82AMYoPAx/evwWoYoSYbACX2s7KxCxzcsezDh3evFoDEBYTEEqycggWAzA9AuUSQQgeYPa9fPv6/YWm/Acx5IPb7ty/fw+QZblw67vDs8R0YHyQhgObx+yAJkBqmG5dPPDh1aPOGR/eugW0G4vlIoTIfyFcA+QekhhHJhPdQxbiAIguMBTQZrPD7108M6roWYDFQiIAAv6Aow/1bFwXgis+f2LUAynwoIaNcz8XNx3Dl7MEJUDGQpx9gtQ8YCueB+D26OECAAQDadt7e46D42QAAAABJRU5ErkJggg==)
+          2px 1px no-repeat;
+        height: 7px;
+        width: 8px;
+      }
+      .dg li.save-row .button:hover {
+        background-color: #bab19e;
+        box-shadow: 0 -1px 0 #b0a58f;
+      }
+      .dg li.folder {
+        border-bottom: 0;
+      }
+      .dg li.title {
+        padding-left: 16px;
+        background: #000
+          url(data:image/gif;base64,R0lGODlhBQAFAJEAAP////Pz8////////yH5BAEAAAIALAAAAAAFAAUAAAIIlI+hKgFxoCgAOw==)
+          6px 10px no-repeat;
+        cursor: pointer;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+      }
+      .dg .closed li.title {
+        background-image: url(data:image/gif;base64,R0lGODlhBQAFAJEAAP////Pz8////////yH5BAEAAAIALAAAAAAFAAUAAAIIlGIWqMCbWAEAOw==);
+      }
+      .dg .cr.boolean {
+        border-left: 3px solid #806787;
+      }
+      .dg .cr.color {
+        border-left: 3px solid;
+      }
+      .dg .cr.function {
+        border-left: 3px solid #e61d5f;
+      }
+      .dg .cr.number {
+        border-left: 3px solid #2fa1d6;
+      }
+      .dg .cr.number input[type='text'] {
+        color: #2fa1d6;
+      }
+      .dg .cr.string {
+        border-left: 3px solid #1ed36f;
+      }
+      .dg .cr.string input[type='text'] {
+        color: #1ed36f;
+      }
+      .dg .cr.function:hover,
+      .dg .cr.boolean:hover {
+        background: #111;
+      }
+      .dg .c input[type='text'] {
+        background: #303030;
+        outline: none;
+      }
+      .dg .c input[type='text']:hover {
+        background: #3c3c3c;
+      }
+      .dg .c input[type='text']:focus {
+        background: #494949;
+        color: #fff;
+      }
+      .dg .c .slider {
+        background: #303030;
+        cursor: ew-resize;
+      }
+      .dg .c .slider-fg {
+        background: #2fa1d6;
+        max-width: 100%;
+      }
+      .dg .c .slider:hover {
+        background: #3c3c3c;
+      }
+      .dg .c .slider:hover .slider-fg {
+        background: #44abda;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="container" width="100vw" height="100vh">
+      <script type="text/javascript">
+        function windowboxOpen(windowID) {
+          document.getElementById('window_' + windowID).style.display = 'block'
+          document.getElementById('clasp_' + windowID).innerHTML =
+            '<a href="javascript:windowboxClose(\'' + windowID + '\');">Close</a>'
+        }
+        function windowboxClose(windowID) {
+          document.getElementById('window_' + windowID).style.display = 'none'
+          document.getElementById('clasp_' + windowID).innerHTML =
+            '<a href="javascript:windowboxOpen(\'' + windowID + '\');">Open</a>'
+        }
+      </script>
+
+      <script src="./three.min.js"></script>
+      <script type="module">
+        import { GUI } from './dat.gui.module.js'
+        import { OrbitControls } from './OrbitControls.js'
+
+        function parseURLParams(url) {
+          var queryStart = url.indexOf('?') + 1,
+            queryEnd = url.indexOf('#') + 1 || url.length + 1,
+            query = url.slice(queryStart, queryEnd - 1),
+            pairs = query.replace(/\+/g, ' ').split('&'),
+            parms = {},
+            i,
+            n,
+            v,
+            nv
+
+          if (query === url || query === '') return
+
+          for (i = 0; i < pairs.length; i++) {
+            nv = pairs[i].split('=', 2)
+            n = decodeURIComponent(nv[0])
+            v = decodeURIComponent(nv[1])
+
+            if (!parms.hasOwnProperty(n)) parms[n] = []
+            parms[n].push(nv.length === 2 ? v : null)
+          }
+          return parms
+        }
+        function toTitleCase(str) {
+          return str.replace(/\w\S*/g, function (txt) {
+            return txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()
+          })
+        }
+
+        var land = new Array(
+          'africa',
+          'north_america_alaska',
+          'antarctica',
+          'arabian_peninsula',
+          'asia_sw',
+          'asia_russia',
+          'asia_se',
+          'australia',
+          'europe',
+          'greenland',
+          'madegascar',
+          'north_america',
+          'south_america',
+          'new_guinea',
+          'borneo',
+          'japan',
+          'asia_kamchatka',
+          'new_zealand',
+          'indonesia',
+          'india',
+        )
+
+        var start_data =
+          '0,0.021,0.332,0.098|1,0.000,-2.743,1.165|2,-3.142,0.962,1.633|3,-3.090,2.420,-2.589|4,-0.066,0.930,0.518|5,-0.027,1.835,1.165|6,-0.056,1.580,0.482|7,-0.027,2.247,-0.410|8,0.000,0.250,0.820|9,-0.027,-1.100,1.165|10,-0.176,0.792,-0.251|11,-0.106,-1.790,0.659|12,0.050,-1.170,-0.290|13,-0.027,2.450,-0.165|14,0.122,1.963,-0.165|15,0.098,2.247,0.635|16,0.021,2.554,1.080|17,0.122,3.092,-0.810|18,0.070,1.863,-0.130|19,0.271,1.314,0.122|'
+        const ea_start_data =
+          '0,0.092,-0.175,-0.375|1,-0.042,-3.174,1.224|2,-2.819,0.226,1.633|3,-2.907,2.824,-2.840|4,-0.421,0.292,0.217|5,0.292,2.024,0.758|6,-0.474,1.491,0.420|7,0.623,3.323,-0.251|8,-0.208,-0.208,0.713|9,0.217,-0.975,1.224|10,0.251,0.251,-0.747|11,0.025,-1.974,0.625|12,-0.886,-1.442,-1.919|13,0.305,3.641,-0.092|14,-0.108,1.891,-0.175|15,0.292,2.491,0.225|16,-0.133,2.938,1.096|17,-0.092,3.900,-1.204|18,1.624,2.157,-1.641|19,-0.440,0.865,0.098|'
+        const ea_end_data =
+          '0,0.021,0.332,0.098|1,0.000,-2.743,1.165|2,-3.142,0.962,1.633|3,-3.090,2.420,-2.589|4,-0.066,0.930,0.518|5,-0.027,1.835,1.165|6,-0.056,1.580,0.482|7,-0.027,2.247,-0.410|8,0.000,0.250,0.820|9,-0.027,-1.100,1.165|10,-0.176,0.792,-0.251|11,-0.106,-1.790,0.659|12,0.050,-1.170,-0.290|13,-0.027,2.450,-0.165|14,0.122,1.963,-0.165|15,0.098,2.247,0.635|16,0.021,2.478,1.080|17,0.122,3.092,-0.810|18,0.070,1.863,-0.130|19,0.271,1.314,0.122|'
+        const ea_scale_min = 0.5
+        var end_data = start_data
+        //alt expanding earth
+        //https://www.interactive-earth.com/earth/plate-tectonics.html?scaleA=0.50&scaleB=1.00&start_data=0,0.092,-0.175,-0.375|1,-0.042,-3.174,1.224|2,-2.819,0.226,1.633|3,-2.907,2.824,-2.840|4,-0.421,0.292,0.217|5,0.292,2.024,0.758|6,-0.474,1.491,0.420|7,0.623,3.323,-0.251|8,-0.208,-0.208,0.713|9,0.217,-0.975,1.224|10,0.251,0.251,-0.747|11,0.025,-1.974,0.625|12,-0.886,-1.442,-1.919|13,0.305,3.641,-0.092|14,-0.108,1.891,-0.175|15,0.292,2.491,0.225|16,-0.133,2.938,1.096|17,-0.092,3.900,-1.204|18,1.624,2.157,-1.641|19,-0.440,0.865,0.098|&end_data=0,0.021,0.332,0.098|1,0.000,-2.743,1.165|2,-3.142,0.962,1.633|3,-3.090,2.420,-2.589|4,-0.066,0.930,0.518|5,-0.027,1.835,1.165|6,-0.056,1.580,0.482|7,-0.027,2.247,-0.410|8,0.000,0.250,0.820|9,-0.027,-1.100,1.165|10,-0.176,0.792,-0.251|11,-0.106,-1.790,0.659|12,0.050,-1.170,-0.290|13,-0.027,2.450,-0.165|14,0.122,1.963,-0.165|15,0.098,2.247,0.635|16,0.021,2.478,1.080|17,0.122,3.092,-0.810|18,0.070,1.863,-0.130|19,0.271,1.314,0.122|
+
+        var data_split = start_data.split('|')
+        var end_data_split = end_data.split('|')
+        var landObj = new Array()
+        var filename, i, j, continent
+        var scale_min = ea_scale_min
+        for (i = 0; i < land.length; i++) {
+          var coord = data_split[i].split(',')
+          if (!coord[1]) coord[1] = 1
+          if (!coord[2]) coord[2] = 1
+          if (!coord[3]) coord[3] = 1
+          continent = land[i].replace('_', ' ')
+          continent = continent.replace('_', ' ')
+          continent = toTitleCase(continent)
+          continent = continent.replace('Sw', 'SW')
+          continent = continent.replace('Se', 'SE')
+          filename = 'masks/' + land[i] + '.png'
+          landObj[i] = {
+            name: continent,
+            filename: filename,
+            rotationx: 3,
+            rotationy: 0,
+            repeatx: 1,
+            repeaty: 1,
+            offsetx: 0,
+            offsety: 0,
+            visible: true,
+            x: Number(Number(coord[1]).toFixed(3)),
+            y: Number(Number(coord[2]).toFixed(3)),
+            z: Number(Number(coord[3]).toFixed(3)),
+            id: i,
+          }
+        }
+        landObj.sort(function (a, b) {
+          var textA = a.id
+          var textB = b.id
+          return textA < textB ? -1 : textA > textB ? 1 : 0
+        })
+        var gui, keydown
+        var API = {
+          offsetX: 0,
+          offsetY: 0,
+          repeatX: 0.25,
+          repeatY: 0.25,
+          rotation: Math.PI / 4, // positive is counter-clockwise
+          centerX: 0.5,
+          centerY: 0.5,
+        }
+
+        //import three.js
+
+        //export stateless React component
+        export default function Root() {
+          return null
+        }
+
+        //Setup:
+
+        //get the DOM element in which you want to attach the scene
+        const container = document.querySelector('#container')
+
+        //create a WebGL renderer
+        const renderer = new THREE.WebGLRenderer()
+
+        //set the attributes of the renderer
+        const WIDTH = window.innerWidth
+        const HEIGHT = window.innerHeight
+
+        //set the renderer size
+        renderer.setSize(WIDTH, HEIGHT)
+
+        //Adding a Camera
+
+        //set camera attributes
+        const VIEW_ANGLE = 45
+        const ASPECT = WIDTH / HEIGHT
+        const NEAR = 0.1
+        const FAR = 10000
+
+        //create a camera
+        const camera = new THREE.PerspectiveCamera(VIEW_ANGLE, ASPECT, NEAR, FAR)
+
+        //set the camera position - x, y, z
+        camera.position.set(400, 20, 800)
+        camera.lookAt(0, 0, 0)
+        camera.dir = 1
+        // Create a scene
+        const scene = new THREE.Scene()
+
+        //set the scene background
+        scene.background = new THREE.Color(0x000000)
+
+        //add the camera to the scene.
+
+        // Attach the renderer to the DOM element.
+        container.appendChild(renderer.domElement)
+
+        //Three.js uses geometric meshes to create primitive 3D shapes like spheres, cubes, etc. I’ll be using a sphere.
+        var canvas, canvasPosition, rayCaster, mousePosition
+        rayCaster = new THREE.Raycaster()
+        mousePosition = new THREE.Vector2()
+        canvas = container
+        canvasPosition = canvas.getBoundingClientRect()
+        // Set up the sphere attributes
+        const RADIUS = 200
+        const SEGMENTS = 50
+        const RINGS = 50
+
+        //Create a group (which will later include our sphere and its texture meshed together)
+
+        const earth = new THREE.Group()
+        earth.name = 'earth'
+        var URL_params = parseURLParams(window.location.href)
+        //console.log(URL_params.length);
+        if (URL_params && URL_params.start_data) {
+          earth.start_data = URL_params.start_data.toString()
+          earth.end_data = URL_params.end_data.toString()
+          earth.scaleA = Number(URL_params.scaleA)
+          earth.scaleB = Number(URL_params.scaleB)
+        } else {
+          earth.start_data = ea_start_data
+          earth.end_data = ea_end_data
+          earth.scaleA = scale_min
+          earth.scaleB = 1
+        }
+        earth.timeline = 'B'
+        earth.animate = 100
+        earth.background = '#000000'
+        earth.spin = true
+        earth.text = ''
+        earth.age_data = false
+        earth.spinrate = 0.005
+        earth.autoanimate = false
+        earth.autoanimaterate = 0.05
+        earth.animate_dir = 1
+        var zoomin, zoomout
+        earth.zoomin = function () {
+          scaleEarth(-1)
+        }
+        earth.zoomout = function () {
+          scaleEarth(1)
+        }
+        earth.plate_selected = 'africa'
+        earth.link = 'test'
+        scene.add(earth)
+
+        earth.position.x = 0
+        earth.position.y = 0
+        earth.position.z = 0
+
+        for (i = 0; i < landObj.length; i++) {
+          const lname = new THREE.Group()
+          earth.add(lname)
+          landObj[i].loader = new THREE.TextureLoader()
+          landObj[i].loader.load(landObj[i].filename, function (texture) {
+            var sphere = new THREE.SphereGeometry(RADIUS, SEGMENTS, RINGS)
+            texture.repeat.set(1, 1)
+            var material = new THREE.MeshBasicMaterial({
+              map: texture,
+              alphaTest: 0.5,
+            })
+            var mesh = new THREE.Mesh(sphere, material)
+            mesh.name = 'land' + i
+            lname.add(mesh)
+          })
+        }
+
+        //GRID
+
+        const grid = new THREE.Group()
+        grid.name = 'grid'
+        grid.show = false
+        earth.add(grid)
+        grid.color = '#1771e2'
+        var color = new THREE.Color(0x1771e2)
+        var sphere = new THREE.SphereGeometry(RADIUS - 2, SEGMENTS, RINGS)
+        var material = new THREE.MeshBasicMaterial({
+          color: color,
+        })
+        const mesh = new THREE.Mesh(sphere, material)
+        grid.add(mesh)
+
+        var loader1 = new THREE.TextureLoader()
+        loader1.load('fixedsys.jpg', function (texture) {
+          var sphere = new THREE.SphereGeometry(RADIUS - 2, SEGMENTS, RINGS)
+          texture.repeat.set(1, 1)
+          var material = new THREE.MeshBasicMaterial({
+            map: texture,
+          })
+          const mesh = new THREE.Mesh(sphere, material)
+          grid.add(mesh)
+          grid.children[1].visible = false
+        })
+
+        //Lighting
+
+        //create a point light (won't make a difference here because our material isn't affected by light)
+        const pointLight = new THREE.PointLight(0xffffff)
+
+        //set its position
+        pointLight.position.x = 10
+        pointLight.position.y = 50
+        pointLight.position.z = 400
+
+        //add light to the scene
+        //scene.add(pointLight);
+        //Starfield
+
+        var starGeometry = new THREE.SphereGeometry(1200, 50, 50)
+        var starMaterial = new THREE.MeshBasicMaterial({
+          map: new THREE.ImageUtils.loadTexture('eso0932a.jpg'),
+          side: THREE.DoubleSide,
+        })
+        var starField = new THREE.Mesh(starGeometry, starMaterial)
+        starField.visible = false
+        scene.add(starField)
+        starField.rotation.x = (-60 / 180) * Math.PI
+        var thecenter = new THREE.Vector3(0, 0, 0)
+
+        scene.add(camera)
+
+        var controls = new OrbitControls(camera, renderer.domElement)
+
+        //controls.addEventListener( 'change', render ); // call this only in static scenes (i.e., if there is no animation loop)
+
+        controls.enableDamping = true // an animation loop is required when either damping or auto-rotation are enabled
+        controls.dampingFactor = 1
+        controls.enableKeys = false
+        controls.screenSpacePanning = false
+
+        controls.minDistance = 10
+        controls.maxDistance = 900
+        controls.autoRotateSpeed = 0.2
+        controls.autoRotate = false
+        //controls.maxPolarAngle = Math.PI / 2;
+        controls.update()
+
+        //Update
+
+        //set update function to transform the scene and view
+        function update() {
+          if (earth.spin) {
+            earth.rotation.y += earth.spinrate
+          }
+          if (earth.autoanimate) {
+            earth.animate += earth.autoanimaterate * earth.animate_dir
+            if (earth.animate > 100) {
+              earth.animate_dir = -1
+              earth.animate = 100
+            }
+            if (earth.animate < 1) {
+              earth.animate_dir = 1
+              earth.animate = 1
+            }
+            animate()
+            var time_ratio = earth.animate
+            controls.autoRotate = true
+          } else {
+            controls.autoRotate = false
+          }
+          if (keydown == 'up') {
+            camera.position.y += earth.spinrate * 100
+            camera.lookAt(thecenter)
+          }
+          if (keydown == 'down') {
+            camera.position.y -= earth.spinrate * 100
+            camera.lookAt(thecenter)
+          }
+          if (keydown == 'right') {
+            camera.position.x += earth.spinrate * 100
+            camera.lookAt(thecenter)
+          }
+          if (keydown == 'left') {
+            camera.position.x -= earth.spinrate * 100
+            camera.lookAt(thecenter)
+          }
+
+          /*if (controls.autoRotate) {
+	controls.update();
+	camera.position.y +=.5*camera.dir;
+	if (camera.position.y > 300){
+		camera.dir=-1 ;
+	}
+	if (camera.position.y<-300){
+		camera.dir=1 ;
+	}
+}*/
+          //render
+          renderer.render(scene, camera)
+
+          //schedule the next frame.
+          requestAnimationFrame(update)
+        }
+
+        //schedule the first frame.
+        requestAnimationFrame(update)
+
+        function scaleEarth2() {
+          scaleEarthMain(earth.scale.x)
+          writeURL()
+        }
+
+        function scaleEarthMain(amt) {
+          var offset = (-3 / 5) * amt + 0.6
+          var repeat = 1.2 * amt - 0.2
+
+          earth.scale.x = amt
+          earth.scale.y = amt
+          earth.scale.z = amt
+
+          for (i = 0; i < landObj.length; i++) {
+            if (earth.children[i].children[0]) {
+              var texture = earth.children[i].children[0].material.map
+              texture.offset.set(offset, offset)
+              texture.repeat.set(repeat, repeat)
+            }
+          }
+        }
+
+        function updatePositions() {
+          if (earth.timeline == 'A') {
+            scaleEarthMain(earth.scaleA)
+            var data_split = earth.start_data.split('|')
+            //console.log(earth.start_data)
+          } else {
+            scaleEarthMain(earth.scaleB)
+            var data_split = earth.end_data.split('|')
+          }
+          for (i = 0; i < data_split.length - 1; i++) {
+            var coord = data_split[i].split(',')
+            //console.log(coord[0]+":"+ coord[1]+":"+ coord[2]+":"+ coord[3])
+            landObj[coord[0]].x = Number(coord[1])
+            landObj[coord[0]].y = Number(coord[2])
+            landObj[coord[0]].z = Number(coord[3])
+            earth.children[coord[0]].rotation.x = coord[1]
+            earth.children[coord[0]].rotation.y = coord[2]
+            earth.children[coord[0]].rotation.z = coord[3]
+          }
+          writeURL()
+          if (gui) {
+            for (var i = 0; i < Object.keys(gui.__folders).length; i++) {
+              var key = Object.keys(gui.__folders)[i]
+              for (var j = 0; j < gui.__folders[key].__controllers.length; j++) {
+                gui.__folders[key].__controllers[j].updateDisplay()
+              }
+            }
+          }
+        }
+        updatePositions()
+
+        function updateUvTransform() {
+          earth.spin = false
+          var temp = ''
+
+          for (i = 0; i < landObj.length; i++) {
+            //console.log(i+":"+landObj[i].name)
+            temp +=
+              i +
+              ',' +
+              Number(landObj[i].x).toFixed(3) +
+              ',' +
+              Number(landObj[i].y).toFixed(3) +
+              ',' +
+              Number(landObj[i].z).toFixed(3) +
+              '|'
+
+            earth.children[i].rotation.x = landObj[i].x
+            earth.children[i].rotation.y = landObj[i].y
+            earth.children[i].rotation.z = landObj[i].z
+            earth.children[i].visible = landObj[i].visible
+          }
+          if (earth.timeline == 'A') {
+            if (earth.animate > 1) earth.animate = 1
+            //earth.start_data = "";
+            scaleEarthMain(earth.scaleA)
+            earth.start_data = temp
+          } else {
+            if (earth.animate < 100) earth.animate = 100
+            //earth.end_data = "";
+            scaleEarthMain(earth.scaleB)
+            earth.end_data = temp
+            //console.log("b")
+          }
+          writeURL()
+        }
+        updateUvTransform()
+
+        function writeURL() {
+          earth.link =
+            'https://www.interactive-earth.com/earth/plate-tectonics.html?scaleA=' +
+            earth.scaleA.toFixed(2) +
+            '&scaleB=' +
+            earth.scaleB.toFixed(2) +
+            '&start_data=' +
+            htmlEntities(earth.start_data) +
+            '&end_data=' +
+            htmlEntities(earth.end_data)
+        }
+
+        function htmlEntities(str) {
+          return String(str)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+        }
+
+        function startAnimation() {
+          var scale_start = scale_min
+          var scale_end = 1
+          var scale_cur = scale_start
+          var myVar = setInterval(animate, 1000)
+        }
+        function animate() {
+          var time_ratio = earth.animate / 100
+          var scale_temp = earth.scaleA + (earth.scaleB - earth.scaleA) * time_ratio
+          scaleEarthMain(scale_temp)
+          //animate positions
+
+          //console.log(earth.start_data[0]);
+          var animation_start_data = earth.start_data.split('|')
+          var animation_end_data = earth.end_data.split('|')
+
+          for (i = 0; i < landObj.length; i++) {
+            var coord1 = animation_start_data[i].split(',')
+            var coord2 = animation_end_data[i].split(',')
+            earth.children[i].rotation.x = Number(
+              Number(coord1[1]) + (Number(coord2[1]) - Number(coord1[1])) * time_ratio,
+            )
+            earth.children[i].rotation.y = Number(
+              Number(coord1[2]) + (Number(coord2[2]) - Number(coord1[2])) * time_ratio,
+            )
+            earth.children[i].rotation.z = Number(
+              Number(coord1[3]) + (Number(coord2[3]) - Number(coord1[3])) * time_ratio,
+            )
+          }
+        }
+
+        function updateBackground() {
+          //set the color in the object
+          scene.background.setHex(earth.background.replace('#', '0x'))
+        }
+        function updateEarthColor() {
+          //set the color in the object
+          grid.children[0].material.color.setHex(grid.color.replace('#', '0x'))
+        }
+        function updateEarthBackground() {
+          if (earth.age_data) {
+            if (!earth.children[21]) {
+              const grid2 = new THREE.Group()
+              grid2.name = 'grid2'
+              earth.add(grid2)
+              var loader1 = new THREE.TextureLoader()
+              loader1.load('crustal-age.jpg', function (texture) {
+                var sphere = new THREE.SphereGeometry(RADIUS - 2, SEGMENTS, RINGS)
+                texture.repeat.set(1, 1)
+                var material = new THREE.MeshBasicMaterial({
+                  map: texture,
+                })
+                var mesh = new THREE.Mesh(sphere, material)
+                grid2.add(mesh)
+              })
+              earth.children[20].visible = false
+            } else {
+              earth.children[21].visible = true
+              earth.children[20].visible = false
+            }
+            //console.log(earth)
+          } else {
+            earth.children[21].visible = false
+            earth.children[20].visible = true
+          }
+        }
+        function showGrid() {
+          if (grid.show) {
+            grid.children[1].visible = true
+          } else {
+            grid.children[1].visible = false
+          }
+        }
+
+        function initGui() {
+          gui = new GUI({ width: 350 })
+
+          var plates = new Array()
+          gui
+            .add(earth, 'timeline', ['A', 'B'])
+            .name('Position')
+            .onFinishChange(updatePositions)
+            .listen()
+          gui.add(earth, 'scaleA', 0.5, 1.0).name('A) Scale').onChange(writeURL)
+          gui.add(earth, 'scaleB', scale_min, 1.0).name('B) Scale').onChange(writeURL)
+          gui.add(earth, 'animate', 1, 100).name('Animate').onChange(animate).listen()
+          gui.add(earth, 'spin').name('Spin').listen()
+          gui.add(earth, 'autoanimate').name('Auto-animate').listen()
+          gui.add(earth, 'spinrate').name('Spin Rate')
+          gui.add(earth, 'autoanimaterate').name('Auto-animate Rate')
+          gui.add(earth, 'link').name('Link').listen()
+          gui.add(starField, 'visible').name('Show Starfield')
+          gui.add(earth, 'age_data').name('Seafloor Age Data').onChange(updateEarthBackground)
+          gui.add(grid, 'show').name('Show Grid').onFinishChange(showGrid)
+          gui.addColor(grid, 'color').name('Earth Color').onFinishChange(updateEarthColor)
+          gui.addColor(earth, 'background').name('Background').onFinishChange(updateBackground)
+          //console.log(grid.children[0].material)
+          landObj.sort(function (a, b) {
+            var textA = a.name.toUpperCase()
+            var textB = b.name.toUpperCase()
+            return textA < textB ? -1 : textA > textB ? 1 : 0
+          })
+          //console.log(landObj);
+          for (i = 0; i < landObj.length; i++) {
+            //console.log(i+":"+landObj[i].name+":"+landObj[landObj[i].id].name);
+            landObj[i].folder = gui.addFolder(landObj[i].name)
+            landObj[i].folder.add(landObj[i], 'x', -5.0, 5.0).name('x').onChange(updateUvTransform)
+            landObj[i].folder.add(landObj[i], 'y', -5.0, 5.0).name('y').onChange(updateUvTransform)
+            landObj[i].folder.add(landObj[i], 'z', -5.0, 5.0).name('z').onChange(updateUvTransform)
+            landObj[i].folder
+              .add(landObj[i], 'visible')
+              .name('Visibility')
+              .onChange(updateUvTransform)
+          }
+          landObj.sort(function (a, b) {
+            var textA = a.id
+            var textB = b.id
+            return textA < textB ? -1 : textA > textB ? 1 : 0
+          })
+        }
+        initGui()
+
+        window.addEventListener('resize', onWindowResize, false)
+        document.addEventListener(
+          'scroll',
+          function (e) {
+            console.log(e)
+          },
+          false,
+        )
+
+        function onWindowResize() {
+          camera.aspect = window.innerWidth / window.innerHeight
+          camera.updateProjectionMatrix()
+
+          renderer.setSize(window.innerWidth, window.innerHeight)
+        }
+        document.onkeyup = function (e) {
+          keydown = 0
+        }
+
+        window.addEventListener(
+          'keydown',
+          function (e) {
+            // space and arrow keys
+            if ([38, 40, 37, 39].indexOf(e.keyCode) > -1) {
+              e.preventDefault()
+            }
+            switch (e.keyCode) {
+              case 38:
+                keydown = 'up'
+                break
+              case 40:
+                keydown = 'down'
+                break
+              case 39:
+                keydown = 'right'
+                break
+              case 37:
+                keydown = 'left'
+                break
+            }
+          },
+          false,
+        )
+      </script>
+
+      <div id="instructions">
+        <div id="window_1">
+          <h2>Tectonic Tessellation Playground</h2>
+          <p><strong>Instructions:</strong></p>
+          <ol>
+            <li>
+              Set one of the two positions (A or B) to adjust. These points are the beginning and
+              end position for the animation. Each land mass can be adjusted by modifying their x,
+              y, and z axis rotation (this can be tedious). You may drag the earth to see different
+              views.
+            </li>
+            <li>Adjust the Scale for positions A and B (in percent).</li>
+            <li>
+              Use the animate slider-bar to view the model as it transitions from position A to B.
+            </li>
+
+            <li>
+              <a href="https://www.youtube.com/watch?v=qlW1Gjambh8&amp;t=3s">Instructional video</a>
+            </li>
+          </ol>
+          <p>The current settings are saved in the link URL. Copy and paste to share.</p>
+          <p><strong>Examples:</strong></p>
+          <ol>
+            <li>
+              <a
+                href="https://www.interactive-earth.com/earth/plate-tectonics.html?scaleA=1.00&amp;scaleB=1.00&amp;start_data=0,-0.491,0.004,-0.137|1,0.004,-1.412,1.138|2,-2.589,0.700,0.712|3,-3.142,2.767,-3.042|4,0.647,1.289,0.288|5,0.288,2.272,1.492|6,0.440,1.980,0.642|7,1.096,2.170,-2.282|8,0.784,0.713,0.430|9,0.217,-0.208,0.784|10,-0.593,0.328,-0.286|11,-0.562,-0.987,0.146|12,0.359,-0.775,-0.066|13,1.019,1.940,-2.052|14,0.075,2.484,0.571|15,0.855,2.272,0.784|16,0.405,2.785,1.480|17,0.405,2.170,-1.898|18,0.217,2.413,0.430|19,-1.361,0.580,0.098|&amp;end_data=0,0.021,0.332,0.098|1,0.000,-2.743,1.165|2,-3.142,0.962,1.633|3,-3.090,2.420,-2.589|4,-0.066,0.930,0.518|5,-0.027,1.835,1.165|6,-0.056,1.580,0.482|7,-0.027,2.247,-0.410|8,0.000,0.250,0.820|9,-0.027,-1.100,1.165|10,-0.176,0.792,-0.251|11,-0.106,-1.790,0.659|12,0.050,-1.170,-0.290|13,-0.027,2.450,-0.165|14,0.122,1.963,-0.165|15,0.098,2.247,0.635|16,0.021,2.554,1.080|17,0.122,3.092,-0.810|18,0.070,1.863,-0.130|19,0.271,1.314,0.122|"
+                >Pangea Model</a
+              >
+            </li>
+            <li>
+              <a
+                href="https://www.interactive-earth.com/earth/plate-tectonics.html?scaleA=0.50&amp;scaleB=1.00&amp;start_data=0,0.092,-0.175,-0.375|1,-0.042,-3.174,1.224|2,-2.819,0.226,1.633|3,-2.907,2.824,-2.840|4,-0.421,0.292,0.217|5,0.292,2.024,0.758|6,-0.474,1.491,0.420|7,0.623,3.323,-0.251|8,-0.208,-0.208,0.713|9,0.217,-0.975,1.224|10,0.251,0.251,-0.747|11,0.025,-1.974,0.625|12,-0.886,-1.442,-1.919|13,0.305,3.641,-0.092|14,-0.108,1.891,-0.175|15,0.292,2.491,0.225|16,-0.133,2.938,1.096|17,-0.092,3.900,-1.204|18,1.624,2.157,-1.641|19,-0.440,0.865,0.098|&amp;end_data=0,0.021,0.332,0.098|1,0.000,-2.743,1.165|2,-3.142,0.962,1.633|3,-3.090,2.420,-2.589|4,-0.066,0.930,0.518|5,-0.027,1.835,1.165|6,-0.056,1.580,0.482|7,-0.027,2.247,-0.410|8,0.000,0.250,0.820|9,-0.027,-1.100,1.165|10,-0.176,0.792,-0.251|11,-0.106,-1.790,0.659|12,0.050,-1.170,-0.290|13,-0.027,2.450,-0.165|14,0.122,1.963,-0.165|15,0.098,2.247,0.635|16,0.021,2.478,1.080|17,0.122,3.092,-0.810|18,0.070,1.863,-0.130|19,0.271,1.314,0.122|"
+                >Expanding Earth Model</a
+              >
+            </li>
+            <li>
+              Use
+              <a
+                href="https://www.interactive-earth.com/earth/plate-tectonics.html?scaleA=1&amp;scaleB=1.00&amp;start_data=0,0.021,0.332,0.098|1,0.000,-2.743,1.165|2,-3.142,0.962,1.633|3,-3.090,2.420,-2.589|4,-0.066,0.930,0.518|5,-0.027,1.835,1.165|6,-0.056,1.580,0.482|7,-0.027,2.247,-0.410|8,0.000,0.250,0.820|9,-0.027,-1.100,1.165|10,-0.176,0.792,-0.251|11,-0.106,-1.790,0.659|12,0.050,-1.170,-0.290|13,-0.027,2.450,-0.165|14,0.122,1.963,-0.165|15,0.098,2.247,0.635|16,0.021,2.554,1.080|17,0.122,3.092,-0.810|18,0.070,1.863,-0.130|19,0.271,1.314,0.122|&amp;end_data=0,0.021,0.332,0.098|1,0.000,-2.743,1.165|2,-3.142,0.962,1.633|3,-3.090,2.420,-2.589|4,-0.066,0.930,0.518|5,-0.027,1.835,1.165|6,-0.056,1.580,0.482|7,-0.027,2.247,-0.410|8,0.000,0.250,0.820|9,-0.027,-1.100,1.165|10,-0.176,0.792,-0.251|11,-0.106,-1.790,0.659|12,0.050,-1.170,-0.290|13,-0.027,2.450,-0.165|14,0.122,1.963,-0.165|15,0.098,2.247,0.635|16,0.021,2.554,1.080|17,0.122,3.092,-0.810|18,0.070,1.863,-0.130|19,0.271,1.314,0.122|"
+                >this model</a
+              >
+              to start from scratch.
+            </li>
+          </ol>
+
+          <p><strong>Seafloor Age Maps:</strong></p>
+          <ul>
+            <li>
+              <a
+                href="http://www.tectonics.caltech.edu/images/maps/seafloor_age.pdf"
+                target="_blank"
+                >Seismological Laboratory</a
+              >
+            </li>
+            <li>
+              <a href="https://www.ngdc.noaa.gov/mgg/image/crustalimages.html" target="_blank"
+                >NOAA</a
+              >
+            </li>
+            <li>
+              <a href="https://www.interactive-earth.com/earthquakes" target="_blank"
+                >Earthquake Visualization</a
+              >
+            </li>
+          </ul>
+          <p><strong>Lesson Plan:</strong></p>
+          <ul>
+            <li>
+              <a
+                href="https://docs.google.com/document/d/1eI7Yhjvsby7kG4d7kxmAjxUEouQ0vK2lD7OdcNBKprM/edit?usp=sharing"
+                target="_blank"
+                >NGSS Aligned - Plate Tectonics Investigation</a
+              ><br /><a href="https://www.teacherspayteachers.com/Store/Interactive-Earth"
+                >Support this work through TPT</a
+              >
+            </li>
+          </ul>
+
+          <p style="text-align: center">
+            <a href="https://www.interactive-earth.com/">www.interactive-earth.com</a>
+          </p>
+        </div>
+        <div id="clasp_1" class="clasp">
+          <a href="javascript:windowboxClose(&#39;1&#39;);">Close</a>
+        </div>
+      </div>
+      <!-- <canvas
+        width="2560"
+        height="1333"
+        style="width: 2560px; height: 1333px"
+        tabindex="0"
+      ></canvas> -->
+    </div>
+
+    <div class="dg ac">
+      <div class="dg main a" style="width: 350px">
+        <div
+          style="
+            width: 6px;
+            margin-left: -3px;
+            height: 1064px;
+            cursor: ew-resize;
+            position: absolute;
+          "
+        ></div>
+        <ul style="height: auto">
+          <li class="cr string">
+            <div>
+              <span class="property-name">Position</span>
+              <div class="c">
+                <select>
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                </select>
+              </div>
+            </div>
+          </li>
+          <li class="cr number has-slider">
+            <div>
+              <span class="property-name">A) Scale</span>
+              <div class="c">
+                <div><input type="text" /></div>
+                <div class="slider"><div class="slider-fg" style="width: 100%"></div></div>
+              </div>
+            </div>
+          </li>
+          <li class="cr number has-slider">
+            <div>
+              <span class="property-name">B) Scale</span>
+              <div class="c">
+                <div><input type="text" /></div>
+                <div class="slider"><div class="slider-fg"></div></div>
+              </div>
+            </div>
+          </li>
+          <li class="cr number has-slider">
+            <div>
+              <span class="property-name">Animate</span>
+              <div class="c">
+                <div><input type="text" /></div>
+                <div class="slider"><div class="slider-fg" style="width: 75.7212%"></div></div>
+              </div>
+            </div>
+          </li>
+          <li class="cr boolean">
+            <div>
+              <span class="property-name">Spin</span>
+              <div class="c"><input type="checkbox" checked="checked" /></div>
+            </div>
+          </li>
+          <li class="cr boolean">
+            <div>
+              <span class="property-name">Auto-animate</span>
+              <div class="c"><input type="checkbox" checked="checked" /></div>
+            </div>
+          </li>
+          <li class="cr number">
+            <div>
+              <span class="property-name">Spin Rate</span>
+              <div class="c"><input type="text" /></div>
+            </div>
+          </li>
+          <li class="cr number">
+            <div>
+              <span class="property-name">Auto-animate Rate</span>
+              <div class="c"><input type="text" /></div>
+            </div>
+          </li>
+          <li class="cr string">
+            <div>
+              <span class="property-name">Link</span>
+              <div class="c"><input type="text" /></div>
+            </div>
+          </li>
+          <li class="cr boolean">
+            <div>
+              <span class="property-name">Show Starfield</span>
+              <div class="c"><input type="checkbox" /></div>
+            </div>
+          </li>
+          <li class="cr boolean">
+            <div>
+              <span class="property-name">Seafloor Age Data</span>
+              <div class="c"><input type="checkbox" /></div>
+            </div>
+          </li>
+          <li class="cr boolean">
+            <div>
+              <span class="property-name">Show Grid</span>
+              <div class="c"><input type="checkbox" /></div>
+            </div>
+          </li>
+          <li class="cr color" style="border-left-color: rgb(23, 113, 226)">
+            <div>
+              <span class="property-name">Earth Color</span>
+              <div class="c">
+                <input
+                  type="text"
+                  style="
+                    outline: none;
+                    text-align: center;
+                    color: rgb(255, 255, 255);
+                    border: 0px;
+                    font-weight: bold;
+                    text-shadow: rgba(0, 0, 0, 0.7) 0px 1px 1px;
+                    background-color: rgb(23, 113, 226);
+                  "
+                />
+                <div
+                  class="selector"
+                  style="
+                    width: 122px;
+                    height: 102px;
+                    padding: 3px;
+                    background-color: rgb(34, 34, 34);
+                    box-shadow: rgba(0, 0, 0, 0.3) 0px 1px 3px;
+                  "
+                >
+                  <div
+                    class="field-knob"
+                    style="
+                      position: absolute;
+                      width: 12px;
+                      height: 12px;
+                      border: 2px solid rgb(255, 255, 255);
+                      box-shadow: rgba(0, 0, 0, 0.5) 0px 1px 3px;
+                      border-radius: 12px;
+                      z-index: 1;
+                      margin-left: 82.823px;
+                      margin-top: 4.37255px;
+                      background-color: rgb(23, 113, 226);
+                    "
+                  ></div>
+                  <div
+                    class="saturation-field"
+                    style="
+                      width: 100px;
+                      height: 100px;
+                      border: 1px solid rgb(85, 85, 85);
+                      margin-right: 3px;
+                      display: inline-block;
+                      cursor: pointer;
+                      background: -webkit-linear-gradient(
+                        left,
+                        rgb(255, 255, 255) 0%,
+                        rgb(0, 113, 255) 100%
+                      );
+                    "
+                  >
+                    <div
+                      style="
+                        width: 100%;
+                        height: 100%;
+                        background: -webkit-linear-gradient(
+                          top,
+                          rgba(0, 0, 0, 0) 0%,
+                          rgb(0, 0, 0) 100%
+                        );
+                      "
+                    ></div>
+                  </div>
+                  <div
+                    class="hue-field"
+                    style="
+                      width: 15px;
+                      height: 100px;
+                      border: 1px solid rgb(85, 85, 85);
+                      cursor: ns-resize;
+                      position: absolute;
+                      top: 3px;
+                      right: 3px;
+                      background: -webkit-linear-gradient(
+                        top,
+                        rgb(255, 0, 0) 0%,
+                        rgb(255, 0, 255) 17%,
+                        rgb(0, 0, 255) 34%,
+                        rgb(0, 255, 255) 50%,
+                        rgb(0, 255, 0) 67%,
+                        rgb(255, 255, 0) 84%,
+                        rgb(255, 0, 0) 100%
+                      );
+                    "
+                  >
+                    <div
+                      class="hue-knob"
+                      style="
+                        position: absolute;
+                        width: 15px;
+                        height: 2px;
+                        border-right: 4px solid rgb(255, 255, 255);
+                        z-index: 1;
+                        margin-top: 40.7225px;
+                      "
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </li>
+          <li class="cr color" style="border-left-color: rgb(0, 0, 0)">
+            <div>
+              <span class="property-name">Background</span>
+              <div class="c">
+                <input
+                  type="text"
+                  style="
+                    outline: none;
+                    text-align: center;
+                    color: rgb(255, 255, 255);
+                    border: 0px;
+                    font-weight: bold;
+                    text-shadow: rgba(0, 0, 0, 0.7) 0px 1px 1px;
+                    background-color: rgb(0, 0, 0);
+                  "
+                />
+                <div
+                  class="selector"
+                  style="
+                    width: 122px;
+                    height: 102px;
+                    padding: 3px;
+                    background-color: rgb(34, 34, 34);
+                    box-shadow: rgba(0, 0, 0, 0.3) 0px 1px 3px;
+                  "
+                >
+                  <div
+                    class="field-knob"
+                    style="
+                      position: absolute;
+                      width: 12px;
+                      height: 12px;
+                      border: 2px solid rgb(255, 255, 255);
+                      box-shadow: rgba(0, 0, 0, 0.5) 0px 1px 3px;
+                      border-radius: 12px;
+                      z-index: 1;
+                      margin-left: -7px;
+                      margin-top: 93px;
+                      background-color: rgb(0, 0, 0);
+                    "
+                  ></div>
+                  <div
+                    class="saturation-field"
+                    style="
+                      width: 100px;
+                      height: 100px;
+                      border: 1px solid rgb(85, 85, 85);
+                      margin-right: 3px;
+                      display: inline-block;
+                      cursor: pointer;
+                      background: -webkit-linear-gradient(
+                        left,
+                        rgb(255, 255, 255) 0%,
+                        rgb(255, 0, 0) 100%
+                      );
+                    "
+                  >
+                    <div
+                      style="
+                        width: 100%;
+                        height: 100%;
+                        background: -webkit-linear-gradient(
+                          top,
+                          rgba(0, 0, 0, 0) 0%,
+                          rgb(0, 0, 0) 100%
+                        );
+                      "
+                    ></div>
+                  </div>
+                  <div
+                    class="hue-field"
+                    style="
+                      width: 15px;
+                      height: 100px;
+                      border: 1px solid rgb(85, 85, 85);
+                      cursor: ns-resize;
+                      position: absolute;
+                      top: 3px;
+                      right: 3px;
+                      background: -webkit-linear-gradient(
+                        top,
+                        rgb(255, 0, 0) 0%,
+                        rgb(255, 0, 255) 17%,
+                        rgb(0, 0, 255) 34%,
+                        rgb(0, 255, 255) 50%,
+                        rgb(0, 255, 0) 67%,
+                        rgb(255, 255, 0) 84%,
+                        rgb(255, 0, 0) 100%
+                      );
+                    "
+                  >
+                    <div
+                      class="hue-knob"
+                      style="
+                        position: absolute;
+                        width: 15px;
+                        height: 2px;
+                        border-right: 4px solid rgb(255, 255, 255);
+                        z-index: 1;
+                        margin-top: 100px;
+                      "
+                    ></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Africa</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 50.21%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 53.32%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 50.98%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul>
+                <li class="title">Antarctica</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 18.58%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 59.62%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 66.33%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Arabian Peninsula</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 19.1%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 74.2%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 24.11%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Asia Kamchatka</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 50.21%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 75.54%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 60.8%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Asia Russia</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 49.73%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 68.35%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 61.65%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Asia SE</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 49.44%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 65.8%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 54.82%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Asia SW</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 49.34%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 59.3%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 55.18%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Australia</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 49.73%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 72.47%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 45.9%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Borneo</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 51.22%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 69.63%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 48.35%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Europe</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 50%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 52.5%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 58.2%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Greenland</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 49.73%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 39%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 61.65%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">India</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 52.71%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 63.14%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 51.22%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Indonesia</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 50.7%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 68.63%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 48.7%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Japan</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 50.98%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 72.47%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 56.35%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">Madegascar</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 48.24%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 57.92%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 47.49%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">New Guinea</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 49.73%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 74.5%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 48.35%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">New Zealand</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 51.22%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 80.92%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 41.9%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">North America</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 48.94%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 32.1%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 56.59%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">North America Alaska</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 50%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 22.57%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 61.65%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+          <li class="folder">
+            <div class="dg">
+              <ul class="closed">
+                <li class="title">South America</li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">x</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 50.5%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">y</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 38.3%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr number has-slider">
+                  <div>
+                    <span class="property-name">z</span>
+                    <div class="c">
+                      <div><input type="text" /></div>
+                      <div class="slider"><div class="slider-fg" style="width: 47.1%"></div></div>
+                    </div>
+                  </div>
+                </li>
+                <li class="cr boolean">
+                  <div>
+                    <span class="property-name">Visibility</span>
+                    <div class="c"><input type="checkbox" checked="checked" /></div>
+                  </div>
+                </li>
+              </ul>
+            </div>
+          </li>
+        </ul>
+        <div class="close-button close-bottom" style="width: 350px">Close Controls</div>
+      </div>
+    </div>
+  </body>
+</html>
