@@ -1,6 +1,6 @@
 import * as THREE from 'three'
-import atmosphereVertexShader from '../shaders/atmosphere-vertex.glsl'
-import atmosphereFragmentShader from '../shaders/atmosphere-fragment.glsl'
+import atmosphereVertexShader from '../shaders/atmosphere.vert.glsl'
+import atmosphereFragmentShader from '../shaders/atmosphere.frag.glsl'
 import vertexShader from '../shaders/vertex.glsl'
 import fragmentShader from '../shaders/fragment.glsl'
 import createCamera from './camera'
@@ -16,23 +16,22 @@ const earth = {
 
 type Earth = typeof earth
 
-async function main() {
-  const ageMap = new THREE.TextureLoader().load('masks/agemap.png')
-  const colorAgeMap = new THREE.TextureLoader().load('textures/crustal-age.jpg')
-  const northAmerica = await new THREE.TextureLoader().loadAsync('masks/north_america2.png')
+async function main(onUpdate?: (age: number) => void) {
+  const ageMap = new THREE.TextureLoader().load('textures/age-map.png')
+  const heightMap = new THREE.TextureLoader().load('textures/height-map.png')
+  const colorMap = new THREE.TextureLoader().load('textures/crustal-age-map.jpg')
 
   const [backgroundPlane, canvasPlane] = createPlaneWithBackground({
     width: 100,
     height: 50,
-    map: northAmerica,
-    alphaMap: ageMap,
+    map: colorMap,
     backgroundColor: 0x0000dd,
     position: new THREE.Vector3(0, -200, -100),
   })
 
   const [sphere, atmosphere] = createSphereWithGlow({
     radius: 100,
-    globeTexture: colorAgeMap,
+    globeTexture: colorMap,
   })
 
   const camera = createCamera()
@@ -41,10 +40,7 @@ async function main() {
   createControls(camera, renderer.domElement)
 
   const origins = [
-    new THREE.Vector2(0, 1),
-    new THREE.Vector2(0, 0.25),
     new THREE.Vector2(0, 0.5),
-    new THREE.Vector2(0, 0.75),
     new THREE.Vector2(0.25, 0.25),
     new THREE.Vector2(0.25, 0.5),
     new THREE.Vector2(0.25, 0.75),
@@ -62,8 +58,11 @@ async function main() {
   // Animation Loop
   async function update() {
     const age = earthAge(nextEarthAnimation(earth))
-    updatePlaneMaterial(canvasPlane.material, age)
+    // updatePlaneMaterial(canvasPlane.material, age)
+    updateSphereMaterial(canvasPlane.material as THREE.ShaderMaterial, age, origins)
     updateSphereMaterial(sphere.material, age, origins)
+
+    onUpdate?.(age)
 
     renderer.render(scene, camera)
     requestAnimationFrame(update)
@@ -98,20 +97,13 @@ async function main() {
 
 export default main
 
-function updatePlaneMaterial(material: THREE.MeshBasicMaterial, age: number) {
-  const offset = -0.6 * age + 0.6
-  const repeat = 1.2 * age - 0.2
-  material.alphaTest = Math.max(0, 1 - (age - 0.5) * 2)
-  material.map?.offset.set(offset, offset)
-  material.map?.repeat.set(repeat, repeat)
-}
-
 function updateSphereMaterial(
   material: THREE.ShaderMaterial,
   age: number,
   origins: THREE.Vector2[],
 ) {
   material.uniforms.age.value = age
+  material.uniforms.origins_size.value = origins.length
   material.uniforms.origins.value = origins
 }
 
@@ -144,7 +136,6 @@ const createPlaneWithBackground = ({
   width,
   height,
   map,
-  alphaMap,
   backgroundColor: color,
   position = new THREE.Vector3(0, 0, 0),
 }: {
@@ -152,7 +143,6 @@ const createPlaneWithBackground = ({
   height: number
   map: THREE.Texture
   backgroundColor?: number
-  alphaMap?: THREE.Texture
   position?: THREE.Vector3
 }) => {
   const background = new THREE.Mesh(
@@ -163,21 +153,30 @@ const createPlaneWithBackground = ({
 
   const plane = new THREE.Mesh(
     new THREE.PlaneGeometry(width, height),
-    new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide }),
+    new THREE.ShaderMaterial({
+      vertexShader,
+      fragmentShader,
+      uniforms: {
+        globeTexture: { value: map },
+        age: { value: 0 },
+        origins: { value: [] },
+        origins_size: { value: 0 },
+      },
+    }),
   )
   plane.position.copy(position)
   plane.position.z = position.z + 1
 
-  map.repeat.set(1, 1)
-  map.wrapS = THREE.RepeatWrapping
+  // map.repeat.set(1, 1)
+  // map.wrapS = THREE.RepeatWrapping
 
-  const material = new THREE.MeshBasicMaterial({
-    map: map,
-    alphaTest: 1,
-    alphaMap,
-    side: THREE.DoubleSide,
-  })
-  plane.material = material
+  // const material = new THREE.MeshBasicMaterial({
+  //   map: map,
+  //   alphaTest: 1,
+  //   alphaMap,
+  //   side: THREE.DoubleSide,
+  // })
+  // plane.material = material
 
   return [background, plane]
 }
@@ -199,19 +198,8 @@ const createSphereWithGlow = ({
       uniforms: {
         globeTexture: { value: globeTexture },
         age: { value: 0 },
-        origins: {
-          value: [
-            new THREE.Vector2(0.25, 0.25),
-            new THREE.Vector2(0.25, 0.5),
-            new THREE.Vector2(0.25, 0.75),
-            new THREE.Vector2(0.5, 0.25),
-            new THREE.Vector2(0.5, 0.5),
-            new THREE.Vector2(0.5, 0.75),
-            new THREE.Vector2(0.75, 0.25),
-            new THREE.Vector2(0.75, 0.5),
-            new THREE.Vector2(0.75, 0.75),
-          ],
-        },
+        origins: { value: [] },
+        origins_size: { value: 0 },
       },
     }),
   )
@@ -219,7 +207,7 @@ const createSphereWithGlow = ({
 
   const atmosphere = new THREE.Mesh(
     new THREE.SphereGeometry(radius, 50, 50),
-    new THREE.ShaderMaterial({
+    new THREE.RawShaderMaterial({
       vertexShader: atmosphereVertexShader,
       fragmentShader: atmosphereFragmentShader,
       blending: THREE.AdditiveBlending,

@@ -1,9 +1,10 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import main from '../lib/textureDebug'
 
 const App = () => {
+  const [age, setAge] = useState(0)
   useEffect(() => {
-    const result = main()
+    const result = main(setAge)
     return () => {
       result.then((r) => r())
     }
@@ -11,7 +12,7 @@ const App = () => {
   return (
     <>
       <div id="container" style={{ width: '100vw', height: '100vh' }}></div>
-      {/* <Controls /> */}
+      <pre style={{ position: 'absolute', background: 'gray', top: 0 }}>{age.toFixed(4)}</pre>
     </>
   )
 }

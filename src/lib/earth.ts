@@ -85,9 +85,7 @@ async function main() {
 
   scene.add(earth)
 
-  const ageMap = new THREE.TextureLoader().load('masks/agemap.png')
-
-  // const newLands = ['africa2']
+  const ageMap = new THREE.TextureLoader().load('textures/agemap.png')
 
   const debugPlaneBackground = new THREE.Mesh(
     new THREE.PlaneGeometry(400, 200),
