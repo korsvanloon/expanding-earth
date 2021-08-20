@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import main from '../lib/textureDebug'
+import main from '../lib/earth'
 
-const App = () => {
+const Earth = () => {
   const [age, setAge] = useState(0)
   useEffect(() => {
     const result = main(setAge)
@@ -9,6 +9,7 @@ const App = () => {
       result.then((r) => r())
     }
   }, [])
+
   return (
     <>
       <div id="container" style={{ width: '100vw', height: '100vh' }}></div>
@@ -17,4 +18,4 @@ const App = () => {
   )
 }
 
-export default App
+export default Earth

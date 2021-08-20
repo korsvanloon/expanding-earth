@@ -1,280 +1,270 @@
 import * as THREE from 'three'
-import initEarth, { createControls, createStarField, initGui } from '../lib/initEarth'
-import { endPositions, Position, startPositions } from '../data/position'
+import atmosphereVertexShader from '../shaders/atmosphere.vert.glsl'
+import atmosphereFragmentShader from '../shaders/atmosphere.frag.glsl'
+import vertexShader from '../shaders/vertex.glsl'
+import fragmentShader from '../shaders/fragment.glsl'
+import createCamera from './camera'
+import { createControls } from './initEarth'
 
-export interface Earth extends THREE.Group {
-  scaleA: number
-  start_data: Position[]
-  scaleB: number
-  end_data: Position[]
-  age_data: boolean
-  show: boolean
-  timeline: string
-  spinrate: number
-  autoanimate: boolean
-  animate: number
-  autoanimaterate: number
-  animate_dir: number
-  spin: boolean
-  link: string
-  plate_selected?: string
+const earth = {
+  animate: 1,
+  autoanimaterate: 0.05,
+  animate_dir: 1,
+  scaleA: 0.5,
+  scaleB: 1,
 }
 
-const toTitleCase = (str: string) =>
-  str.replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase())
+const plates: PlateMovement[] = [
+  {
+    name: 'Old world',
+    color: new THREE.Vector3(0xff, 0x00, 0x00),
+    origin: new THREE.Vector3(0, 0, 1),
+    destination: new THREE.Vector3(0, 0, 0),
+    rotation: 0,
+  },
+  {
+    name: 'New world',
+    color: new THREE.Vector3(0, 0x0f, 0xff),
+    origin: new THREE.Vector3(-1, 0, 0),
+    destination: new THREE.Vector3(0, 0, 0),
+    rotation: 0,
+  },
+  {
+    name: 'Antarctica',
+    color: new THREE.Vector3(0xd6, 0xd6, 0xd6),
+    origin: new THREE.Vector3(0, -1, 0),
+    destination: new THREE.Vector3(0, 0, 0),
+    rotation: 0,
+  },
+]
 
-async function main() {
-  const landObj = startPositions.map(({ name, x, y, z, id }) => ({
-    name: toTitleCase(name.replace(/_/g, ' ')).replace('Sw', 'SW').replace('Se', 'SE'),
-    filename: `masks/${name}.png`,
-    key: name,
-    rotationx: 3,
-    rotationy: 0,
-    repeatx: 1,
-    repeaty: 1,
-    offsetx: 0,
-    offsety: 0,
-    visible: true,
-    x,
-    y,
-    z,
-    id,
-  }))
-  const scale_min = 0.5
-  landObj.sort((a, b) => a.id - b.id)
+type Earth = typeof earth
 
-  //Setup:
+const origins = [
+  new THREE.Vector2(0, 0.5),
+  new THREE.Vector2(0.25, 0.25),
+  new THREE.Vector2(0.25, 0.5),
+  new THREE.Vector2(0.25, 0.75),
+  new THREE.Vector2(0.5, 0.25),
+  new THREE.Vector2(0.5, 0.5),
+  new THREE.Vector2(0.5, 0.75),
+  new THREE.Vector2(0.75, 0.25),
+  new THREE.Vector2(0.75, 0.5),
+  new THREE.Vector2(0.75, 0.75),
+  new THREE.Vector2(1, 0.25),
+  new THREE.Vector2(1, 0.5),
+  new THREE.Vector2(1, 0.75),
+]
 
-  const WIDTH = window.innerWidth
-  const HEIGHT = window.innerHeight
-  const CENTER = new THREE.Vector3(0, 0, 0)
+async function main(onUpdate?: (age: number) => void) {
+  const ageMap = new THREE.TextureLoader().load('textures/age-map.png')
+  const heightMap = new THREE.TextureLoader().load('textures/height-map.jpg')
+  const platesMap = new THREE.TextureLoader().load('textures/plates.png')
+  const colorMap = new THREE.TextureLoader().load('textures/crustal-age-map.jpg')
 
-  const container = document.querySelector('#container')!
-
-  const renderer = new THREE.WebGLRenderer()
-  renderer.setSize(WIDTH, HEIGHT)
-
-  //Adding a Camera
-
-  //set camera attributes
-  const VIEW_ANGLE = 45
-  const ASPECT = WIDTH / HEIGHT
-  const NEAR = 0.1
-  const FAR = 10000
-
-  //create a camera
-  const camera = new THREE.PerspectiveCamera(VIEW_ANGLE, ASPECT, NEAR, FAR)
-  camera.position.set(400, 20, 800)
-  camera.lookAt(CENTER)
-
-  // Create a scene
-  const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x000000)
-
-  // Attach the renderer to the DOM element.
-  container.appendChild(renderer.domElement)
-
-  //Three.js uses geometric meshes to create primitive 3D shapes like spheres, cubes, etc. I’ll be using a sphere.
-  const RADIUS = 200
-  const SEGMENTS = 50
-  const RINGS = 50
-
-  //Create a group (which will later include our sphere and its texture meshed together)
-
-  const earth = initEarth(startPositions, endPositions, scale_min)
-
-  scene.add(earth)
-
-  const ageMap = new THREE.TextureLoader().load('textures/agemap.png')
-
-  const debugPlaneBackground = new THREE.Mesh(
-    new THREE.PlaneGeometry(400, 200),
-    new THREE.MeshBasicMaterial({ color: 0x0000dd, side: THREE.DoubleSide }),
-  )
-  debugPlaneBackground.position.z = 399
-  const debugPlane = new THREE.Mesh(
-    new THREE.PlaneGeometry(400, 200),
-    new THREE.MeshBasicMaterial({ color: 0x0000dd, side: THREE.DoubleSide }),
-  )
-  debugPlane.position.z = 400
-
-  const plates = landObj.map((obj) => {
-    const land = new THREE.Group()
-    land.name = obj.key
-
-    new THREE.TextureLoader().load(obj.filename, (texture) => {
-      const sphere = new THREE.SphereGeometry(RADIUS, SEGMENTS, RINGS)
-      texture.repeat.set(1, 1)
-      texture.wrapS = THREE.RepeatWrapping
-      const material = new THREE.MeshBasicMaterial({
-        map: texture,
-        alphaTest: 1,
-        alphaMap: ageMap,
-        side: THREE.DoubleSide,
-      })
-
-      const mesh = new THREE.Mesh(sphere, material)
-      // mesh.name = obj.key
-      land.add(mesh)
-
-      if (obj.key === 'north_america2') {
-        debugPlane.material = material
-      }
-    })
-    return land
+  const shader = new THREE.ShaderMaterial({
+    vertexShader,
+    fragmentShader,
+    uniforms: {
+      globeTexture: { value: colorMap },
+      platesMap: { value: platesMap },
+      age: { value: 0 },
+      plates: { value: [] },
+      origins: { value: [] },
+      origins_size: { value: 0 },
+    },
   })
 
-  earth.add(...plates)
+  const canvasPlane = createPlane({
+    width: 100,
+    height: 50,
+    shader,
+    position: new THREE.Vector3(0, -200, -100),
+  })
 
-  const starField = createStarField()
+  const [sphere, atmosphere] = createSphereWithGlow({
+    radius: 100,
+    shader,
+  })
 
-  scene.add(starField)
-  scene.add(camera)
+  const originSpheres = plates.map((plate) => {
+    const s = new THREE.Mesh(
+      new THREE.SphereGeometry(3, 5, 5),
+      new THREE.MeshBasicMaterial({
+        color: plate.color.x * 256 * 256 + plate.color.y * 256 + plate.color.z,
+      }),
+    )
+    s.position.copy(plate.origin.multiplyScalar(100))
+    return s
+  })
 
-  scene.add(debugPlaneBackground)
-  scene.add(debugPlane)
+  const camera = createCamera()
+  const scene = createScene(camera, canvasPlane, sphere, atmosphere, ...originSpheres)
+  const renderer = new THREE.WebGLRenderer({ antialias: true })
+  createControls(camera, renderer.domElement)
 
-  const controls = createControls(camera, renderer.domElement)
+  // Animation Loop
+  async function update() {
+    const age = earthAge(nextEarthAnimation(earth))
+    // updatePlaneMaterial(canvasPlane.material, age)
+    updateSphereMaterial(canvasPlane.material as THREE.ShaderMaterial, age, origins)
+    updateSphereMaterial(sphere.material, age, origins)
 
-  //set update function to transform the scene and view
-  function update() {
-    if (earth.spin) {
-      earth.rotation.y += earth.spinrate
-    }
-    if (earth.autoanimate) {
-      earth.animate += earth.autoanimaterate * earth.animate_dir
-      if (earth.animate > 100) {
-        earth.animate_dir = -1
-        earth.animate = 100
-      }
-      if (earth.animate < 1) {
-        earth.animate_dir = 1
-        earth.animate = 1
-      }
-      animate()
-      controls.autoRotate = true
-    } else {
-      controls.autoRotate = false
-    }
+    onUpdate?.(age)
 
-    //render
     renderer.render(scene, camera)
-
-    //schedule the next frame.
     requestAnimationFrame(update)
   }
-
-  //schedule the first frame.
   requestAnimationFrame(update)
 
-  function scaleEarthMain(amt: number) {
-    const offset = -0.6 * amt + 0.6
-    const repeat = 1.2 * amt - 0.2
+  const container = document.querySelector('#container')!
+  container.appendChild(renderer.domElement)
 
-    earth.scale.x = amt
-    earth.scale.y = amt
-    earth.scale.z = amt
-
-    plates
-      .filter((c) => c.children[0])
-      .forEach((c) => {
-        const material = (c.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial
-        const texture = material.map
-        material.alphaTest = Math.max(0, 1 - (amt - 0.5) * 2)
-
-        texture?.offset.set(offset, offset)
-        texture?.repeat.set(repeat, repeat)
-      })
-  }
-
-  const gui = initGui(earth, landObj, { animate, updatePositions, updateUvTransform })
-
-  function updatePositions() {
-    if (earth.timeline === 'A') {
-      scaleEarthMain(earth.scaleA)
-    } else {
-      scaleEarthMain(earth.scaleB)
-    }
-
-    const positions = earth.timeline === 'A' ? startPositions : endPositions
-
-    positions.forEach(({ id, x, y, z }) => {
-      landObj[id].x = x
-      landObj[id].y = y
-      landObj[id].z = z
-
-      plates[id].rotation.x = x
-      plates[id].rotation.y = y
-      plates[id].rotation.z = z
-    })
-
-    if (gui) {
-      for (let i = 0; i < Object.keys(gui.__folders).length; i++) {
-        const key = Object.keys(gui.__folders)[i]
-        for (let j = 0; j < gui.__folders[key].__controllers.length; j++) {
-          gui.__folders[key].__controllers[j].updateDisplay()
-        }
-      }
-    }
-  }
-  updatePositions()
-
-  function updateUvTransform() {
-    earth.spin = false
-    const data = landObj.map(({ id, name, x, y, z }) => ({ id, name, x, y, z }))
-
-    landObj.forEach((l, i) => {
-      plates[i].rotation.x = l.x
-      plates[i].rotation.y = l.y
-      plates[i].rotation.z = l.z
-      plates[i].visible = l.visible
-    })
-
-    if (earth.timeline === 'A') {
-      if (earth.animate > 1) earth.animate = 1
-      scaleEarthMain(earth.scaleA)
-      earth.start_data = data
-    } else {
-      if (earth.animate < 100) earth.animate = 100
-      scaleEarthMain(earth.scaleB)
-      earth.end_data = data
-    }
-  }
-  updateUvTransform()
-
-  function animate() {
-    const time_ratio = earth.animate / 100
-    const scale_temp = earth.scaleA + (earth.scaleB - earth.scaleA) * time_ratio
-    scaleEarthMain(scale_temp)
-
-    for (let i = 0; i < landObj.length; i++) {
-      const coord1 = earth.start_data[i]
-      const coord2 = earth.end_data[i]
-      plates[i].rotation.x = coord1.x + (coord2.x - coord1.x) * time_ratio
-      plates[i].rotation.y = coord1.y + (coord2.y - coord1.y) * time_ratio
-      plates[i].rotation.z = coord1.z + (coord2.z - coord1.z) * time_ratio
-    }
-  }
-
-  console.log(earth)
-
-  window.addEventListener('resize', onWindowResize, false)
-
+  // Listeners
   function onWindowResize() {
     camera.aspect = window.innerWidth / window.innerHeight
     camera.updateProjectionMatrix()
-
     renderer.setSize(window.innerWidth, window.innerHeight)
   }
+  window.addEventListener('resize', onWindowResize, false)
+  onWindowResize()
 
-  renderer.domElement.addEventListener(
-    'wheel',
-    (e) => {
-      e.preventDefault()
-      earth.animate += e.deltaY / 50
-    },
-    false,
-  )
+  function onWheel(event: WheelEvent) {
+    event.preventDefault()
+    earth.animate += event.deltaY / 50
+  }
+  renderer.domElement.addEventListener('wheel', onWheel, false)
+
+  // See https://stackoverflow.com/questions/12800150/catch-the-click-event-on-a-specific-mesh-in-the-renderer
+  // Handle all clicks to determine of a three.js object was clicked and trigger its callback
+  function onDocumentMouseDown(event: MouseEvent) {
+    event.preventDefault()
+
+    const mouse = new THREE.Vector2(
+      (event.clientX / renderer.domElement.clientWidth) * 2 - 1,
+      -(event.clientY / renderer.domElement.clientHeight) * 2 + 1,
+    )
+
+    const raycaster = new THREE.Raycaster()
+    raycaster.setFromCamera(mouse, camera)
+
+    const intersects = raycaster.intersectObjects(originSpheres)
+
+    if (intersects.length > 0) {
+      console.log(intersects[0].object.position)
+    }
+  }
+  renderer.domElement.addEventListener('mousedown', onDocumentMouseDown, false)
+
+  return () => {
+    // Cleanup
+    window.removeEventListener('resize', onWindowResize)
+    renderer.domElement.removeEventListener('wheel', onWheel)
+    renderer.domElement.removeEventListener('mousedown', onDocumentMouseDown)
+    container.removeChild(renderer.domElement)
+  }
 }
 
 export default main
+
+function updateSphereMaterial(
+  material: THREE.ShaderMaterial,
+  age: number,
+  origins: THREE.Vector2[],
+) {
+  material.uniforms.age.value = age
+  material.uniforms.origins_size.value = origins.length
+  material.uniforms.origins.value = origins
+  material.uniforms.plates.value = plates
+}
+
+const earthAge = (earth: Earth) =>
+  earth.scaleA + (earth.scaleB - earth.scaleA) * (earth.animate / 100)
+
+function nextEarthAnimation(earth: Earth) {
+  earth.animate += earth.autoanimaterate * earth.animate_dir
+  if (earth.animate > 100) {
+    earth.animate_dir = -1
+    earth.animate = 100
+  }
+  if (earth.animate < 1) {
+    earth.animate_dir = 1
+    earth.animate = 1
+  }
+  return earth
+}
+
+const createScene = (...children: THREE.Object3D[]) => {
+  const scene = new THREE.Scene()
+  scene.background = new THREE.Color(0x000000)
+
+  scene.add(...children)
+
+  return scene
+}
+
+type PlateMovement = {
+  name: string
+  color: THREE.Vector3
+  origin: THREE.Vector3
+  destination: THREE.Vector3
+  rotation: number
+}
+
+const createPlane = ({
+  width,
+  height,
+  shader,
+  position = new THREE.Vector3(0, 0, 0),
+}: {
+  width: number
+  height: number
+  position?: THREE.Vector3
+  shader: THREE.ShaderMaterial
+}) => {
+  const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), shader)
+  plane.position.copy(position)
+
+  return plane
+}
+
+const createSphereWithGlow = ({
+  radius,
+  position = new THREE.Vector3(0, 0, 0),
+  shader,
+}: {
+  position?: THREE.Vector3
+  radius: number
+  shader: THREE.ShaderMaterial
+}) => {
+  const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 50, 50), shader)
+  sphere.position.copy(position)
+
+  const atmosphere = new THREE.Mesh(
+    new THREE.SphereGeometry(radius, 50, 50),
+    new THREE.RawShaderMaterial({
+      vertexShader: atmosphereVertexShader,
+      fragmentShader: atmosphereFragmentShader,
+      blending: THREE.AdditiveBlending,
+      side: THREE.BackSide,
+    }),
+  )
+  atmosphere.scale.set(1.1, 1.1, 1.1)
+  atmosphere.position.copy(position)
+
+  return [sphere, atmosphere]
+}
+
+const toSpherePoint = (uv: THREE.Vector2, radius: number) => {
+  const theta = 2.0 * Math.PI * (uv.x - 0.75)
+  const phi = Math.PI * uv.y
+
+  return new THREE.Vector3(
+    Math.cos(theta) * Math.sin(phi) * radius, // [1,0] * [0,1]
+    Math.cos(phi) * radius, // [1,0]
+    -Math.sin(theta) * Math.sin(phi) * radius, // [0,-1] * [0,1]
+    // cos(phi) * cos(theta) * radius,
+    // sin(phi) * radius,
+    // cos(phi) * sin(theta) * radius
+  )
+}

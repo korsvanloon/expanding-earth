@@ -1,35 +1,8 @@
 import * as THREE from 'three'
 import { Position } from '../data/position'
-import { Earth } from './earth'
+// import { Earth } from './earth'
 import { OrbitControls } from '../vendor/OrbitControls.js'
 import { GUI } from 'dat.gui'
-
-const initEarth = (start_data: Position[], end_data: Position[], scale_min: number) => {
-  const earth = new THREE.Group() as Earth
-
-  earth.name = 'earth'
-  earth.start_data = start_data
-  earth.end_data = end_data
-  earth.scaleA = scale_min
-  earth.scaleB = 1
-  earth.timeline = 'B'
-  earth.animate = 100
-  earth.spin = true
-  earth.age_data = false
-  earth.spinrate = 0.005
-  earth.autoanimate = true
-  earth.autoanimaterate = 0.05
-  earth.animate_dir = 1
-  earth.plate_selected = 'africa'
-  earth.link = 'test'
-  earth.position.x = 0
-  earth.position.y = 0
-  earth.position.z = 0
-
-  return earth
-}
-
-export default initEarth
 
 export const createStarField = () => {
   const starGeometry = new THREE.SphereGeometry(1200, 50, 50)
@@ -76,8 +49,8 @@ type LandData = Position & {
   visible: boolean
 }
 
-export const initGui = (
-  earth: Earth,
+export const initGui = <T extends {}>(
+  earth: T,
   landObj: LandData[],
   { updatePositions, animate, updateUvTransform }: Callbacks,
 ) => {
