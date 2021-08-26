@@ -3,7 +3,7 @@ import { getIntermediatePoint, pointToUv, uvToPoint } from '../src/lib/sphere'
 
 describe('uvToPoint', () => {
   test.each([
-    { point: new Vector3(0, 1, 0), uv: new Vector2(0.5, 0) },
+    { point: new Vector3(0, -1, 0), uv: new Vector2(0.5, 0) },
     { point: new Vector3(0, -1, 0), uv: new Vector2(0.5, 1) },
     { point: new Vector3(0, 0, 1), uv: new Vector2(0.5, 0.5) },
     { point: new Vector3(0.475, -0.587, 0.654), uv: new Vector2(0.6, 0.7) },

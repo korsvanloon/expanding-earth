@@ -11,13 +11,13 @@ export const uvToPoint = (uv: Vector2) => {
   // It's widest at the equator, and narrows as phi increases/decreases.
   const c = cos(phi)
 
-  return new Vector3(-c * sin(theta), -sin(phi), -c * cos(theta)).normalize()
+  return new Vector3(-c * sin(theta), sin(phi), -c * cos(theta)).normalize()
 }
 
 export const pointToUv = (p: Vector3) =>
   new Vector2(
     0.5 + atan2(p.x, p.z) / (2.0 * PI), //
-    0.5 - asin(p.y) / PI, //
+    0.5 + asin(p.y) / PI, //
   )
 
 export const greatCircleAngle = (n1: Vector3, n2: Vector3) => acos(n1.dot(n2))
@@ -74,3 +74,15 @@ export const getIntermediatePoint = (start: Vector3, end: Vector3, fraction: num
     .clone()
     .multiplyScalar(1 - fraction)
     .add(end.clone().multiplyScalar(fraction))
+
+export const area = (a: Vector3, b: Vector3, c: Vector3) =>
+  angle(a, b, c) + angle(b, a, c) + angle(b, c, a) - PI
+
+/**
+ * Calculates angle B between AB and BC.
+ */
+export const angle = (a: Vector3, b: Vector3, c: Vector3) => {
+  const ab = a.clone().cross(b)
+  const bc = c.clone().cross(b)
+  return acos(ab.dot(bc) / (ab.length() * bc.length()))
+}

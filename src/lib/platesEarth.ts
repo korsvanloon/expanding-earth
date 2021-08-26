@@ -1,5 +1,13 @@
 import { Vector2, Vector3 } from 'three'
-import { getPixelColor, pixelColorToHex, pixelToUv, setPixelColor, uvToPixel } from './pixel'
+import {
+  getPixelColor,
+  loadImageData,
+  pixelColorToHex,
+  pixelsInRange,
+  pixelToUv,
+  setPixelColor,
+  uvToPixel,
+} from './image'
 import { getIntermediatePoint, uvToPoint, pointToUv } from './sphere'
 
 export type PlateMovement = {
@@ -16,11 +24,22 @@ export type Props = {
   height: number
 }
 
-async function createEarth({ plates, height, canvas }: Props) {
-  // const ageMap = await loadImageData('textures/age-map.png', 800, 400)
-  // const heightMap = await loadImageData('textures/height-map.jpg', 800, 400)
-  const platesMap = await loadImageData('textures/plates.png', 800, 400)
-  const colorMap = await loadImageData('textures/crustal-age-map.jpg', 800, 400)
+export type PlatesEarth = {
+  update: (age: number) => void
+}
+
+async function createPlatesEarth({ plates, height, canvas }: Props): Promise<PlatesEarth> {
+  const [
+    platesMap,
+    colorMap,
+    // ageMap,
+    // heightMap
+  ] = await Promise.all([
+    loadImageData('textures/plates.png', 800, 400),
+    loadImageData('textures/crustal-age-map.jpg', 800, 400),
+    // loadImageData('textures/age-map.png', 800, 400),
+    // loadImageData('textures/height-map.jpg', 800, 400),
+  ])
   canvas.width = height * 2
   canvas.height = height
   const context = canvas.getContext('2d')!
@@ -40,36 +59,18 @@ async function createEarth({ plates, height, canvas }: Props) {
     throw new Error(`There are badPixels ${badPixels.length}`)
   }
 
-  /**
-   * @param age a number from [0..1]
-   */
-  function update(age: number) {
-    const imageData = imageForAge(age, colorMap, platesMap, plates, height)
-    context.putImageData(imageData, 0, 0)
-
-    // for (const plate of plates) {
-    //   const pixel = uvToPixel(plate.originUV, height)
-
-    //   context.fillStyle = plate.color
-    //   context.beginPath()
-    //   context.ellipse(pixel.x, pixel.y, 10, 10, 0, 0, 2 * Math.PI)
-    //   context.fill()
-    // }
+  return {
+    /**
+     * @param age a number from [0..1]
+     */
+    update(age: number) {
+      const imageData = imageForAge(age, colorMap, platesMap, plates, height)
+      context.putImageData(imageData, 0, 0)
+    },
   }
-
-  return { update }
 }
 
-type Unwrap<T> = T extends Promise<infer U>
-  ? U
-  : T extends (...args: any) => Promise<infer U>
-  ? U
-  : T extends (...args: any) => infer U
-  ? U
-  : T
-export type Earth = Unwrap<ReturnType<typeof createEarth>>
-
-export default createEarth
+export default createPlatesEarth
 
 function imageForAge(
   age: number,
@@ -112,37 +113,3 @@ const checkBadPixels = (imageData: ImageData, plates: PlateMovement[]) =>
       c: pixelColorToHex(getPixelColor(imageData, p)),
     }))
     .filter(({ c }) => !plates.some((p) => p.color === c))
-
-export const loadImageData = async (src: string, width: number, height: number) =>
-  new Promise<ImageData>((resolve) => {
-    const canvas = document.createElement('canvas')
-    canvas.width = width
-    canvas.height = height
-    const context = canvas.getContext('2d')!
-    context.imageSmoothingEnabled = false
-
-    const img = new Image()
-    img.src = src
-    img.onload = () => {
-      context.drawImage(img, 0, 0, width, height)
-      resolve(context.getImageData(0, 0, width, height))
-    }
-  })
-
-export function* pixelsInRange({
-  height,
-  width,
-  startY,
-  startX,
-}: {
-  height?: number
-  width?: number
-  startY?: number
-  startX?: number
-}) {
-  for (let y = startY ?? 0; y < (height ?? width ?? 0); y++) {
-    for (let x = startX ?? 0; x < (width ?? height ?? 0); x++) {
-      yield new Vector2(x, y)
-    }
-  }
-}

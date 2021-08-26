@@ -4,41 +4,108 @@ import { css, jsx } from '@emotion/react'
 import { clamp01 } from 'lib/math'
 import { useEffect, useRef, useState } from 'react'
 import { Vector2, Vector3 } from 'three'
-import createEarth, { PlateMovement, Earth } from '../lib/debug'
+import { PlateMovement, PlatesEarth } from '../lib/platesEarth'
+import createAgeEarth, { AgeEarth } from '../lib/ageEarth'
+import ControlPoint from './ControlPoint'
+import { EarthGeometry } from '../lib/EarthGeometry'
+import { area, uvToPoint } from 'lib/sphere'
 
 const height = 400
+
+const geometry = new EarthGeometry(10)
+const uvs = [...geometryUvs(geometry)]
+const positions = [...geometryVertices(geometry)]
+const faces = [...geometryFaces(geometry)]
+const areas = faces
+  .map((face) => face.map((i) => uvs[i]))
+  .map((face) => area(uvToPoint(face[0]), uvToPoint(face[1]), uvToPoint(face[2])))
+
+console.log(geometry)
+
+const max = areas.reduce((a, b) => Math.max(a, b), 0)
+const min = areas.reduce((a, b) => Math.min(a, b), 2)
+
+function* geometryUvs(geometry: EarthGeometry) {
+  const uv = geometry.getAttribute('uv')
+  for (let i = 0; i < uv.array.length; i += 2) {
+    yield new Vector2(uv.array[i], uv.array[i + 1])
+  }
+}
+
+function* geometryVertices(geometry: EarthGeometry) {
+  const vertices = geometry.getAttribute('position')
+  for (let i = 0; i < vertices.array.length; i += 3) {
+    yield new Vector3(vertices.array[i], vertices.array[i + 1], vertices.array[i + 2])
+  }
+}
+
+function* geometryFaces(geometry: EarthGeometry) {
+  // geometry.index.
+  const index = geometry.index!.array
+  for (let i = 0; i < index.length; i += 3) {
+    yield [index[i], index[i + 1], index[i + 2]] as [number, number, number]
+  }
+}
+
+const initControlPoints = () => {
+  const result = [...geometryUvs(geometry)]
+  return result
+
+  // const raw = localStorage.getItem('control-points')
+  // return raw
+  //   ? (JSON.parse(raw) as { x: number; y: number }[]).map(({ x, y }) => new Vector2(x, y))
+  //   : [...equirectangularUVs()]
+}
+
+type Geometry = {
+  uvs: Vector2[]
+  positions: Vector3[]
+  faces: [number, number, number][]
+}
+
 const Debug = () => {
   const ref = useRef<HTMLCanvasElement>(null)
-  const actionsRef = useRef<Earth>()
+  const actionsRef = useRef<PlatesEarth | AgeEarth>()
+  const [sphere, setSphere] = useState<Geometry>({ uvs: [], positions: [], faces: [] })
 
   const { time, setTime, running, start, stop } = useAnimationLoop()
 
   useEffect(() => {
-    start()
+    setSphere({ uvs, positions, faces })
+
     if (ref.current) {
-      createEarth({
+      createAgeEarth({
         canvas: ref.current,
         height,
-        plates,
       }).then((actions) => {
         actionsRef.current = actions
+        actions.update(time)
       })
+      // createPlatesEarth({
+      //   canvas: ref.current,
+      //   height,
+      //   plates,
+      // }).then((actions) => {
+      //   actionsRef.current = actions
+      // actions.update(time)
+      // })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ref])
+  }, [ref.current])
 
   useEffect(() => {
     actionsRef.current?.update(time)
   }, [time])
 
-  const humanAge = Math.round(time * 200)
+  const humanAge = Math.round(time * 280)
     .toString()
     .padStart(3)
 
   return (
     <div>
       <div css={containerCss}>
-        <canvas ref={ref} />
+        {/* <canvas ref={ref} /> */}
+        <img width={height * 2} height={height} src="/textures/crustal-age-map.jpg" alt="" />
         <svg
           version="1.1"
           x="0px"
@@ -47,9 +114,70 @@ const Debug = () => {
           height={height}
           viewBox="0.5 0 1 1"
           css={svgCss}
+          // onClick={(e) => {
+          //   if (!(e.target instanceof SVGSVGElement)) return
+          //   // console.log(e.target )
+          //   const rect = ref.current!.getBoundingClientRect()
+          //   const uv = new Vector2(
+          //     (e.clientX - rect.left) / rect.width,
+          //     (e.clientY - rect.top) / rect.height,
+          //   )
+          //   console.log(uv)
+          //   setControlPoints((points) => [...points, uv])
+          // }}
         >
-          {plates.map((plate) => (
-            <circle cx={plate.originUV.x * 2} cy={plate.originUV.y} r={0.01} fill={plate.color} />
+          {sphere.faces
+            .map((face) => face.map((i) => sphere.uvs[i]))
+            .map((face) => (
+              <polygon
+                key={face.map((uv) => `${uv.x};${uv.y}`).join(';')}
+                points={face
+                  .map(
+                    ({ x, y }, _, faceUvs) =>
+                      `${
+                        faceUvs.some((uv) => uv.x === 0) &&
+                        faceUvs.some((uv) => uv.x > 0.9) &&
+                        x === 0
+                          ? 2
+                          : faceUvs.some((uv) => uv.x === 1) &&
+                            faceUvs.some((uv) => uv.x < 0.2) &&
+                            x === 1
+                          ? 0
+                          : x * 2
+                      },${y}`,
+                  )
+                  .join(' ')}
+                // cx={uv.x * 2}
+                // cy={uv.y}
+                // r={0.005}
+                stroke={'black'}
+                strokeWidth={0.001}
+                fill={`hsla(0, 0%, 0%, ${
+                  0.5 -
+                  (area(uvToPoint(face[0]), uvToPoint(face[1]), uvToPoint(face[2])) - min) /
+                    (max - min) /
+                    2
+                })`}
+              />
+            ))}
+          {sphere.uvs.map((uv, i) => (
+            <ControlPoint
+              key={`${uv.x};${uv.y}:${i}`}
+              containerHeight={height}
+              uv={uv}
+              disabled={
+                [0, 1 / 32, 31 / 32, 1].includes(uv.x) || [0, 1 / 16, 15 / 16, 1].includes(uv.y)
+              }
+              onMove={(uv) => {
+                sphere.uvs[i] = uv
+                setSphere({ ...sphere, uvs: sphere.uvs })
+                // console.log(uv)
+              }}
+              // cx={uv.x * 2}
+              // cy={uv.y}
+              // r={0.005}
+              // fill={'black'}
+            />
           ))}
         </svg>
       </div>
@@ -67,6 +195,18 @@ const Debug = () => {
         value={time}
         onChange={(e) => setTime(e.target.valueAsNumber)}
       />
+      <div>
+        <button
+          onClick={() => {
+            localStorage.setItem(
+              'control-points',
+              JSON.stringify(sphere.uvs.map(({ x, y }) => ({ x, y }))),
+            )
+          }}
+        >
+          Save points
+        </button>
+      </div>
     </div>
   )
 }
@@ -88,15 +228,33 @@ const svgCss = css`
   position: absolute;
   left: 0;
   top: 0;
+  polygon:hover {
+    fill: hsla(0, 100%, 50%, 0.5);
+  }
 `
 
 export default Debug
 
+type EditingState =
+  | 'basic'
+  | 'moving_point'
+  | 'connecting_points'
+  | 'scaling_plate'
+  | 'moving_plate'
+
+// type ControlPoint = {
+//   uv: Vector2
+// plates: ControlPlate[]
+// }
+// type ControlPlate = {
+//   points: ControlPoint[]
+// }
+
 const plates: PlateMovement[] = [
   {
+    originUV: new Vector2(0.56, 0.25),
     name: 'Old World',
     color: '#000fff',
-    originUV: new Vector2(0.56, 0.25),
     destination: new Vector3(0, 0, 0),
     rotation: 0,
   },

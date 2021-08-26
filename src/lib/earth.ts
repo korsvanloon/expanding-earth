@@ -5,6 +5,8 @@ import vertexShader from '../shaders/vertex.glsl'
 import fragmentShader from '../shaders/fragment.glsl'
 import createCamera from './camera'
 import { createControls } from './initEarth'
+import { EarthGeometry } from './EarthGeometry'
+import { Vector3 } from 'three'
 
 const earth = {
   animate: 1,
@@ -86,6 +88,7 @@ async function main(onUpdate?: (age: number) => void) {
     radius: 100,
     shader,
   })
+  // sphere.geometry.
 
   const originSpheres = plates.map((plate) => {
     const s = new THREE.Mesh(
@@ -98,8 +101,10 @@ async function main(onUpdate?: (age: number) => void) {
     return s
   })
 
+  const axesHelper = new THREE.AxesHelper(5)
+
   const camera = createCamera()
-  const scene = createScene(camera, canvasPlane, sphere, atmosphere, ...originSpheres)
+  const scene = createScene(axesHelper, camera, canvasPlane, sphere, atmosphere, ...originSpheres)
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   createControls(camera, renderer.domElement)
 
@@ -108,7 +113,7 @@ async function main(onUpdate?: (age: number) => void) {
     const age = earthAge(nextEarthAnimation(earth))
     // updatePlaneMaterial(canvasPlane.material, age)
     updateSphereMaterial(canvasPlane.material as THREE.ShaderMaterial, age, origins)
-    updateSphereMaterial(sphere.material, age, origins)
+    // updateSphereMaterial(sphere.material, age, origins)
 
     onUpdate?.(age)
 
@@ -237,7 +242,8 @@ const createSphereWithGlow = ({
   radius: number
   shader: THREE.ShaderMaterial
 }) => {
-  const sphere = new THREE.Mesh(new THREE.SphereGeometry(radius, 50, 50), shader)
+  const sphere = new THREE.Mesh(new EarthGeometry(2), shader)
+  sphere.scale.set(radius, radius, radius)
   sphere.position.copy(position)
 
   const atmosphere = new THREE.Mesh(
@@ -253,18 +259,4 @@ const createSphereWithGlow = ({
   atmosphere.position.copy(position)
 
   return [sphere, atmosphere]
-}
-
-const toSpherePoint = (uv: THREE.Vector2, radius: number) => {
-  const theta = 2.0 * Math.PI * (uv.x - 0.75)
-  const phi = Math.PI * uv.y
-
-  return new THREE.Vector3(
-    Math.cos(theta) * Math.sin(phi) * radius, // [1,0] * [0,1]
-    Math.cos(phi) * radius, // [1,0]
-    -Math.sin(theta) * Math.sin(phi) * radius, // [0,-1] * [0,1]
-    // cos(phi) * cos(theta) * radius,
-    // sin(phi) * radius,
-    // cos(phi) * sin(theta) * radius
-  )
 }

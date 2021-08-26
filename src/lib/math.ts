@@ -4,3 +4,5 @@ export const sum = <T>(list: T[], getValue: (item: T) => number) =>
 export const clamp = (value: number, min: number, max: number) =>
   Math.max(min, Math.min(max, value))
 export const clamp01 = (value: number) => clamp(value, 0, 1)
+
+export const inRange = (value: number, min: number, max: number) => value >= min && value <= max

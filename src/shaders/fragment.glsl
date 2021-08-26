@@ -110,6 +110,7 @@ void main() {
   float na = angle * (age * 0.5);
   vec3 nextPoint = destinationPoint(vertex, b, na);
   vec2 uv = toUvPoint(nextPoint);
-  vec3 color = texture2D(globeTexture, uv).xyz;
+  // vec3 color = texture2D(globeTexture, uv).xyz;
+  vec3 color = texture2D(globeTexture, vertexUV).xyz;
   gl_FragColor = vec4(color, 1.0);
 }
