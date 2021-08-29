@@ -13,7 +13,7 @@ vec2 lerp(vec2 start_value, vec2 end_value, float t) {
 
 void main() {
   vec2 uv = lerp(vertexUV, vertexUVEnd, age);
-  // vec3 color = texture2D(globeTexture, vertexUV).xyz;
-  vec3 color = texture2D(globeTexture, uv).xyz;
+  vec3 color = texture2D(globeTexture, vertexUV).xyz;
+  // vec3 color = texture2D(globeTexture, uv).xyz;
   gl_FragColor = vec4(color, 1.0);
 }

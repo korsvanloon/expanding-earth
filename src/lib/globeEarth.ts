@@ -1,21 +1,21 @@
 import atmosphereVertexShader from '../shaders/atmosphere.vert.glsl'
 import atmosphereFragmentShader from '../shaders/atmosphere.frag.glsl'
-import vertexShader from '../shaders/vertex.glsl'
-import fragmentShader from '../shaders/fragment.glsl'
 import {
   AdditiveBlending,
+  AmbientLight,
   BackSide,
   BufferGeometry,
+  DirectionalLight,
   Mesh,
   MeshBasicMaterial,
+  MeshPhongMaterial,
   RawShaderMaterial,
-  ShaderMaterial,
   SphereGeometry,
   TextureLoader,
   Vector3,
   WebGLRenderer,
 } from 'three'
-import { createScene, createCamera, createControls } from './threejs'
+import { createScene, createCamera, createControls, createStarField } from './threejs'
 import { createMultiMaterialObject } from 'vendor/SceneUtils'
 import EarthGeometry from './EarthGeometry'
 
@@ -26,31 +26,21 @@ export type Props = {
 }
 
 export type GlobeEarth = {
-  update: (age: number) => void
   cleanUp: () => void
 }
 
-const state = { age: 0 }
-
 async function createGlobeEarth({ geometry, container }: Props): Promise<GlobeEarth> {
-  const colorMap = new TextureLoader().load('textures/earth-relief-map.jpg')
-  const shader = new ShaderMaterial({
-    vertexShader,
-    fragmentShader,
-    uniforms: {
-      globeTexture: { value: colorMap },
-      age: { value: 0 },
-    },
-  })
-
   const [sphere, atmosphere] = createSphereWithGlow({
     geometry,
     radius: 100,
-    shader,
   })
 
+  const starField = createStarField()
+
+  const ambientLight = new AmbientLight(0x888888)
+  const spotLight = new DirectionalLight(0xffffff, 1)
   const camera = createCamera()
-  const scene = createScene(camera, sphere, atmosphere)
+  const scene = createScene(ambientLight, spotLight, camera, starField, sphere, atmosphere)
   const renderer = new WebGLRenderer({ antialias: true })
   createControls(camera, renderer.domElement)
 
@@ -67,21 +57,14 @@ async function createGlobeEarth({ geometry, container }: Props): Promise<GlobeEa
   onWindowResize()
 
   async function update() {
-    updateSphereMaterial(shader, state.age)
+    spotLight.position.copy(camera.position)
+
     renderer.render(scene, camera)
     requestAnimationFrame(update)
   }
   requestAnimationFrame(update)
 
   return {
-    /**
-     * @param age a number from [0..1]
-     */
-    update(age: number) {
-      state.age = age || 0.001
-      // updateSphereMaterial(shader, age)
-      // renderer.render(scene, camera)
-    },
     cleanUp: () => {
       container.removeChild(renderer.domElement)
     },
@@ -90,39 +73,49 @@ async function createGlobeEarth({ geometry, container }: Props): Promise<GlobeEa
 
 export default createGlobeEarth
 
-function updateSphereMaterial(material: ShaderMaterial, age: number) {
-  material.uniforms.age.value = age
-}
+// function updateSphereMaterial(material: ShaderMaterial, age: number) {
+//   material.uniforms.age.value = age
+// }
 
 const createSphereWithGlow = ({
   geometry,
   radius,
   position = new Vector3(0, 0, 0),
-  shader,
-}: {
+}: // shader,
+{
   geometry: BufferGeometry
   position?: Vector3
   radius: number
-  shader: ShaderMaterial
+  // shader: ShaderMaterial
 }) => {
   const wireframeMaterial = new MeshBasicMaterial({
     color: 0x000000,
     wireframe: true,
     transparent: true,
   })
-  // const color = new MeshBasicMaterial({
-  //   map: new TextureLoader().load('textures/crustal-age-map.jpg'),
-  // })
-  // const multiMaterial = [shader]
-  const multiMaterial = [shader, wireframeMaterial]
+  const color = new MeshPhongMaterial({
+    map: new TextureLoader().load('/textures/color-map.jpg'),
+    bumpMap: new TextureLoader().load('/textures/height-map.jpg'),
+    specularMap: new TextureLoader().load('/textures/specular-map.jpg'),
+    specular: 0x222222,
+    shininess: 25,
+    bumpScale: 15,
+  })
+  const multiMaterial = [color]
+  // const multiMaterial = [color, wireframeMaterial]
 
   const sphere = createMultiMaterialObject(geometry, multiMaterial)
+
   sphere.scale.set(radius, radius, radius)
   sphere.position.copy(position)
+  sphere.castShadow = true
+  sphere.receiveShadow = true
+  color.needsUpdate = true
 
   const atmosphere = new Mesh(
     new SphereGeometry(radius, 50, 50),
     new RawShaderMaterial({
+      transparent: true,
       vertexShader: atmosphereVertexShader,
       fragmentShader: atmosphereFragmentShader,
       blending: AdditiveBlending,

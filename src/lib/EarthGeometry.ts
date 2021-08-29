@@ -54,13 +54,12 @@ class EarthGeometry extends BufferGeometry {
     this.setAttribute('position', new Float32BufferAttribute(vertices, 3))
     this.setAttribute('normal', new Float32BufferAttribute(normals, 3))
     this.setAttribute('uv', new Float32BufferAttribute(uvs, 2))
-    this.setAttribute('endUv', new Float32BufferAttribute(uvs, 2))
   }
 
-  setEndUvs(uvs: Vector2[]) {
-    const endUvs = new Float32BufferAttribute(uvs.length * 2, 2)
-    uvs.forEach(({ x, y }, i) => endUvs.setXY(i, x, y))
-    this.setAttribute('endUv', endUvs)
+  setUv(uvs: Vector2[]) {
+    const buffer = new Float32BufferAttribute(uvs.length * 2, 2)
+    uvs.forEach(({ x, y }, i) => buffer.setXY(i, x, y))
+    this.setAttribute('uv', buffer)
   }
 
   static fromJSON(data: { resolution: number }) {

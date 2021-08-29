@@ -61,12 +61,7 @@ const endPlates = createInitialPlates(geometry)
 const currentCorners = (movingPlate: MovingPlate, time: number) =>
   movingPlate.initial.corners.map((c, i) => c.clone().lerp(movingPlate.end.corners[i], time))
 
-const getUvsFromPlate = (plates: Plate[]) => {
-  return plates.flatMap((p) => {
-    const [a, b, d, c] = p.corners
-    return [a, b, c, d]
-  })
-}
+const cornersToSquare = ([a, b, d, c]: Vector2[]) => [a, b, c, d]
 
 function Debug() {
   const ref = useRef<HTMLCanvasElement>(null)
@@ -98,20 +93,18 @@ function Debug() {
         height,
       }).then((actions) => {
         actionsRef.current.globe = actions
-        actions.update(time)
       })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   useEffect(() => {
-    geometry.setEndUvs(getUvsFromPlate(movingPlates.map((m) => m.end)))
-  }, [movingPlates])
-
-  useEffect(() => {
-    actionsRef.current.age?.update(time)
-    actionsRef.current.globe?.update(time)
-  }, [time])
+    // actionsRef.current.age?.update(time)
+    const newUvs = movingPlates.flatMap(({ initial, end }) =>
+      cornersToSquare(initial.corners.map((c, i) => c.clone().lerp(end.corners[i], time))),
+    )
+    geometry.setUv(newUvs)
+  }, [time, movingPlates])
 
   const humanAge = round(time * 280)
     .toString()
@@ -131,11 +124,12 @@ function Debug() {
           Image
         </ChoiceInput>
         <button onClick={running ? stop : start}>{running ? 'stop' : 'start'}</button>
-        <RangeInput name="age" value={time} onValue={setTime}>
+        <RangeInput name="age" value={time} onValue={setTime} step={0.01}>
           <code>{humanAge}</code> million years ago
         </RangeInput>
         <StoreButton
           name="moving-plates"
+          disabled={running || time !== 1}
           onLoad={(endPlates) => {
             setMovingPlates(
               movingPlates.map(({ initial }, i) => ({
