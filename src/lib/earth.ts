@@ -5,8 +5,9 @@ import vertexShader from '../shaders/vertex.glsl'
 import fragmentShader from '../shaders/fragment.glsl'
 import createCamera from './camera'
 import { createControls } from './initEarth'
-import { EarthGeometry } from './EarthGeometry'
+import EarthGeometry from './EarthGeometry'
 import { Vector3 } from 'three'
+import { createMultiMaterialObject } from 'vendor/SceneUtils'
 
 const earth = {
   animate: 1,
@@ -62,7 +63,8 @@ async function main(onUpdate?: (age: number) => void) {
   const ageMap = new THREE.TextureLoader().load('textures/age-map.png')
   const heightMap = new THREE.TextureLoader().load('textures/height-map.jpg')
   const platesMap = new THREE.TextureLoader().load('textures/plates.png')
-  const colorMap = new THREE.TextureLoader().load('textures/crustal-age-map.jpg')
+  const colorMap = new THREE.TextureLoader().load('textures/earth-relief-map.jpg')
+  // const colorMap = new THREE.TextureLoader().load('textures/crustal-age-map.jpg')
 
   const shader = new THREE.ShaderMaterial({
     vertexShader,
@@ -77,18 +79,10 @@ async function main(onUpdate?: (age: number) => void) {
     },
   })
 
-  const canvasPlane = createPlane({
-    width: 100,
-    height: 50,
-    shader,
-    position: new THREE.Vector3(0, -200, -100),
-  })
-
   const [sphere, atmosphere] = createSphereWithGlow({
     radius: 100,
     shader,
   })
-  // sphere.geometry.
 
   const originSpheres = plates.map((plate) => {
     const s = new THREE.Mesh(
@@ -104,16 +98,14 @@ async function main(onUpdate?: (age: number) => void) {
   const axesHelper = new THREE.AxesHelper(5)
 
   const camera = createCamera()
-  const scene = createScene(axesHelper, camera, canvasPlane, sphere, atmosphere, ...originSpheres)
+  const scene = createScene(axesHelper, camera, sphere, atmosphere, ...originSpheres)
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   createControls(camera, renderer.domElement)
 
   // Animation Loop
   async function update() {
     const age = earthAge(nextEarthAnimation(earth))
-    // updatePlaneMaterial(canvasPlane.material, age)
-    updateSphereMaterial(canvasPlane.material as THREE.ShaderMaterial, age, origins)
-    // updateSphereMaterial(sphere.material, age, origins)
+    updateSphereMaterial(shader, age, origins)
 
     onUpdate?.(age)
 
@@ -216,23 +208,6 @@ type PlateMovement = {
   rotation: number
 }
 
-const createPlane = ({
-  width,
-  height,
-  shader,
-  position = new THREE.Vector3(0, 0, 0),
-}: {
-  width: number
-  height: number
-  position?: THREE.Vector3
-  shader: THREE.ShaderMaterial
-}) => {
-  const plane = new THREE.Mesh(new THREE.PlaneGeometry(width, height), shader)
-  plane.position.copy(position)
-
-  return plane
-}
-
 const createSphereWithGlow = ({
   radius,
   position = new THREE.Vector3(0, 0, 0),
@@ -242,7 +217,15 @@ const createSphereWithGlow = ({
   radius: number
   shader: THREE.ShaderMaterial
 }) => {
-  const sphere = new THREE.Mesh(new EarthGeometry(2), shader)
+  const wireframeMaterial = new THREE.MeshBasicMaterial({
+    color: 0x000000,
+    wireframe: true,
+    transparent: true,
+  })
+  const multiMaterial = [shader]
+  // const multiMaterial = [shader, wireframeMaterial]
+
+  const sphere = createMultiMaterialObject(new EarthGeometry(20), multiMaterial)
   sphere.scale.set(radius, radius, radius)
   sphere.position.copy(position)
 

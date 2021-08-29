@@ -15,3 +15,12 @@ Late Proterozoic ~ 550 - 1000
 Middle Proterozoic ~ 1000 - 1600
 Early Proterozoic ~ 1600 - 2500
 Archean ~ 2500 - 4000
+
+
+
+- [Calculate distance, bearing and more between Latitude/Longitude points](http://www.movable-type.co.uk/scripts/latlong.html)
+- [Built-in uniforms and attributes for Shaders](https://threejs.org/docs/#api/en/renderers/webgl/WebGLProgram)
+- [Thickness of the Earth's crust](https://www.geolsoc.org.uk/Geoscientist/Archive/August-2018/Roberts-Crust)
+- [Cube Sphere with more equal squares](https://github.com/Imarion/CubeSphere/blob/master/Assets/Scripts/CubeSphere.cs)
+- [Mesh editing in THREE.js](https://discourse.threejs.org/t/mesh-editing-vertices-and-faces/15563)
+

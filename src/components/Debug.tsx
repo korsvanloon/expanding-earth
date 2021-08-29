@@ -1,29 +1,23 @@
 // this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
-import { clamp01 } from 'lib/math'
+import { abs, clamp01, round } from 'lib/math'
 import { useEffect, useRef, useState } from 'react'
 import { Vector2, Vector3 } from 'three'
-import { PlateMovement, PlatesEarth } from '../lib/platesEarth'
-import createAgeEarth, { AgeEarth } from '../lib/ageEarth'
-import ControlPoint from './ControlPoint'
-import { EarthGeometry } from '../lib/EarthGeometry'
-import { area, uvToPoint } from 'lib/sphere'
+import ControlPoint from 'components/ControlPoint'
+import { PlateMovement, PlatesEarth } from 'lib/platesEarth'
+import createAgeEarth, { AgeEarth } from 'lib/ageEarth'
+import EarthGeometry from 'lib/EarthGeometry'
+import { flatMap, makePocketsOf, map, toArray } from 'lib/iterable'
+import { pipe, pipeInto } from 'ts-functional-pipe'
+import StoreButton from './StoreButton'
+import RangeInput from './RangeInput'
+import { angle, anglesOfSquare, areaOfSquare, areaOfTriangle, uvToPoint } from 'lib/sphere'
+import ChoiceInput from './ChoiceInput'
 
 const height = 400
 
-const geometry = new EarthGeometry(10)
-const uvs = [...geometryUvs(geometry)]
-const positions = [...geometryVertices(geometry)]
-const faces = [...geometryFaces(geometry)]
-const areas = faces
-  .map((face) => face.map((i) => uvs[i]))
-  .map((face) => area(uvToPoint(face[0]), uvToPoint(face[1]), uvToPoint(face[2])))
-
-console.log(geometry)
-
-const max = areas.reduce((a, b) => Math.max(a, b), 0)
-const min = areas.reduce((a, b) => Math.min(a, b), 2)
+const geometry = new EarthGeometry(6)
 
 function* geometryUvs(geometry: EarthGeometry) {
   const uv = geometry.getAttribute('uv')
@@ -40,39 +34,52 @@ function* geometryVertices(geometry: EarthGeometry) {
 }
 
 function* geometryFaces(geometry: EarthGeometry) {
-  // geometry.index.
   const index = geometry.index!.array
   for (let i = 0; i < index.length; i += 3) {
     yield [index[i], index[i + 1], index[i + 2]] as [number, number, number]
   }
 }
 
-const initControlPoints = () => {
-  const result = [...geometryUvs(geometry)]
-  return result
-
-  // const raw = localStorage.getItem('control-points')
-  // return raw
-  //   ? (JSON.parse(raw) as { x: number; y: number }[]).map(({ x, y }) => new Vector2(x, y))
-  //   : [...equirectangularUVs()]
+type Plate = {
+  area: number
+  angles: number[]
+  corners: Vector2[]
+}
+type MovingPlate = {
+  current: Plate
+  initial: Plate
 }
 
-type Geometry = {
-  uvs: Vector2[]
-  positions: Vector3[]
-  faces: [number, number, number][]
+const createInitialPlates = (geometry: EarthGeometry) => {
+  const uvs = [...geometryUvs(geometry)]
+  return pipeInto(
+    geometryFaces(geometry),
+    map((x) => x.map((i) => ({ i, uv: uvs[i], p: uvToPoint(uvs[i]) }))),
+    makePocketsOf(2),
+    map(
+      // triangle1: a, c, b; triangle2: b, c, d
+      ([[a1, c1, b1], [_b2, _c2, d2]]): Plate => ({
+        area: areaOfSquare(a1.p, b1.p, c1.p, d2.p),
+        angles: anglesOfSquare(a1.p, b1.p, c1.p, d2.p),
+        corners: [a1.uv, b1.uv, d2.uv, c1.uv],
+      }),
+    ),
+    toArray,
+  )
 }
+const initialPlates = createInitialPlates(geometry)
+const currentPlates = createInitialPlates(geometry)
 
-const Debug = () => {
+function Debug() {
   const ref = useRef<HTMLCanvasElement>(null)
   const actionsRef = useRef<PlatesEarth | AgeEarth>()
-  const [sphere, setSphere] = useState<Geometry>({ uvs: [], positions: [], faces: [] })
+  const [movingPlates, setMovingPlates] = useState<MovingPlate[]>(
+    initialPlates.map((initial, i) => ({ initial, current: currentPlates[i] })),
+  )
 
   const { time, setTime, running, start, stop } = useAnimationLoop()
 
   useEffect(() => {
-    setSphere({ uvs, positions, faces })
-
     if (ref.current) {
       createAgeEarth({
         canvas: ref.current,
@@ -97,15 +104,49 @@ const Debug = () => {
     actionsRef.current?.update(time)
   }, [time])
 
-  const humanAge = Math.round(time * 280)
+  const humanAge = round(time * 280)
     .toString()
     .padStart(3)
 
+  const [background, setBackground] = useState(backgroundImages[0])
+
   return (
-    <div>
-      <div css={containerCss}>
-        {/* <canvas ref={ref} /> */}
-        <img width={height * 2} height={height} src="/textures/crustal-age-map.jpg" alt="" />
+    <div css={rootCss}>
+      <div css={controlPanelCss}>
+        <ChoiceInput
+          name="background"
+          options={backgroundImages.map((value) => ({ value, label: value }))}
+          value={background}
+          onValue={setBackground}
+        >
+          Image
+        </ChoiceInput>
+        <button onClick={running ? stop : start}>{running ? 'stop' : 'start'}</button>
+        <RangeInput name="age" value={time} onValue={setTime}>
+          <code>{humanAge}</code> million years ago
+        </RangeInput>
+        <StoreButton
+          name="moving-plates"
+          onLoad={(current) => {
+            setMovingPlates(
+              movingPlates.map(({ initial }, i) => ({
+                initial,
+                current: {
+                  ...current[i],
+                  corners: current[i].corners.map(({ x, y }) => new Vector2(x, y)),
+                },
+              })),
+            )
+          }}
+          onSave={() => movingPlates.map((p) => p.current)}
+        >
+          Store
+        </StoreButton>
+      </div>
+      <div css={uvMapCss}>
+        <img width={height * 2} height={height} src={`/textures/${background}`} alt="" />
+        <img width={height * 2} height={height} src={`/textures/${background}`} alt="" />
+        <img width={height * 2} height={height} src={`/textures/${background}`} alt="" />
         <svg
           version="1.1"
           x="0px"
@@ -114,122 +155,100 @@ const Debug = () => {
           height={height}
           viewBox="0.5 0 1 1"
           css={svgCss}
-          // onClick={(e) => {
-          //   if (!(e.target instanceof SVGSVGElement)) return
-          //   // console.log(e.target )
-          //   const rect = ref.current!.getBoundingClientRect()
-          //   const uv = new Vector2(
-          //     (e.clientX - rect.left) / rect.width,
-          //     (e.clientY - rect.top) / rect.height,
-          //   )
-          //   console.log(uv)
-          //   setControlPoints((points) => [...points, uv])
-          // }}
         >
-          {sphere.faces
-            .map((face) => face.map((i) => sphere.uvs[i]))
-            .map((face) => (
-              <polygon
-                key={face.map((uv) => `${uv.x};${uv.y}`).join(';')}
-                points={face
-                  .map(
-                    ({ x, y }, _, faceUvs) =>
-                      `${
-                        faceUvs.some((uv) => uv.x === 0) &&
-                        faceUvs.some((uv) => uv.x > 0.9) &&
-                        x === 0
-                          ? 2
-                          : faceUvs.some((uv) => uv.x === 1) &&
-                            faceUvs.some((uv) => uv.x < 0.2) &&
-                            x === 1
-                          ? 0
-                          : x * 2
-                      },${y}`,
-                  )
-                  .join(' ')}
-                // cx={uv.x * 2}
-                // cy={uv.y}
-                // r={0.005}
-                stroke={'black'}
-                strokeWidth={0.001}
-                fill={`hsla(0, 0%, 0%, ${
-                  0.5 -
-                  (area(uvToPoint(face[0]), uvToPoint(face[1]), uvToPoint(face[2])) - min) /
-                    (max - min) /
-                    2
-                })`}
-              />
-            ))}
-          {sphere.uvs.map((uv, i) => (
-            <ControlPoint
-              key={`${uv.x};${uv.y}:${i}`}
-              containerHeight={height}
-              uv={uv}
-              disabled={
-                [0, 1 / 32, 31 / 32, 1].includes(uv.x) || [0, 1 / 16, 15 / 16, 1].includes(uv.y)
-              }
-              onMove={(uv) => {
-                sphere.uvs[i] = uv
-                setSphere({ ...sphere, uvs: sphere.uvs })
-                // console.log(uv)
-              }}
-              // cx={uv.x * 2}
-              // cy={uv.y}
-              // r={0.005}
-              // fill={'black'}
+          {movingPlates.map(({ current, initial }, i) => (
+            <polygon
+              key={i}
+              points={current.corners.map(({ x, y }) => `${x * 2},${1 - y}`).join(' ')}
+              stroke={'black'}
+              fill={`hsla(0, 100%, 50%, ${
+                10 * abs((1 - time * 0.5) * initial.area - current.area)
+              })`}
+              strokeWidth={0.001}
             />
           ))}
+          {movingPlates.map(({ current, initial }, pi) =>
+            current.corners.map((uv, i) => (
+              <ControlPoint
+                key={`${uv.x};${uv.y}:${pi}`}
+                containerHeight={height}
+                uv={uv}
+                color={`hsla(0, ${abs(
+                  round(((1 - time * 0.5) * initial.angles[i] - current.angles[i]) * 100),
+                )}%, 50%, ${abs(
+                  0.5 + ((1 - time * 0.5) * initial.angles[i] - current.angles[i]),
+                )})`}
+                onMove={(newUv) => {
+                  current.corners = [...current.corners]
+                  current.corners[i] = newUv
+                  const [a, b, d, c] = current.corners.map(uvToPoint)
+                  current.area = areaOfSquare(a, b, c, d)
+                  current.angles = anglesOfSquare(a, b, c, d)
+                  movingPlates[i] = { current, initial }
+                  setMovingPlates([...movingPlates])
+                }}
+              />
+            )),
+          )}
         </svg>
-      </div>
-      <div>
-        <span css={yearCss}>
-          <code>{humanAge}</code> million years ago
-        </span>
-      </div>
-      <button onClick={running ? stop : start}>{running ? 'stop' : 'start'}</button>
-      <input
-        type="range"
-        min={0}
-        max={1}
-        step={0.01}
-        value={time}
-        onChange={(e) => setTime(e.target.valueAsNumber)}
-      />
-      <div>
-        <button
-          onClick={() => {
-            localStorage.setItem(
-              'control-points',
-              JSON.stringify(sphere.uvs.map(({ x, y }) => ({ x, y }))),
-            )
-          }}
-        >
-          Save points
-        </button>
       </div>
     </div>
   )
 }
 
-const containerCss = css`
-  position: relative;
+const rootCss = css`
+  color: white;
+  background-color: black;
+  input {
+    background: hsla(0, 0%, 100%, 0.8);
+    border: 1px solid hsla(0, 0%, 100%, 0.9);
+    border-radius: 2px;
+    height: 24px;
+    font-size: 16px;
+  }
+  button {
+    text-transform: uppercase;
+    height: 24px;
+    min-width: 72px;
+    font-size: 12px;
+  }
 `
 
-const yearCss = css`
-  background-color: gray;
-  padding: 4px 8px;
-  code {
-    display: inline-block;
-    white-space: pre;
+const controlPanelCss = css`
+  padding: 2em;
+  > * {
+    margin-bottom: 1rem;
+    :last-child {
+      margin-bottom: 0;
+    }
+  }
+`
+
+const uvMapCss = css`
+  position: relative;
+  width: 800px;
+  margin: 0 auto;
+  > * {
+    display: block;
+  }
+  > img {
+    position: absolute;
+    left: 0;
+    top: 0;
+    outline: 1px solid gray;
+    :first-of-type {
+      left: -800px;
+    }
+    :last-of-type {
+      left: 800px;
+    }
   }
 `
 
 const svgCss = css`
   position: absolute;
-  left: 0;
-  top: 0;
   polygon:hover {
-    fill: hsla(0, 100%, 50%, 0.5);
+    fill: hsla(200, 80%, 50%, 0.5);
   }
 `
 
@@ -360,3 +379,13 @@ export const useAnimationLoop = () => {
 
   return { time, setTime, running, stop, start }
 }
+
+const backgroundImages = [
+  //
+  'crustal-age-map.jpg',
+  'color-map.jpg',
+  'earth-relief-map.jpg',
+  'height-map.jpg',
+  'age-map.png',
+  'plates.png',
+]

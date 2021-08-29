@@ -1,12 +1,16 @@
 import { Vector2, Vector3 } from 'three'
 import { getIntermediatePoint, pointToUv, uvToPoint } from '../src/lib/sphere'
 
+/**
+ * UV goes from bottom-left to top-right (like math xy-axis, unlike pixels)
+ */
+
 describe('uvToPoint', () => {
   test.each([
     { point: new Vector3(0, -1, 0), uv: new Vector2(0.5, 0) },
-    { point: new Vector3(0, -1, 0), uv: new Vector2(0.5, 1) },
+    { point: new Vector3(0, -1, 0), uv: new Vector2(0.5, 0) },
     { point: new Vector3(0, 0, 1), uv: new Vector2(0.5, 0.5) },
-    { point: new Vector3(0.475, -0.587, 0.654), uv: new Vector2(0.6, 0.7) },
+    { point: new Vector3(0.475, 0.587, 0.654), uv: new Vector2(0.6, 0.7) },
   ])('uv:($uv.x, $uv.y) => p:($point.x, $point.y, $point.z)', ({ point, uv }) => {
     const result = uvToPoint(uv)
     expect(result.x).toBeCloseTo(point.x)
@@ -17,10 +21,10 @@ describe('uvToPoint', () => {
 
 describe('pointToUv', () => {
   test.each([
-    { point: new Vector3(0, 1, 0), uv: new Vector2(0.5, 0) },
-    { point: new Vector3(0, -1, 0), uv: new Vector2(0.5, 1) },
+    { point: new Vector3(0, 1, 0), uv: new Vector2(0.5, 1) },
+    { point: new Vector3(0, -1, 0), uv: new Vector2(0.5, 0) },
     { point: new Vector3(0, 0, 1), uv: new Vector2(0.5, 0.5) },
-    { point: new Vector3(0.475, -0.587, 0.654), uv: new Vector2(0.6, 0.7) },
+    { point: new Vector3(0.475, 0.587, 0.654), uv: new Vector2(0.6, 0.7) },
   ])('p:($point.x, $point.y, $point.z) => uv:($uv.x, $uv.y)', ({ point, uv }) => {
     const result = pointToUv(point)
     expect(result.x).toBeCloseTo(uv.x)

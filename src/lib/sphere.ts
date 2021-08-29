@@ -1,5 +1,7 @@
 import { Vector2, Vector3 } from 'three'
-const { PI, cos, sin, asin, acos, atan2, sign, sqrt } = Math
+import { PI, cos, sin, asin, acos, atan2, sum } from 'lib/math'
+
+// UV goes form 0,0 = left,bottom to 1,1 = right,top
 
 export const uvToPoint = (uv: Vector2) => {
   // theta is a longitude angle (around the equator) in radians.
@@ -75,8 +77,14 @@ export const getIntermediatePoint = (start: Vector3, end: Vector3, fraction: num
     .multiplyScalar(1 - fraction)
     .add(end.clone().multiplyScalar(fraction))
 
-export const area = (a: Vector3, b: Vector3, c: Vector3) =>
-  angle(a, b, c) + angle(b, a, c) + angle(b, c, a) - PI
+export const anglesOfTriangle = (a: Vector3, b: Vector3, c: Vector3) => [
+  angle(a, b, c),
+  angle(b, a, c),
+  angle(b, c, a),
+]
+
+export const areaOfTriangle = (a: Vector3, b: Vector3, c: Vector3) =>
+  sum(anglesOfTriangle(a, b, c)) - PI
 
 /**
  * Calculates angle B between AB and BC.
@@ -85,4 +93,24 @@ export const angle = (a: Vector3, b: Vector3, c: Vector3) => {
   const ab = a.clone().cross(b)
   const bc = c.clone().cross(b)
   return acos(ab.dot(bc) / (ab.length() * bc.length()))
+}
+
+export const anglesOfSquare = (a: Vector3, b: Vector3, c: Vector3, d: Vector3) => [
+  angle(b, a, c),
+  angle(a, b, d),
+  angle(a, c, d),
+  angle(b, d, c),
+]
+export const areaOfSquare = (a: Vector3, b: Vector3, c: Vector3, d: Vector3) =>
+  areaOfTriangle(a, c, b) + areaOfTriangle(b, c, d)
+
+export const centerOfPolygon = (polygon: Vector2[]) =>
+  polygon.reduce((r, uv) => r.add(uv), new Vector2()).divideScalar(polygon.length)
+
+export const movePolygon = (polygon: Vector2[], newCenter: Vector2) => {
+  const center = centerOfPolygon(polygon)
+  const direction = center.clone().sub(newCenter)
+  for (const uv of polygon) {
+    const point = uvToPoint(uv)
+  }
 }
