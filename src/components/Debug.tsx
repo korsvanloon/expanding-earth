@@ -1,44 +1,33 @@
 // this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
-import { abs, clamp01, round } from 'lib/math'
+import { abs, round } from 'lib/math'
 import { useEffect, useRef, useState } from 'react'
-import { Vector2, Vector3 } from 'three'
+import { Vector2 } from 'three'
 import ControlPoint from 'components/ControlPoint'
-import { PlateMovement, PlatesEarth } from 'lib/platesEarth'
 import createAgeEarth, { AgeEarth } from 'lib/ageEarth'
-import EarthGeometry from 'lib/EarthGeometry'
-import { flatMap, makePocketsOf, map, toArray } from 'lib/iterable'
-import { pipe, pipeInto } from 'ts-functional-pipe'
+import EarthGeometry, { geometryUvs } from 'lib/EarthGeometry'
+import { makePocketsOf, map, toArray } from 'lib/iterable'
+import { pipeInto } from 'ts-functional-pipe'
 import StoreButton from './StoreButton'
 import RangeInput from './RangeInput'
-import { angle, anglesOfSquare, areaOfSquare, areaOfTriangle, uvToPoint } from 'lib/sphere'
+import { anglesOfSquare, areaOfSquare, uvToPoint } from 'lib/sphere'
 import ChoiceInput from './ChoiceInput'
+import { useAnimationLoop } from 'hooks/useAnimationLoop'
+import createGlobeEarth, { GlobeEarth } from 'lib/globeEarth'
+
+const backgroundImages = [
+  //
+  'crustal-age-map.jpg',
+  'color-map.jpg',
+  'earth-relief-map.jpg',
+  'height-map.jpg',
+  'age-map.png',
+]
 
 const height = 400
 
 const geometry = new EarthGeometry(6)
-
-function* geometryUvs(geometry: EarthGeometry) {
-  const uv = geometry.getAttribute('uv')
-  for (let i = 0; i < uv.array.length; i += 2) {
-    yield new Vector2(uv.array[i], uv.array[i + 1])
-  }
-}
-
-function* geometryVertices(geometry: EarthGeometry) {
-  const vertices = geometry.getAttribute('position')
-  for (let i = 0; i < vertices.array.length; i += 3) {
-    yield new Vector3(vertices.array[i], vertices.array[i + 1], vertices.array[i + 2])
-  }
-}
-
-function* geometryFaces(geometry: EarthGeometry) {
-  const index = geometry.index!.array
-  for (let i = 0; i < index.length; i += 3) {
-    yield [index[i], index[i + 1], index[i + 2]] as [number, number, number]
-  }
-}
 
 type Plate = {
   area: number
@@ -46,35 +35,48 @@ type Plate = {
   corners: Vector2[]
 }
 type MovingPlate = {
-  current: Plate
+  end: Plate
   initial: Plate
 }
 
-const createInitialPlates = (geometry: EarthGeometry) => {
-  const uvs = [...geometryUvs(geometry)]
-  return pipeInto(
-    geometryFaces(geometry),
-    map((x) => x.map((i) => ({ i, uv: uvs[i], p: uvToPoint(uvs[i]) }))),
-    makePocketsOf(2),
+const createInitialPlates = (geometry: EarthGeometry) =>
+  pipeInto(
+    geometryUvs(geometry),
+    map((uv) => ({ uv: uv.clone(), p: uvToPoint(uv) })),
+    makePocketsOf(4),
     map(
       // triangle1: a, c, b; triangle2: b, c, d
-      ([[a1, c1, b1], [_b2, _c2, d2]]): Plate => ({
-        area: areaOfSquare(a1.p, b1.p, c1.p, d2.p),
-        angles: anglesOfSquare(a1.p, b1.p, c1.p, d2.p),
-        corners: [a1.uv, b1.uv, d2.uv, c1.uv],
+      ([a, b, c, d]): Plate => ({
+        area: areaOfSquare(a.p, b.p, c.p, d.p),
+        angles: anglesOfSquare(a.p, b.p, c.p, d.p),
+        // clockwise corners are [a,b,d,c]
+        corners: [a.uv, b.uv, d.uv, c.uv],
       }),
     ),
     toArray,
   )
-}
 const initialPlates = createInitialPlates(geometry)
-const currentPlates = createInitialPlates(geometry)
+const endPlates = createInitialPlates(geometry)
+
+const currentCorners = (movingPlate: MovingPlate, time: number) =>
+  movingPlate.initial.corners.map((c, i) => c.clone().lerp(movingPlate.end.corners[i], time))
+
+const getUvsFromPlate = (plates: Plate[]) => {
+  return plates.flatMap((p) => {
+    const [a, b, d, c] = p.corners
+    return [a, b, c, d]
+  })
+}
 
 function Debug() {
   const ref = useRef<HTMLCanvasElement>(null)
-  const actionsRef = useRef<PlatesEarth | AgeEarth>()
+  const webGlContainerRef = useRef<HTMLDivElement>(null)
+  const actionsRef = useRef<{ globe?: GlobeEarth; age?: AgeEarth }>({
+    age: undefined,
+    globe: undefined,
+  })
   const [movingPlates, setMovingPlates] = useState<MovingPlate[]>(
-    initialPlates.map((initial, i) => ({ initial, current: currentPlates[i] })),
+    initialPlates.map((initial, i) => ({ initial, end: endPlates[i] })),
   )
 
   const { time, setTime, running, start, stop } = useAnimationLoop()
@@ -85,23 +87,30 @@ function Debug() {
         canvas: ref.current,
         height,
       }).then((actions) => {
-        actionsRef.current = actions
+        actionsRef.current.age = actions
         actions.update(time)
       })
-      // createPlatesEarth({
-      //   canvas: ref.current,
-      //   height,
-      //   plates,
-      // }).then((actions) => {
-      //   actionsRef.current = actions
-      // actions.update(time)
-      // })
+    }
+    if (webGlContainerRef.current) {
+      createGlobeEarth({
+        container: webGlContainerRef.current,
+        geometry,
+        height,
+      }).then((actions) => {
+        actionsRef.current.globe = actions
+        actions.update(time)
+      })
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ref.current])
+  }, [])
 
   useEffect(() => {
-    actionsRef.current?.update(time)
+    geometry.setEndUvs(getUvsFromPlate(movingPlates.map((m) => m.end)))
+  }, [movingPlates])
+
+  useEffect(() => {
+    actionsRef.current.age?.update(time)
+    actionsRef.current.globe?.update(time)
   }, [time])
 
   const humanAge = round(time * 280)
@@ -127,26 +136,25 @@ function Debug() {
         </RangeInput>
         <StoreButton
           name="moving-plates"
-          onLoad={(current) => {
+          onLoad={(endPlates) => {
             setMovingPlates(
               movingPlates.map(({ initial }, i) => ({
                 initial,
-                current: {
-                  ...current[i],
-                  corners: current[i].corners.map(({ x, y }) => new Vector2(x, y)),
+                end: {
+                  ...endPlates[i],
+                  corners: endPlates[i].corners.map(({ x, y }) => new Vector2(x, y)),
                 },
               })),
             )
           }}
-          onSave={() => movingPlates.map((p) => p.current)}
+          onSave={() => movingPlates.map((p) => p.end)}
         >
           Store
         </StoreButton>
       </div>
       <div css={uvMapCss}>
-        <img width={height * 2} height={height} src={`/textures/${background}`} alt="" />
-        <img width={height * 2} height={height} src={`/textures/${background}`} alt="" />
-        <img width={height * 2} height={height} src={`/textures/${background}`} alt="" />
+        <div className="background" style={{ backgroundImage: `url(/textures/${background})` }} />
+        <canvas className="age-lines" width={height * 2} height={height} ref={ref} />
         <svg
           version="1.1"
           x="0px"
@@ -156,42 +164,50 @@ function Debug() {
           viewBox="0.5 0 1 1"
           css={svgCss}
         >
-          {movingPlates.map(({ current, initial }, i) => (
-            <polygon
-              key={i}
-              points={current.corners.map(({ x, y }) => `${x * 2},${1 - y}`).join(' ')}
-              stroke={'black'}
-              fill={`hsla(0, 100%, 50%, ${
-                10 * abs((1 - time * 0.5) * initial.area - current.area)
-              })`}
-              strokeWidth={0.001}
-            />
-          ))}
-          {movingPlates.map(({ current, initial }, pi) =>
-            current.corners.map((uv, i) => (
-              <ControlPoint
-                key={`${uv.x};${uv.y}:${pi}`}
-                containerHeight={height}
-                uv={uv}
-                color={`hsla(0, ${abs(
-                  round(((1 - time * 0.5) * initial.angles[i] - current.angles[i]) * 100),
-                )}%, 50%, ${abs(
-                  0.5 + ((1 - time * 0.5) * initial.angles[i] - current.angles[i]),
-                )})`}
-                onMove={(newUv) => {
-                  current.corners = [...current.corners]
-                  current.corners[i] = newUv
-                  const [a, b, d, c] = current.corners.map(uvToPoint)
-                  current.area = areaOfSquare(a, b, c, d)
-                  current.angles = anglesOfSquare(a, b, c, d)
-                  movingPlates[i] = { current, initial }
-                  setMovingPlates([...movingPlates])
-                }}
-              />
-            )),
-          )}
+          {movingPlates.map(({ initial, end }, pi) => {
+            const corners = currentCorners({ initial, end }, time)
+            const [a, b, d, c] = corners.map((uv) => uvToPoint(uv))
+            const area = areaOfSquare(a, b, c, d)
+            const angles = anglesOfSquare(a, b, c, d)
+            const polygonPoints = corners.map(({ x, y }) => `${x * 2},${1 - y}`).join(' ')
+
+            return (
+              <g key={pi} className="plate">
+                <clipPath id={`polygon-${pi}`}>
+                  <polygon points={polygonPoints} />
+                </clipPath>
+                <polygon
+                  points={polygonPoints}
+                  stroke={'black'}
+                  fill={`hsla(0, 100%, 50%, ${10 * abs((1 - time * 0.5) * initial.area - area)})`}
+                  strokeWidth={0.001}
+                  onClick={() => console.log({ initial, end, current: { area, angles, corners } })}
+                />
+                {corners.map((uv, i) => (
+                  <ControlPoint
+                    key={`${uv.x};${uv.y}:${pi}`}
+                    containerHeight={height}
+                    uv={uv}
+                    disabled={time !== 1}
+                    color={`hsla(0, ${abs(round((initial.angles[i] - angles[i]) * 100))}%, 50%, 1`}
+                    onMove={(newUv) => {
+                      end.corners = [...end.corners]
+                      end.corners[i] = newUv
+                      const [a, b, d, c] = end.corners.map(uvToPoint)
+                      end.area = areaOfSquare(a, b, c, d)
+                      end.angles = anglesOfSquare(a, b, c, d)
+                      movingPlates[pi] = { end, initial }
+                      setMovingPlates([...movingPlates])
+                    }}
+                    polygonId={`polygon-${pi}`}
+                  />
+                ))}
+              </g>
+            )
+          })}
         </svg>
       </div>
+      <div ref={webGlContainerRef} style={{ width: '100vw', height: '400px' }}></div>
     </div>
   )
 }
@@ -227,165 +243,43 @@ const controlPanelCss = css`
 const uvMapCss = css`
   position: relative;
   width: 800px;
+  height: 400px;
   margin: 0 auto;
   > * {
     display: block;
   }
-  > img {
+  > .age-lines {
     position: absolute;
     left: 0;
     top: 0;
-    outline: 1px solid gray;
-    :first-of-type {
-      left: -800px;
-    }
-    :last-of-type {
-      left: 800px;
-    }
+  }
+  > .background {
+    position: absolute;
+    background-size: 800px 400px;
+    background-repeat: repeat-x;
+    background-position-x: center;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 100vw;
+    left: 50%;
+    right: 50%;
+    margin-left: -50vw;
+    margin-right: -50vw;
   }
 `
 
 const svgCss = css`
   position: absolute;
-  polygon:hover {
-    fill: hsla(200, 80%, 50%, 0.5);
+  g.plate:hover {
+    z-index: 1;
+    polygon {
+      fill: hsla(200, 80%, 50%, 0.5);
+    }
+    circle {
+      fill: hsla(200, 80%, 50%, 1);
+    }
   }
 `
 
 export default Debug
-
-type EditingState =
-  | 'basic'
-  | 'moving_point'
-  | 'connecting_points'
-  | 'scaling_plate'
-  | 'moving_plate'
-
-// type ControlPoint = {
-//   uv: Vector2
-// plates: ControlPlate[]
-// }
-// type ControlPlate = {
-//   points: ControlPoint[]
-// }
-
-const plates: PlateMovement[] = [
-  {
-    originUV: new Vector2(0.56, 0.25),
-    name: 'Old World',
-    color: '#000fff',
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'Sahara',
-    color: '#fbfa76',
-    originUV: new Vector2(0.535, 0.4),
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'South Africa',
-    color: '#756c26',
-    originUV: new Vector2(0.56, 0.6),
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'Madagascar',
-    color: '#d5d41f',
-    originUV: new Vector2(0.56, 0.6),
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'New world',
-    color: '#ff0000',
-    originUV: new Vector2(0.325, 0.5),
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'Patagonia',
-    color: '#317526',
-    originUV: new Vector2(0.3, 0.65),
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'India',
-    color: '#1dff00',
-    originUV: new Vector2(0.71, 0.335),
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'Australia',
-    color: '#a6a6a6',
-    originUV: new Vector2(0.85, 0.6),
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'Antarctica',
-    color: '#d6d6d6',
-    originUV: new Vector2(0.5, 0.95),
-    destination: new Vector3(0, 0, 0),
-    rotation: 0,
-  },
-]
-
-export const useAnimationLoop = () => {
-  const [time, setTime] = useState(0)
-  const [running, setRunning] = useState(false)
-
-  // Use useRef for mutable variables that we want to persist
-  // without triggering a re-render on their change
-  const requestRef = useRef<number>()
-  const previousTRef = useRef<number>()
-  const ascendingRef = useRef<boolean>(false)
-
-  const animate = (t: number) => {
-    if (previousTRef.current !== undefined) {
-      const deltaTime = t - previousTRef.current
-
-      // const approxTime = time + deltaTime * 0.0001 * (ascending ? 1 : -1))
-
-      // Pass on a function to the setter of the state
-      // to make sure we always have the latest state
-      setTime((prevCount) => {
-        const t = clamp01(prevCount + deltaTime * 0.0001 * (ascendingRef.current ? 1 : -1))
-        if (t >= 1) {
-          ascendingRef.current = false
-        } else if (t <= 0) {
-          ascendingRef.current = true
-        }
-        return t
-      })
-    }
-    previousTRef.current = t
-    requestRef.current = requestAnimationFrame(animate)
-  }
-  const start = () => {
-    requestRef.current = requestAnimationFrame(animate)
-    setRunning(true)
-  }
-
-  const stop = () => {
-    cancelAnimationFrame(requestRef.current!)
-    previousTRef.current = undefined
-    setRunning(false)
-  }
-
-  return { time, setTime, running, stop, start }
-}
-
-const backgroundImages = [
-  //
-  'crustal-age-map.jpg',
-  'color-map.jpg',
-  'earth-relief-map.jpg',
-  'height-map.jpg',
-  'age-map.png',
-  'plates.png',
-]

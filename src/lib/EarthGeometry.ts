@@ -27,7 +27,7 @@ class EarthGeometry extends BufferGeometry {
     const uvs: number[] = []
 
     const buildPlane = (faceConfig: PlaneConfig, planeIndexOffset: number) => {
-      for (const { points, faces } of planeSquares(resolution)) {
+      for (const { points, triangles } of planeSquares(resolution)) {
         const vectors = points.map(toVector(faceConfig, this.parameters))
         const faceUvs = vectors.map(pointToUv)
         fixEdgeUvs(faceUvs)
@@ -39,21 +39,28 @@ class EarthGeometry extends BufferGeometry {
           normals.push(vector.x, vector.y, vector.z)
           uvs.push(uv.x, uv.y)
         }
-        for (const face of faces) {
-          indices.push(...face.map((i) => i + planeIndexOffset))
+        for (const triangle of triangles) {
+          indices.push(...triangle.map((i) => i + planeIndexOffset))
         }
       }
     }
 
     // build each side of the box geometry
     for (let i = 0; i < 6; i++) {
-      buildPlane(faceConfigs[i], planeVertexLength * i)
+      buildPlane(planeConfigs[i], planeVertexLength * i)
     }
 
     this.setIndex(indices)
     this.setAttribute('position', new Float32BufferAttribute(vertices, 3))
     this.setAttribute('normal', new Float32BufferAttribute(normals, 3))
     this.setAttribute('uv', new Float32BufferAttribute(uvs, 2))
+    this.setAttribute('endUv', new Float32BufferAttribute(uvs, 2))
+  }
+
+  setEndUvs(uvs: Vector2[]) {
+    const endUvs = new Float32BufferAttribute(uvs.length * 2, 2)
+    uvs.forEach(({ x, y }, i) => endUvs.setXY(i, x, y))
+    this.setAttribute('endUv', endUvs)
   }
 
   static fromJSON(data: { resolution: number }) {
@@ -65,10 +72,20 @@ export default EarthGeometry
 
 // const buildPlane = (
 //   parameters: EarthParameters,
-//   faceConfig: FaceConfig,
+//   faceConfig: PlaneConfig,
 //   planeIndexOffset: number,
 // ) => {
-//   for (const { points, faces } of planeSquares(parameters.resolution)) {
+//   const planeVertexLength = parameters.resolution ** 2 * 4
+//   const indicesLength = parameters.resolution ** 2 * 6
+//   const vertices = new Float32BufferAttribute(planeVertexLength, 3)
+//   const normals = new Float32BufferAttribute(planeVertexLength, 3)
+//   const uvs = new Float32BufferAttribute(planeVertexLength, 2)
+//   const indices = new Float32BufferAttribute(indicesLength, 1)
+
+//   let pI = 0
+//   let tI = 0
+
+//   for (const { points, triangles } of planeSquares(parameters.resolution)) {
 //     const vectors = points.map(toVector(faceConfig, parameters))
 //     const faceUvs = vectors.map(pointToUv)
 //     fixEdgeUvs(faceUvs)
@@ -76,13 +93,20 @@ export default EarthGeometry
 //     for (let i = 0; i < points.length; i++) {
 //       const vector = vectors[i]
 //       const uv = faceUvs[i]
-//       vertices.push(vector.x, vector.y, vector.z)
-//       normals.push(vector.x, vector.y, vector.z)
-//       uvs.push(uv.x, uv.y)
+//       vertices.setXYZ(pI, vector.x, vector.y, vector.z)
+//       normals.setXYZ(pI, vector.x, vector.y, vector.z)
+//       uvs.setXY(pI, uv.x, uv.y)
+//       pI++
 //     }
-//     for (const face of faces) {
-//       indices.push(...face.map((i) => i + planeIndexOffset))
+//     for (const triangle of triangles) {
+//       for(const index of triangle) {
+//         indices.setX(tI, index+planeIndexOffset)
+//         tI++
+//       }
 //     }
+//   }
+//   return {
+//     vertices, normals, uvs, indices
 //   }
 // }
 
@@ -114,7 +138,7 @@ type PlaneConfig = {
   wDir: 1 | -1
 }
 
-const faceConfigs: PlaneConfig[] = [
+const planeConfigs: PlaneConfig[] = [
   { u: 'z', v: 'y', w: 'x', uDir: -1, vDir: -1, wDir: 1 },
   { u: 'z', v: 'y', w: 'x', uDir: 1, vDir: -1, wDir: -1 },
   { u: 'x', v: 'z', w: 'y', uDir: 1, vDir: 1, wDir: 1 },
@@ -162,11 +186,32 @@ function* planeSquares(resolution: number) {
           { x, y: y + 1 },
           { x: x + 1, y: y + 1 },
         ],
-        faces: [
+        triangles: [
           [a, c, b],
           [b, c, d],
         ],
       }
     }
+  }
+}
+
+export function* geometryUvs(geometry: EarthGeometry) {
+  const uv = geometry.getAttribute('uv')
+  for (let i = 0; i < uv.array.length; i += 2) {
+    yield new Vector2(uv.array[i], uv.array[i + 1])
+  }
+}
+
+export function* geometryVertices(geometry: EarthGeometry) {
+  const vertices = geometry.getAttribute('position')
+  for (let i = 0; i < vertices.array.length; i += 3) {
+    yield new Vector3(vertices.array[i], vertices.array[i + 1], vertices.array[i + 2])
+  }
+}
+
+export function* geometryFaces(geometry: EarthGeometry) {
+  const index = geometry.index!.array
+  for (let i = 0; i < index.length; i += 3) {
+    yield [index[i], index[i + 1], index[i + 2]] as [number, number, number]
   }
 }

@@ -3,6 +3,9 @@ import webpack from 'webpack'
 import HtmlWebpackPlugin from 'html-webpack-plugin'
 import ForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin'
 import { TsconfigPathsPlugin } from 'tsconfig-paths-webpack-plugin'
+import ReactRefreshWebpackPlugin from '@pmmmwh/react-refresh-webpack-plugin'
+
+const isDevelopment = process.env.NODE_ENV !== 'production'
 
 const webpackConfig = (env: any): any => ({
   entry: './src/index.tsx',
@@ -18,15 +21,22 @@ const webpackConfig = (env: any): any => ({
     contentBase: path.join(__dirname, 'public'),
     historyApiFallback: true,
   },
+  mode: isDevelopment ? 'development' : 'production',
   module: {
     rules: [
       {
         test: /\.tsx?$/,
-        loader: 'ts-loader',
-        options: {
-          transpileOnly: true,
-        },
-        exclude: /dist/,
+        // exclude: /dist/,
+        exclude: /node_modules/,
+        use: [
+          // { loader: 'ts-loader' },
+          {
+            loader: require.resolve('babel-loader'),
+            options: {
+              plugins: [isDevelopment && require.resolve('react-refresh/babel')].filter(Boolean),
+            },
+          },
+        ],
       },
       {
         test: /\.(glsl|vs|fs)$/,
@@ -52,7 +62,9 @@ const webpackConfig = (env: any): any => ({
       //   files: './src/**/*.{ts,tsx,js,jsx}', // required - same as command `eslint ./src/**/*.{ts,tsx,js,jsx} --ext .ts,.tsx,.js,.jsx`
       // },
     }),
-  ],
+    isDevelopment && new webpack.HotModuleReplacementPlugin(),
+    isDevelopment && new ReactRefreshWebpackPlugin(),
+  ].filter(Boolean),
 })
 
 export default webpackConfig

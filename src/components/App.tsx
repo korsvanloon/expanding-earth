@@ -1,3 +1,5 @@
+/** @jsx jsx */
+import { css, jsx } from '@emotion/react'
 import useLocation from 'wouter/use-location'
 import Debug from './Debug'
 import Earth from './Earth'

@@ -1,3 +1,5 @@
+/** @jsx jsx */
+import { css, jsx } from '@emotion/react'
 import { Link } from 'wouter'
 
 const Index = () => {

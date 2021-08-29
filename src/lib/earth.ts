@@ -3,10 +3,8 @@ import atmosphereVertexShader from '../shaders/atmosphere.vert.glsl'
 import atmosphereFragmentShader from '../shaders/atmosphere.frag.glsl'
 import vertexShader from '../shaders/vertex.glsl'
 import fragmentShader from '../shaders/fragment.glsl'
-import createCamera from './camera'
-import { createControls } from './initEarth'
+import { createScene, createCamera, createControls } from './threejs'
 import EarthGeometry from './EarthGeometry'
-import { Vector3 } from 'three'
 import { createMultiMaterialObject } from 'vendor/SceneUtils'
 
 const earth = {
@@ -17,47 +15,7 @@ const earth = {
   scaleB: 1,
 }
 
-const plates: PlateMovement[] = [
-  {
-    name: 'Old world',
-    color: new THREE.Vector3(0xff, 0x00, 0x00),
-    origin: new THREE.Vector3(0, 0, 1),
-    destination: new THREE.Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'New world',
-    color: new THREE.Vector3(0, 0x0f, 0xff),
-    origin: new THREE.Vector3(-1, 0, 0),
-    destination: new THREE.Vector3(0, 0, 0),
-    rotation: 0,
-  },
-  {
-    name: 'Antarctica',
-    color: new THREE.Vector3(0xd6, 0xd6, 0xd6),
-    origin: new THREE.Vector3(0, -1, 0),
-    destination: new THREE.Vector3(0, 0, 0),
-    rotation: 0,
-  },
-]
-
 type Earth = typeof earth
-
-const origins = [
-  new THREE.Vector2(0, 0.5),
-  new THREE.Vector2(0.25, 0.25),
-  new THREE.Vector2(0.25, 0.5),
-  new THREE.Vector2(0.25, 0.75),
-  new THREE.Vector2(0.5, 0.25),
-  new THREE.Vector2(0.5, 0.5),
-  new THREE.Vector2(0.5, 0.75),
-  new THREE.Vector2(0.75, 0.25),
-  new THREE.Vector2(0.75, 0.5),
-  new THREE.Vector2(0.75, 0.75),
-  new THREE.Vector2(1, 0.25),
-  new THREE.Vector2(1, 0.5),
-  new THREE.Vector2(1, 0.75),
-]
 
 async function main(onUpdate?: (age: number) => void) {
   const ageMap = new THREE.TextureLoader().load('textures/age-map.png')
@@ -84,32 +42,21 @@ async function main(onUpdate?: (age: number) => void) {
     shader,
   })
 
-  const originSpheres = plates.map((plate) => {
-    const s = new THREE.Mesh(
-      new THREE.SphereGeometry(3, 5, 5),
-      new THREE.MeshBasicMaterial({
-        color: plate.color.x * 256 * 256 + plate.color.y * 256 + plate.color.z,
-      }),
-    )
-    s.position.copy(plate.origin.multiplyScalar(100))
-    return s
-  })
-
   const axesHelper = new THREE.AxesHelper(5)
 
   const camera = createCamera()
-  const scene = createScene(axesHelper, camera, sphere, atmosphere, ...originSpheres)
+  const scene = createScene(axesHelper, camera, sphere, atmosphere)
   const renderer = new THREE.WebGLRenderer({ antialias: true })
   createControls(camera, renderer.domElement)
 
   // Animation Loop
   async function update() {
     const age = earthAge(nextEarthAnimation(earth))
-    updateSphereMaterial(shader, age, origins)
+    updateSphereMaterial(shader, age, [])
+    renderer.render(scene, camera)
 
     onUpdate?.(age)
 
-    renderer.render(scene, camera)
     requestAnimationFrame(update)
   }
   requestAnimationFrame(update)
@@ -123,8 +70,8 @@ async function main(onUpdate?: (age: number) => void) {
     camera.updateProjectionMatrix()
     renderer.setSize(window.innerWidth, window.innerHeight)
   }
-  window.addEventListener('resize', onWindowResize, false)
   onWindowResize()
+  window.addEventListener('resize', onWindowResize, false)
 
   function onWheel(event: WheelEvent) {
     event.preventDefault()
@@ -144,12 +91,10 @@ async function main(onUpdate?: (age: number) => void) {
 
     const raycaster = new THREE.Raycaster()
     raycaster.setFromCamera(mouse, camera)
-
-    const intersects = raycaster.intersectObjects(originSpheres)
-
-    if (intersects.length > 0) {
-      console.log(intersects[0].object.position)
-    }
+    // const intersects = raycaster.intersectObjects(originSpheres)
+    // if (intersects.length > 0) {
+    //   console.log(intersects[0].object.position)
+    // }
   }
   renderer.domElement.addEventListener('mousedown', onDocumentMouseDown, false)
 
@@ -172,7 +117,7 @@ function updateSphereMaterial(
   material.uniforms.age.value = age
   material.uniforms.origins_size.value = origins.length
   material.uniforms.origins.value = origins
-  material.uniforms.plates.value = plates
+  // material.uniforms.plates.value = plates
 }
 
 const earthAge = (earth: Earth) =>
@@ -191,23 +136,6 @@ function nextEarthAnimation(earth: Earth) {
   return earth
 }
 
-const createScene = (...children: THREE.Object3D[]) => {
-  const scene = new THREE.Scene()
-  scene.background = new THREE.Color(0x000000)
-
-  scene.add(...children)
-
-  return scene
-}
-
-type PlateMovement = {
-  name: string
-  color: THREE.Vector3
-  origin: THREE.Vector3
-  destination: THREE.Vector3
-  rotation: number
-}
-
 const createSphereWithGlow = ({
   radius,
   position = new THREE.Vector3(0, 0, 0),
@@ -222,8 +150,8 @@ const createSphereWithGlow = ({
     wireframe: true,
     transparent: true,
   })
-  const multiMaterial = [shader]
-  // const multiMaterial = [shader, wireframeMaterial]
+  // const multiMaterial = [shader]
+  const multiMaterial = [shader, wireframeMaterial]
 
   const sphere = createMultiMaterialObject(new EarthGeometry(20), multiMaterial)
   sphere.scale.set(radius, radius, radius)

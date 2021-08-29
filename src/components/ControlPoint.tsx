@@ -1,5 +1,7 @@
+/** @jsx jsx */
+import { css, jsx } from '@emotion/react'
 import { pixelToUv, uvToPixel } from 'lib/image'
-import { useState, PointerEvent } from 'react'
+import { useState, PointerEvent, SVGProps } from 'react'
 import { Vector2 } from 'three'
 
 type Props = {
@@ -7,10 +9,19 @@ type Props = {
   containerHeight: number
   disabled?: boolean
   color?: string
+  polygonId: string
   onMove?: (uv: Vector2) => void
 }
 
-const ControlPoint = ({ uv, containerHeight, disabled, onMove, color = 'black' }: Props) => {
+const ControlPoint = ({
+  uv,
+  containerHeight,
+  disabled,
+  onMove,
+  color = 'black',
+  polygonId,
+  ...rest
+}: Props & SVGProps<SVGCircleElement>) => {
   const [state, setState] = useState({
     active: false,
     offset: { x: 0, y: 0 },
@@ -45,11 +56,13 @@ const ControlPoint = ({ uv, containerHeight, disabled, onMove, color = 'black' }
 
   return (
     <circle
+      {...rest}
       cx={state.pixel.x / containerHeight}
       cy={state.pixel.y / containerHeight}
-      r={0.005}
+      r={0.01}
       onClick={onClick}
       fill={state.active ? 'blue' : color}
+      clipPath={state.active ? undefined : `url(#${polygonId})`}
       {...(disabled ? {} : { onPointerDown, onPointerUp, onPointerMove })}
     />
   )

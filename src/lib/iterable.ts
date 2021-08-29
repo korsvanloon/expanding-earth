@@ -1,14 +1,12 @@
-import { pipeInto, pipe } from 'ts-functional-pipe'
-
 export const makePocketsOf = <T>(amount: number) =>
   function* (items: Iterable<T>) {
     let group: T[] = []
     for (const item of items) {
+      group.push(item)
       if (group.length === amount) {
         yield group
         group = []
       }
-      group.push(item)
     }
   }
 
@@ -52,31 +50,3 @@ export const reduce = <T, S>(initialValue: S, accumulator: (previous: S, current
   }
 
 export const toArray = <T>(items: Iterable<T>) => [...items]
-
-const bla = () => {
-  const result = pipeInto(
-    [1, 2, 3, 4, 5, 6, 7, 8],
-    where((x) => x % 2 === 0),
-    makePocketsOf(2),
-    map(
-      pipe(
-        map((x) => `${x}`),
-        toArray,
-      ),
-    ),
-    toArray,
-    //
-  )
-
-  /**
-   *
-   * ```ts
-   * const result = [1, 2, 3, 4]
-   *  |> buffer(2)
-   *  |> map( map(toString) |> toArray) )
-   *  |> toArray
-   *
-   * // [['1', '2'], ['3', '4']]
-    ```
-   */
-}
