@@ -4,11 +4,16 @@ import HtmlWebpackPlugin from 'html-webpack-plugin'
 import ForkTsCheckerWebpackPlugin from 'fork-ts-checker-webpack-plugin'
 import { TsconfigPathsPlugin } from 'tsconfig-paths-webpack-plugin'
 import ReactRefreshWebpackPlugin from '@pmmmwh/react-refresh-webpack-plugin'
+import ReactRefreshTypeScript from 'react-refresh-typescript'
+import devServer from 'webpack-dev-server'
 
 const isDevelopment = process.env.NODE_ENV !== 'production'
 
-const webpackConfig = (env: any): any => ({
+const webpackConfig = (
+  env: any,
+): webpack.Configuration & { devServer: devServer.Configuration } => ({
   entry: './src/index.tsx',
+  target: isDevelopment ? 'web' : 'browserslist',
   resolve: {
     extensions: ['.ts', '.tsx', '.js'],
     plugins: [new TsconfigPathsPlugin()],
@@ -20,6 +25,7 @@ const webpackConfig = (env: any): any => ({
   devServer: {
     contentBase: path.join(__dirname, 'public'),
     historyApiFallback: true,
+    hot: true,
   },
   mode: isDevelopment ? 'development' : 'production',
   module: {
@@ -29,13 +35,21 @@ const webpackConfig = (env: any): any => ({
         // exclude: /dist/,
         exclude: /node_modules/,
         use: [
-          // { loader: 'ts-loader' },
           {
-            loader: require.resolve('babel-loader'),
+            loader: require.resolve('ts-loader'),
             options: {
-              plugins: [isDevelopment && require.resolve('react-refresh/babel')].filter(Boolean),
+              getCustomTransformers: () => ({
+                before: [isDevelopment && ReactRefreshTypeScript()].filter(Boolean),
+              }),
+              transpileOnly: isDevelopment,
             },
           },
+          // {
+          //   loader: require.resolve('babel-loader'),
+          //   options: {
+          //     plugins: [isDevelopment && require.resolve('react-refresh/babel')].filter(Boolean),
+          //   },
+          // },
         ],
       },
       {
@@ -62,9 +76,12 @@ const webpackConfig = (env: any): any => ({
       //   files: './src/**/*.{ts,tsx,js,jsx}', // required - same as command `eslint ./src/**/*.{ts,tsx,js,jsx} --ext .ts,.tsx,.js,.jsx`
       // },
     }),
-    isDevelopment && new webpack.HotModuleReplacementPlugin(),
-    isDevelopment && new ReactRefreshWebpackPlugin(),
-  ].filter(Boolean),
+    ...(isDevelopment
+      ? [new webpack.HotModuleReplacementPlugin(), new ReactRefreshWebpackPlugin()]
+      : []),
+  ].filter(isValue),
 })
 
 export default webpackConfig
+
+const isValue = <T>(input: T): input is NonNullable<T> => input !== undefined && input !== null

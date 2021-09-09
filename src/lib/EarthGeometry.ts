@@ -1,5 +1,5 @@
 import { BufferGeometry, Float32BufferAttribute, Vector2, Vector3 } from 'three'
-import { sum, sqrt } from './math'
+import { sum, sqrt, range } from './math'
 import { pointToUv } from './sphere'
 
 type EarthParameters = {
@@ -8,52 +8,15 @@ type EarthParameters = {
 }
 
 class EarthGeometry extends BufferGeometry {
-  parameters: EarthParameters
-  constructor(resolution: number, size = 1) {
+  constructor({ vertices, normals, indices, uvs }: GeometryData) {
     super()
-    if (!Number.isInteger(resolution)) {
-      throw new Error(`resolution ${resolution} must be an integer`)
-    }
 
     this.type = 'EarthGeometry'
 
-    this.parameters = { resolution, size }
-
-    const planeVertexLength = resolution ** 2 * 4
-
-    const indices: number[] = []
-    const vertices: number[] = []
-    const normals: number[] = []
-    const uvs: number[] = []
-
-    const buildPlane = (faceConfig: PlaneConfig, planeIndexOffset: number) => {
-      for (const { points, triangles } of planeSquares(resolution)) {
-        const vectors = points.map(toVector(faceConfig, this.parameters))
-        const faceUvs = vectors.map(pointToUv)
-        fixEdgeUvs(faceUvs)
-
-        for (let i = 0; i < points.length; i++) {
-          const vector = vectors[i]
-          const uv = faceUvs[i]
-          vertices.push(vector.x, vector.y, vector.z)
-          normals.push(vector.x, vector.y, vector.z)
-          uvs.push(uv.x, uv.y)
-        }
-        for (const triangle of triangles) {
-          indices.push(...triangle.map((i) => i + planeIndexOffset))
-        }
-      }
-    }
-
-    // build each side of the box geometry
-    for (let i = 0; i < 6; i++) {
-      buildPlane(planeConfigs[i], planeVertexLength * i)
-    }
-
     this.setIndex(indices)
-    this.setAttribute('position', new Float32BufferAttribute(vertices, 3))
-    this.setAttribute('normal', new Float32BufferAttribute(normals, 3))
-    this.setAttribute('uv', new Float32BufferAttribute(uvs, 2))
+    this.setAttribute('position', toBufferAttribute(vertices))
+    this.setAttribute('normal', toBufferAttribute(normals))
+    this.setAttribute('uv', toBufferAttribute(uvs))
   }
 
   setUv(uvs: Vector2[]) {
@@ -61,53 +24,76 @@ class EarthGeometry extends BufferGeometry {
     uvs.forEach(({ x, y }, i) => buffer.setXY(i, x, y))
     this.setAttribute('uv', buffer)
   }
-
-  static fromJSON(data: { resolution: number }) {
-    return new EarthGeometry(data.resolution)
-  }
 }
 
 export default EarthGeometry
 
-// const buildPlane = (
-//   parameters: EarthParameters,
-//   faceConfig: PlaneConfig,
-//   planeIndexOffset: number,
-// ) => {
-//   const planeVertexLength = parameters.resolution ** 2 * 4
-//   const indicesLength = parameters.resolution ** 2 * 6
-//   const vertices = new Float32BufferAttribute(planeVertexLength, 3)
-//   const normals = new Float32BufferAttribute(planeVertexLength, 3)
-//   const uvs = new Float32BufferAttribute(planeVertexLength, 2)
-//   const indices = new Float32BufferAttribute(indicesLength, 1)
+export type GeometryData = {
+  indices: number[]
+  normals: Vector3[]
+  vertices: Vector3[]
+  uvs: Vector2[]
+}
 
-//   let pI = 0
-//   let tI = 0
+export const buildCubeSphere = (parameters: EarthParameters): GeometryData => {
+  if (!Number.isInteger(parameters.resolution)) {
+    throw new Error(`resolution ${parameters.resolution} must be an integer`)
+  }
+  const planeVertexLength = parameters.resolution ** 2 * 4
 
-//   for (const { points, triangles } of planeSquares(parameters.resolution)) {
-//     const vectors = points.map(toVector(faceConfig, parameters))
-//     const faceUvs = vectors.map(pointToUv)
-//     fixEdgeUvs(faceUvs)
+  return range(6)
+    .map((i) => buildPlane(parameters, planeConfigs[i], planeVertexLength * i))
+    .reduce(
+      (result, plane) => ({
+        indices: [...result.indices, ...plane.indices],
+        normals: [...result.normals, ...plane.normals],
+        vertices: [...result.vertices, ...plane.vertices],
+        uvs: [...result.uvs, ...plane.uvs],
+      }),
+      {
+        indices: [] as number[],
+        normals: [] as Vector3[],
+        vertices: [] as Vector3[],
+        uvs: [] as Vector2[],
+      },
+    )
+}
 
-//     for (let i = 0; i < points.length; i++) {
-//       const vector = vectors[i]
-//       const uv = faceUvs[i]
-//       vertices.setXYZ(pI, vector.x, vector.y, vector.z)
-//       normals.setXYZ(pI, vector.x, vector.y, vector.z)
-//       uvs.setXY(pI, uv.x, uv.y)
-//       pI++
-//     }
-//     for (const triangle of triangles) {
-//       for(const index of triangle) {
-//         indices.setX(tI, index+planeIndexOffset)
-//         tI++
-//       }
-//     }
-//   }
-//   return {
-//     vertices, normals, uvs, indices
-//   }
-// }
+const buildPlane = (
+  parameters: EarthParameters,
+  faceConfig: PlaneConfig,
+  planeIndexOffset: number,
+) => {
+  const vertices: Vector3[] = []
+  const normals: Vector3[] = []
+  const uvs: Vector2[] = []
+  const indices: number[] = []
+
+  for (const { points, triangles } of planeSquares(parameters.resolution)) {
+    const vectors = points.map(toVector(faceConfig, parameters))
+    const faceUvs = vectors.map(pointToUv)
+    fixEdgeUvs(faceUvs)
+
+    for (let i = 0; i < points.length; i++) {
+      const vector = vectors[i]
+      const uv = faceUvs[i]
+      vertices.push(vector)
+      normals.push(vector)
+      uvs.push(uv)
+    }
+    for (const triangle of triangles) {
+      for (const index of triangle) {
+        indices.push(index + planeIndexOffset)
+      }
+    }
+  }
+  return {
+    vertices,
+    normals,
+    uvs,
+    indices,
+  }
+}
 
 function fixEdgeUvs(faceUvs: Vector2[]) {
   for (const uv of faceUvs) {
@@ -193,6 +179,12 @@ function* planeSquares(resolution: number) {
     }
   }
 }
+
+const toBufferAttribute = (vertices: (Vector2 | Vector3)[]) =>
+  new Float32BufferAttribute(
+    vertices.flatMap((v) => v.toArray()),
+    vertices[0].toArray().length,
+  )
 
 export function* geometryUvs(geometry: EarthGeometry) {
   const uv = geometry.getAttribute('uv')

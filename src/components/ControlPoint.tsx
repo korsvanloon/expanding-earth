@@ -31,7 +31,6 @@ const ControlPoint = ({
 
   const onPointerDown = (e: PointerEvent<SVGCircleElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId)
-    console.log(uv, state.pixel)
     setState({
       ...state,
       active: true,

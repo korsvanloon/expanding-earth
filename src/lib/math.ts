@@ -9,6 +9,8 @@ export const clamp01 = (value: number) => clamp(value, 0, 1)
 export const inRange = (value: number, minValue: number, maxValue: number) =>
   value >= minValue && value <= maxValue
 
+export const range = (length: number) => Array.from({ length }, (_, i) => i)
+
 const {
   E,
   LN10,

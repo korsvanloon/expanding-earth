@@ -4,7 +4,7 @@ import atmosphereFragmentShader from '../shaders/atmosphere.frag.glsl'
 import vertexShader from '../shaders/vertex.glsl'
 import fragmentShader from '../shaders/fragment.glsl'
 import { createScene, createCamera, createControls } from './threejs'
-import EarthGeometry from './EarthGeometry'
+import EarthGeometry, { buildCubeSphere } from './EarthGeometry'
 import { createMultiMaterialObject } from 'vendor/SceneUtils'
 
 const earth = {
@@ -153,7 +153,10 @@ const createSphereWithGlow = ({
   // const multiMaterial = [shader]
   const multiMaterial = [shader, wireframeMaterial]
 
-  const sphere = createMultiMaterialObject(new EarthGeometry(20), multiMaterial)
+  const sphere = createMultiMaterialObject(
+    new EarthGeometry(buildCubeSphere({ resolution: 20, size: 1 })),
+    multiMaterial,
+  )
   sphere.scale.set(radius, radius, radius)
   sphere.position.copy(position)
 

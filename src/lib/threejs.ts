@@ -29,8 +29,7 @@ const DEFAULT_ASPECT = 1
 
 export const createCamera = () => {
   const camera = new PerspectiveCamera(VIEW_ANGLE, DEFAULT_ASPECT, NEAR, FAR)
-  const { x, y, z } = CAMERA_POSITION
-  camera.position.set(x, y, z)
+  camera.position.set(...CAMERA_POSITION.toArray())
 
   return camera
 }

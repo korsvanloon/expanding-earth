@@ -12,32 +12,28 @@ type Props = {
 
 function ChoiceInput({ name, options, value, children, onValue }: Props) {
   return (
-    <div css={rootCss}>
-      {children}
-      <div>
+    <div css={style}>
+      <label htmlFor={name}>{children}</label>
+      <select id={name} name={name} value={value} onChange={(e) => onValue(e.target.value)}>
         {options.map((o) => (
-          <label key={o.value}>
-            <input
-              type="radio"
-              name={name}
-              value={o.value}
-              checked={o.value === value}
-              onChange={() => onValue(o.value)}
-            />
+          <option key={o.value} value={o.value}>
             {o.label}
-          </label>
+          </option>
         ))}
-      </div>
+      </select>
     </div>
   )
 }
 
 export default ChoiceInput
 
-const rootCss = css`
+const style = css`
+  display: block;
+  select {
+    display: block;
+  }
   label {
-    display: inline-flex;
-    align-items: center;
-    margin-right: 1em;
+    display: block;
+    margin-bottom: 0.5rem;
   }
 `

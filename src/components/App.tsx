@@ -1,18 +1,21 @@
 /** @jsx jsx */
-import { css, jsx } from '@emotion/react'
+import { jsx } from '@emotion/react'
 import useLocation from 'wouter/use-location'
-import Debug from './Debug'
+import EarthMap from './EarthMap'
 import Earth from './Earth'
+import Globe from './Globe'
 import Index from './Index'
 
 const App = () => {
   const [location] = useLocation()
 
   switch (location) {
-    case '/debug':
-      return <Debug />
+    case '/map':
+      return <EarthMap />
     case '/earth':
       return <Earth />
+    case '/globe':
+      return <Globe />
     default:
       return <Index />
   }

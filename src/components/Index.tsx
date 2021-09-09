@@ -6,7 +6,8 @@ const Index = () => {
   return (
     <main>
       <Link href="/earth">earth</Link>
-      <Link href="/debug">debug</Link>
+      <Link href="/globe">globe</Link>
+      <Link href="/map">map</Link>
     </main>
   )
 }

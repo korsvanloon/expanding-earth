@@ -1,7 +1,6 @@
 import { getPixelColor, loadImageData, PixelColor, pixelsInRange, setPixelColor } from './image'
 import convert from 'color-convert'
-
-const { abs, round } = Math
+import { abs, round } from './math'
 
 export type Props = {
   canvas: HTMLCanvasElement

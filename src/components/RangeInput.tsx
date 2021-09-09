@@ -20,11 +20,11 @@ function RangeInput({ name, step = 0.1, min = 0, max = 1, value, children, onVal
 
   return (
     <div css={rootCss}>
-      <label>
+      <label htmlFor={name}>
         <span>{children}</span>
         <div>
           <input type="range" {...inputProps} />
-          <input type="number" {...inputProps} />
+          <input type="number" id={name} {...inputProps} />
         </div>
       </label>
     </div>
@@ -50,3 +50,5 @@ const rootCss = css`
     }
   }
 `
+
+// RangeInput.style = rootCss

@@ -1,11 +1,17 @@
-import React from 'react'
+// this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
+/** @jsx jsx */
+import { Global, jsx } from '@emotion/react'
 import ReactDOM from 'react-dom'
 import './index.css'
 import App from './components/App'
 import reportWebVitals from './reportWebVitals'
+import theme from 'lib/theme'
 
 ReactDOM.render(
-  <App />,
+  <div>
+    <Global styles={theme} />
+    <App />
+  </div>,
   // <React.StrictMode>{/* <App /> */}</React.StrictMode>,
   document.getElementById('root'),
 )
@@ -19,9 +25,9 @@ reportWebVitals()
  *
  */
 ;(window as any).backup = () => {
-  const raw = localStorage.getItem('moving-plates')
+  const raw = localStorage.getItem('plates')
   if (raw) {
-    localStorage.setItem('moving-plates-' + new Date().toISOString(), raw)
+    localStorage.setItem('plates-' + new Date().toISOString(), raw)
     try {
       return JSON.parse(raw)
     } catch {}

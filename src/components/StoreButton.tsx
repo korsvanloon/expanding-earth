@@ -17,26 +17,30 @@ function StoreButton<T>({
   ...props
 }: Props<T> & Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof Props<T>>) {
   useEffect(() => {
-    const raw = localStorage.getItem(name)
-    if (raw)
-      try {
-        onLoad(JSON.parse(raw) as T)
-      } catch {}
+    const data = load<T>(name)
+    if (data) onLoad(data)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   return (
-    <div>
-      <button
-        {...props}
-        onClick={() => {
-          localStorage.setItem(name, JSON.stringify(onSave()))
-        }}
-      >
-        {children}
-      </button>
-    </div>
+    <button
+      {...props}
+      onClick={() => {
+        localStorage.setItem(name, JSON.stringify(onSave()))
+      }}
+    >
+      {children}
+    </button>
   )
 }
 
 export default StoreButton
+
+export function load<T>(name: string) {
+  const raw = localStorage.getItem(name)
+  if (raw)
+    try {
+      return JSON.parse(raw) as T
+    } catch {}
+  return undefined
+}
