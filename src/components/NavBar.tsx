@@ -24,7 +24,6 @@ const style = css`
   button,
   a {
     height: 3rem;
-    height: 3rem;
     min-width: 100px;
     text-align: middle;
     display: flex;

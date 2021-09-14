@@ -1,20 +1,25 @@
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
+import { MouseEvent } from 'react'
 import { pixelToUv, uvToPixel } from 'lib/image'
-import { getHull, Polygon } from 'lib/triangulation'
+import { getPointsAtTime, Polygon } from 'lib/polygon'
 import { Vector2 } from 'three'
 import ControlPoint from './ControlPoint'
 import Delaunator from 'delaunator'
 import { pipeInto } from 'ts-functional-pipe'
 import { makePocketsOf, map, toArray } from 'lib/iterable'
+import clsx from 'clsx'
 
 type Props = {
   height: number
+  time: number
   polygons: Polygon[]
-  onClick: (uv: Vector2) => void
+  current?: Polygon
+  onClick: (uv: Vector2, event: MouseEvent) => void
+  onPointMoved: (oldUv: Vector2, newUv: Vector2, polygon: Polygon, index: number) => void
 }
 
-const UvMesh = ({ height, polygons, onClick }: Props) => {
+const UvMesh = ({ height, time, polygons, current, onClick, onPointMoved }: Props) => {
   return (
     <svg
       version="1.1"
@@ -26,11 +31,16 @@ const UvMesh = ({ height, polygons, onClick }: Props) => {
       css={rootCss}
       onClickCapture={(e) => {
         const box = e.currentTarget.getBoundingClientRect()
-        onClick(pixelToUv(new Vector2(e.clientX - box.left, e.clientY - box.top), height))
+        if (e.target instanceof SVGCircleElement) {
+          return
+        }
+        onClick(pixelToUv(new Vector2(e.clientX - box.left, e.clientY - box.top), height), e)
       }}
     >
-      {polygons.map(({ points, color }, pi) => {
-        const hull = getHull(points)
+      {polygons.map((polygon, pi) => {
+        // const hull = getHull(points)
+
+        const points = getPointsAtTime(polygon, time)
 
         const triangles = pipeInto(
           Delaunator.from(
@@ -43,12 +53,8 @@ const UvMesh = ({ height, polygons, onClick }: Props) => {
           toArray,
         )
 
-        // const polygonPoints = pixelsToSvgPoints(hull.map((uv) => uvToPixel(uv, height)))
-        // const area = areaOfSquare(a, b, c, d)
-        // const angles = anglesOfSquare(a, b, c, d)
-
         return (
-          <g key={pi} className="plate">
+          <g key={pi} className={clsx('plate', polygon === current && 'selected')}>
             <clipPath id={`polygon-${pi}`}>{/* <polygon points={polygonPoints} /> */}</clipPath>
             {triangles.map((pixels, i) => (
               <polygon
@@ -59,10 +65,8 @@ const UvMesh = ({ height, polygons, onClick }: Props) => {
                 // fill={`hsla(0, 100%, 50%, ${10 * abs((1 - time * 0.5) * initial.area - area)})`}
                 // fill={color}
                 strokeWidth={0.001}
-                onClick={() => console.log({ points })}
-                style={{
-                  fill: color,
-                }}
+                onClick={() => console.log(polygon)}
+                style={{ color: polygon.color }}
               />
             ))}
             {points.map((uv, i) => (
@@ -70,15 +74,16 @@ const UvMesh = ({ height, polygons, onClick }: Props) => {
                 key={`${uv.x};${uv.y}:${pi}`}
                 containerHeight={height}
                 uv={uv}
+                color={`black`}
                 // color={`hsla(0, ${abs(round((initial.angles[i] - angles[i]) * 100))}%, 50%, 1`}
                 onMove={(newUv) => {
+                  onPointMoved(uv, newUv, polygon, i)
                   // end.corners = [...end.corners]
-                  // end.corners[i] = newUv
+                  // points[i].setX(newUv.x)
+                  // points[i].setY(newUv.y)
                   // const [a, b, d, c] = end.corners.map(uvToPoint)
                   // end.area = areaOfSquare(a, b, c, d)
                   // end.angles = anglesOfSquare(a, b, c, d)
-                  // movingPlates[pi] = { end, initial }
-                  // setMovingPlates([...movingPlates])
                 }}
                 polygonId={`polygon-${pi}`}
               />
@@ -95,18 +100,26 @@ export default UvMesh
 const rootCss = css`
   position: absolute;
   g.plate {
+    position: relative;
     polygon {
-      fill: hsla(200, 80%, 50%, 0.3);
+      fill: transparent;
+    }
+  }
+  g.selected {
+    z-index: 1;
+    polygon {
+      fill: currentColor;
     }
   }
   g.plate:hover {
-    z-index: 1;
+    /* z-index: 1; */
     polygon {
-      fill: hsla(200, 80%, 50%, 0.5);
+      fill: currentColor;
+      /* fill: hsla(200, 80%, 50%, 0.5); */
     }
-    circle {
-      fill: hsla(200, 80%, 50%, 1);
-    }
+  }
+  circle:hover {
+    fill: hsla(200, 80%, 50%, 1);
   }
 `
 

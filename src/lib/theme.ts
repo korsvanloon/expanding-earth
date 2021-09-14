@@ -28,6 +28,16 @@ const theme = css`
       box-shadow: 0 0 8px 4px hsla(0, 0%, 100%, 0.75);
     }
   }
+
+  code {
+    font-family: source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+    display: inline-block;
+    white-space: pre;
+  }
+  canvas {
+    background-color: transparent;
+    outline: none;
+  }
 `
 
 export default theme

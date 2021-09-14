@@ -11,6 +11,9 @@ import { useAnimationLoop } from 'hooks/useAnimationLoop'
 import createGlobeEarth, { GlobeEarth } from 'lib/globeEarth'
 import { Link } from 'wouter'
 import NavBar from './NavBar'
+import { toGeometryData } from 'lib/triangulation'
+import { load } from './StoreButton'
+import { Vector2 } from 'three'
 
 const backgroundImages = [
   //
@@ -25,7 +28,15 @@ const height = 400
 
 const resolution = 12
 
-const geometry = new EarthGeometry(buildCubeSphere({ resolution, size: 1 }))
+// const geometry = new EarthGeometry(buildCubeSphere({ resolution, size: 1 }))
+const geometry = new EarthGeometry(
+  toGeometryData(
+    load<{ points: { x: number; y: number }[] }[]>('plates')?.map((xys, i) => ({
+      points: xys.points.map(({ x, y }) => new Vector2(x, y)),
+      color: `hsla(${(200 + 19 * i) % 360}, 80%, 50%, 0.3)`,
+    })) ?? [],
+  ),
+)
 
 function Globe() {
   const webGlContainerRef = useRef<HTMLDivElement>(null)
@@ -41,7 +52,7 @@ function Globe() {
       createGlobeEarth({
         container: webGlContainerRef.current,
         geometry,
-        height,
+        // height,
       }).then((actions) => {
         actionsRef.current.globe = actions
       })
@@ -83,7 +94,7 @@ function Globe() {
         <Link href="/map">Map</Link>
       </NavBar>
 
-      <div ref={webGlContainerRef} style={{ width: '100vw', height: '400px' }}></div>
+      <div ref={webGlContainerRef} style={{ width: '100vw', height: 'calc(100vh - 70px)' }}></div>
     </div>
   )
 }

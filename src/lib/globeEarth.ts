@@ -22,7 +22,7 @@ import EarthGeometry from './EarthGeometry'
 export type Props = {
   geometry: EarthGeometry
   container: HTMLDivElement
-  height: number
+  // height: number
 }
 
 export type GlobeEarth = {

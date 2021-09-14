@@ -61,7 +61,7 @@ const ControlPoint = ({
       r={0.01}
       onClick={onClick}
       fill={state.active ? 'blue' : color}
-      clipPath={state.active ? undefined : `url(#${polygonId})`}
+      // clipPath={state.active ? undefined : `url(#${polygonId})`}
       {...(disabled ? {} : { onPointerDown, onPointerUp, onPointerMove })}
     />
   )

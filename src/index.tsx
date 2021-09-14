@@ -34,3 +34,7 @@ reportWebVitals()
   }
   return null
 }
+;(window as any).store = (name: string) => {
+  const polygons = (window as any).polygons
+  if (polygons) localStorage.setItem(name, JSON.stringify(polygons))
+}

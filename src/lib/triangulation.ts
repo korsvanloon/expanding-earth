@@ -1,18 +1,10 @@
-import { Float32BufferAttribute, Vector2 } from 'three'
+import { Vector2 } from 'three'
 import Delaunator from 'delaunator'
 import { GeometryData } from './EarthGeometry'
-import { range } from './math'
 import { uvToPoint } from './sphere'
-
-export const initializeProgression = (vertexLength: number, steps = 10) =>
-  range(steps).map(() => new Float32BufferAttribute(vertexLength * 2, 2))
-
-export const getVertexInTime = (index: number, time: number) => {}
-
-export type Polygon = {
-  points: Vector2[]
-  color?: string
-}
+import { flat, makePocketsOf, map, toArray } from './iterable'
+import { pipeInto } from 'ts-functional-pipe'
+import { Polygon } from './polygon'
 
 export const getHull = (points: Vector2[]) =>
   [
@@ -26,13 +18,18 @@ export const getHull = (points: Vector2[]) =>
 export const toGeometryData = (polygons: Polygon[]): GeometryData => {
   const uvs = polygons.flatMap((p) => p.points)
   const vertices = uvs.map(uvToPoint)
-  const indices = [
-    ...Delaunator.from(
+
+  const indices = pipeInto(
+    Delaunator.from(
       polygons.flatMap(({ points }) => points),
       (p) => p.x,
       (p) => p.y,
     ).triangles,
-  ]
+    makePocketsOf(3),
+    map(([c, b, a]) => [a, b, c]),
+    flat,
+    toArray,
+  ) as number[]
 
   return {
     uvs,
