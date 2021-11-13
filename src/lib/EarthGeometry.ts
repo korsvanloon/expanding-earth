@@ -10,9 +10,7 @@ type EarthParameters = {
 class EarthGeometry extends BufferGeometry {
   constructor({ vertices, normals, indices, uvs }: GeometryData) {
     super()
-
     this.type = 'EarthGeometry'
-
     this.setIndex(indices)
     this.setAttribute('position', toBufferAttribute(vertices))
     this.setAttribute('normal', toBufferAttribute(normals))

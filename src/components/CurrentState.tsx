@@ -1,0 +1,149 @@
+// this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
+/** @jsx jsx */
+import { css } from '@emotion/react'
+import { PointsInTime, Polygon } from 'lib/polygon'
+import NumberInput from './NumberInput'
+import PointInput from './PointInput'
+
+type Props = {
+  polygons: Polygon[]
+  currentPolygon?: Polygon
+  currentPointIndex?: number
+  onDeletePolygon: () => void
+  onChange: () => void
+  onClosePoint: () => void
+  onDeletePoint: () => void
+  onAddAge: () => void
+  onDeleteAge: (age: PointsInTime) => void
+}
+
+const CurrentState = ({
+  polygons,
+  currentPolygon,
+  currentPointIndex,
+  onDeletePolygon,
+  onChange,
+  onClosePoint,
+  onDeletePoint,
+  onDeleteAge,
+  onAddAge,
+}: Props) => (
+  <div css={style}>
+    {currentPolygon && (
+      <div>
+        <header>
+          <h3>polygon</h3>
+          <span>{polygons.indexOf(currentPolygon)}</span>
+          <button onClick={onDeletePolygon}>Delete</button>
+        </header>
+      </div>
+    )}
+    {currentPolygon && currentPointIndex !== undefined && (
+      <table>
+        <thead>
+          <tr>
+            <th>age</th>
+            <th>
+              point
+              <small>{currentPointIndex}</small>
+            </th>
+            <td>
+              <button onClick={onDeletePoint}>Delete</button>
+              <button onClick={onClosePoint}>Close</button>
+            </td>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td className="readonly">
+              {(0.0).toLocaleString('nl-NL', {
+                maximumFractionDigits: 1,
+                minimumFractionDigits: 1,
+              })}
+            </td>
+            <td>
+              <PointInput value={currentPolygon.points[currentPointIndex]} onChange={onChange} />
+            </td>
+            <td></td>
+          </tr>
+          {currentPolygon.timeline?.map((age) => (
+            <tr key={age.time}>
+              <td>
+                <NumberInput
+                  value={age.time}
+                  step={0.1}
+                  max={1}
+                  onChange={(value) => {
+                    age.time = value
+                    onChange()
+                  }}
+                />
+              </td>
+              <td>
+                <PointInput value={age.points[currentPointIndex]} onChange={onChange} />
+              </td>
+              <td>
+                <button onClick={() => onDeleteAge(age)}>Delete</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+        <tfoot>
+          <tr>
+            <td>
+              <button onClick={onAddAge}>Add Age</button>
+            </td>
+          </tr>
+        </tfoot>
+      </table>
+    )}
+  </div>
+)
+
+export default CurrentState
+
+const style = css`
+  display: flex;
+  > * {
+    margin-left: 2rem;
+    margin-right: 2rem;
+  }
+  header {
+    display: flex;
+    align-items: center;
+    > * {
+      margin-right: 0.75rem;
+    }
+
+    h3 {
+      font-size: 1rem;
+      margin-bottom: 0.25rem;
+      margin-top: 0.25rem;
+      flex: 0;
+    }
+  }
+  small {
+    margin-left: 0.25rem;
+    font-weight: normal;
+  }
+  button {
+    font-size: 0.5rem;
+  }
+  input,
+  .readonly {
+    max-width: 75px;
+    padding-left: 1rem;
+  }
+  .readonly {
+    display: inline-block;
+    padding-right: 1.5rem;
+    border: 1px solid hsla(0, 0%, 100%, 0.2);
+    border-radius: 3px;
+    height: 24px;
+  }
+  tbody > tr {
+    &:hover {
+      background-color: hsla(0, 0%, 100%, 0.1);
+    }
+  }
+`

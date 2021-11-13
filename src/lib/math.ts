@@ -9,6 +9,12 @@ export const clamp01 = (value: number) => clamp(value, 0, 1)
 export const inRange = (value: number, minValue: number, maxValue: number) =>
   value >= minValue && value <= maxValue
 
+export const findMax = <T>(input: T[], callback: (item: T) => number) =>
+  input.reduce((p, c) => (callback(c) > callback(p) ? c : p))
+
+export const findMin = <T>(input: T[], callback: (item: T) => number) =>
+  input.reduce((p, c) => (callback(c) < callback(p) ? c : p))
+
 export const range = (length: number) => Array.from({ length }, (_, i) => i)
 
 const {

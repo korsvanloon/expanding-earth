@@ -1,7 +1,7 @@
 // this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
 /** @jsx jsx */
 import { css } from '@emotion/react'
-import { round } from 'lib/math'
+import { findMax, round } from 'lib/math'
 import { useCallback, useEffect, useState, MouseEvent } from 'react'
 import { Vector2 } from 'three'
 import StoreButton from './StoreButton'
@@ -15,6 +15,7 @@ import { getPointsAtTime, Polygon, polygonFromRawJson, setPointsAtTime } from 'l
 import { Link } from 'wouter'
 import NavBar from './NavBar'
 import pointInPolygon from 'point-in-polygon'
+import CurrentState from './CurrentState'
 
 const backgroundImages = [
   //
@@ -26,7 +27,7 @@ const backgroundImages = [
 ]
 
 // const height = 400
-const initialTime = 0.5
+const initialTime = 0.3
 
 const findPolygon = (uv: Vector2, polygons: Polygon[]) =>
   polygons.find((p) =>
@@ -38,7 +39,7 @@ const findPolygon = (uv: Vector2, polygons: Polygon[]) =>
 
 function EarthMap() {
   const [height, setHeight] = useState<number>(400)
-  const [currentPoint, setCurrentPoint] = useState<Vector2>()
+  const [currentPointIndex, setCurrentPointIndex] = useState<number>()
   const [polygons, setPolygons] = useState<Polygon[]>([])
   const [currentPolygon, setCurrentPolygon] = useState<Polygon>()
 
@@ -80,6 +81,12 @@ function EarthMap() {
   )
 
   ;(window as any).polygons = polygons
+
+  const deletePoint = (polygon: Polygon, pointIndex: number) => {
+    polygon.points.splice(pointIndex, 1)
+    polygon.timeline?.forEach((t) => t.points.splice(pointIndex, 1))
+    setCurrentPointIndex(undefined)
+  }
 
   return (
     <div>
@@ -132,7 +139,7 @@ function EarthMap() {
           time={time}
           onClick={handleClick}
           onPointMoved={(oldUv, newUv, polygon, i) => {
-            setCurrentPoint(newUv)
+            setCurrentPointIndex(i)
             const newPoints = getPointsAtTime(polygon, time)
             const uv = newPoints.find((p) => p.equals(oldUv))
             uv?.setX(newUv.x)
@@ -141,28 +148,51 @@ function EarthMap() {
             setPolygons([...polygons])
           }}
           onPointClick={(uv, event, polygon, i) => {
+            setCurrentPolygon(polygon)
+            setCurrentPointIndex(i)
             if (event.shiftKey) {
-              polygon.points.splice(i, 1)
-              polygon.timeline?.forEach((t) => t.points.splice(i, 1))
-              setPolygons([...polygons])
+              deletePoint(polygon, i)
             }
           }}
         />
       </div>
-      {currentPolygon && (
-        <div>
-          <button
-            onClick={() => {
-              setPolygons(polygons.filter((p) => p !== currentPolygon))
-              setCurrentPolygon(undefined)
-            }}
-          >
-            Delete
-          </button>
-        </div>
-      )}
-      <pre>polygon: {currentPolygon && polygons.indexOf(currentPolygon)}</pre>
-      <pre>{currentPoint && `point: (x: ${currentPoint.x}, y: ${currentPoint.y})`}</pre>
+      <CurrentState
+        currentPointIndex={currentPointIndex}
+        currentPolygon={currentPolygon}
+        polygons={polygons}
+        onChange={() => {
+          setPolygons([...polygons])
+        }}
+        onDeletePolygon={() => {
+          setPolygons(polygons.filter((p) => p !== currentPolygon))
+          setCurrentPolygon(undefined)
+        }}
+        onDeletePoint={() => {
+          if (!currentPolygon || !currentPointIndex!) return
+          deletePoint(currentPolygon, currentPointIndex)
+        }}
+        onClosePoint={() => {
+          setCurrentPointIndex(undefined)
+        }}
+        onAddAge={() => {
+          if (!currentPolygon) return
+
+          const lastAge = currentPolygon.timeline
+            ? findMax(currentPolygon.timeline, (age) => age.time)
+            : undefined
+          setPointsAtTime(
+            currentPolygon,
+            (lastAge?.time ?? 0) + 0.1,
+            (lastAge?.points ?? currentPolygon.points).map((x) => x.clone()),
+          )
+          setPolygons([...polygons])
+        }}
+        onDeleteAge={(age) => {
+          if (!currentPolygon) return
+          currentPolygon.timeline = currentPolygon.timeline?.filter((a) => a !== age)
+          setPolygons([...polygons])
+        }}
+      />
     </div>
   )
 }
