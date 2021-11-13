@@ -24,6 +24,12 @@ class EarthGeometry extends BufferGeometry {
     uvs.forEach(({ x, y }, i) => buffer.setXY(i, x, y))
     this.setAttribute('uv', buffer)
   }
+  setPoints(points: Vector3[]) {
+    const buffer = new Float32BufferAttribute(points.length * 3, 3)
+    points.forEach(({ x, y, z }, i) => buffer.setXYZ(i, x, y, z))
+    this.setAttribute('position', buffer)
+    this.setAttribute('normal', buffer)
+  }
 }
 
 export default EarthGeometry
@@ -183,7 +189,7 @@ function* planeSquares(resolution: number) {
 const toBufferAttribute = (vertices: (Vector2 | Vector3)[]) =>
   new Float32BufferAttribute(
     vertices.flatMap((v) => v.toArray()),
-    vertices[0].toArray().length,
+    vertices[0]?.toArray().length ?? 2,
   )
 
 export function* geometryUvs(geometry: EarthGeometry) {

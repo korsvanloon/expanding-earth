@@ -93,6 +93,9 @@ const createSphereWithGlow = ({
     wireframe: true,
     transparent: true,
   })
+  const linesMaterial = new MeshBasicMaterial({
+    map: new TextureLoader().load('/textures/lines.png'),
+  })
   const color = new MeshPhongMaterial({
     map: new TextureLoader().load('/textures/color-map.jpg'),
     bumpMap: new TextureLoader().load('/textures/height-map.jpg'),
@@ -101,8 +104,13 @@ const createSphereWithGlow = ({
     shininess: 25,
     bumpScale: 15,
   })
-  const multiMaterial = [color]
-  // const multiMaterial = [color, wireframeMaterial]
+  // onst multiMaterial = [color]
+  const multiMaterial = [
+    //
+    color,
+    // linesMaterial,
+    wireframeMaterial,
+  ]
 
   const sphere = createMultiMaterialObject(geometry, multiMaterial)
 

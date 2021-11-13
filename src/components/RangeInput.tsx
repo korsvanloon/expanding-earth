@@ -1,5 +1,6 @@
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
+import { clamp } from 'lib/math'
 import { ReactNode, ChangeEvent } from 'react'
 
 type Props = {
@@ -14,7 +15,7 @@ type Props = {
 
 function RangeInput({ name, step = 0.1, min = 0, max = 1, value, children, onValue }: Props) {
   const onChange = (e: ChangeEvent<HTMLInputElement>) =>
-    onValue(isNaN(e.target.valueAsNumber) ? 0 : e.target.valueAsNumber)
+    onValue(isNaN(e.target.valueAsNumber) ? min : clamp(e.target.valueAsNumber, min, max))
 
   const inputProps = { name, value, min, max, step, onChange }
 

@@ -1,6 +1,6 @@
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
-import { MouseEvent } from 'react'
+import { MouseEvent, PointerEvent } from 'react'
 import { pixelToUv, uvToPixel } from 'lib/image'
 import { getPointsAtTime, Polygon } from 'lib/polygon'
 import { Vector2 } from 'three'
@@ -15,11 +15,25 @@ type Props = {
   time: number
   polygons: Polygon[]
   current?: Polygon
-  onClick: (uv: Vector2, event: MouseEvent) => void
-  onPointMoved: (oldUv: Vector2, newUv: Vector2, polygon: Polygon, index: number) => void
+  onClick?: (uv: Vector2, event: MouseEvent) => void
+  onPointMoved?: (oldUv: Vector2, newUv: Vector2, polygon: Polygon, index: number) => void
+  onPointClick?: (
+    uv: Vector2,
+    event: PointerEvent<SVGCircleElement>,
+    polygon: Polygon,
+    index: number,
+  ) => void
 }
 
-const UvMesh = ({ height, time, polygons, current, onClick, onPointMoved }: Props) => {
+const UvMesh = ({
+  height,
+  time,
+  polygons,
+  current,
+  onClick,
+  onPointMoved,
+  onPointClick,
+}: Props) => {
   return (
     <svg
       version="1.1"
@@ -34,7 +48,7 @@ const UvMesh = ({ height, time, polygons, current, onClick, onPointMoved }: Prop
         if (e.target instanceof SVGCircleElement) {
           return
         }
-        onClick(pixelToUv(new Vector2(e.clientX - box.left, e.clientY - box.top), height), e)
+        onClick?.(pixelToUv(new Vector2(e.clientX - box.left, e.clientY - box.top), height), e)
       }}
     >
       {polygons.map((polygon, pi) => {
@@ -44,7 +58,7 @@ const UvMesh = ({ height, time, polygons, current, onClick, onPointMoved }: Prop
 
         const triangles = pipeInto(
           Delaunator.from(
-            points,
+            polygon.points,
             (p) => p.x,
             (p) => p.y,
           ).triangles,
@@ -61,12 +75,10 @@ const UvMesh = ({ height, time, polygons, current, onClick, onPointMoved }: Prop
                 key={pixelsToSvgPoints(pixels, height)}
                 points={pixelsToSvgPoints(pixels, height)}
                 stroke={'black'}
-                // fill={`hsla(0, 100%, 50%, 0.2`}
                 // fill={`hsla(0, 100%, 50%, ${10 * abs((1 - time * 0.5) * initial.area - area)})`}
-                // fill={color}
                 strokeWidth={0.001}
                 onClick={() => console.log(polygon)}
-                style={{ color: polygon.color }}
+                style={{ color: polygon.color ?? 'hsla(0, 100%, 50%, 0.2' }}
               />
             ))}
             {points.map((uv, i) => (
@@ -74,10 +86,10 @@ const UvMesh = ({ height, time, polygons, current, onClick, onPointMoved }: Prop
                 key={`${uv.x};${uv.y}:${pi}`}
                 containerHeight={height}
                 uv={uv}
-                color={`black`}
+                // color={`black`}
                 // color={`hsla(0, ${abs(round((initial.angles[i] - angles[i]) * 100))}%, 50%, 1`}
                 onMove={(newUv) => {
-                  onPointMoved(uv, newUv, polygon, i)
+                  onPointMoved?.(uv, newUv, polygon, i)
                   // end.corners = [...end.corners]
                   // points[i].setX(newUv.x)
                   // points[i].setY(newUv.y)
@@ -85,6 +97,7 @@ const UvMesh = ({ height, time, polygons, current, onClick, onPointMoved }: Prop
                   // end.area = areaOfSquare(a, b, c, d)
                   // end.angles = anglesOfSquare(a, b, c, d)
                 }}
+                onClick={(uv, event) => onPointClick?.(uv, event, polygon, i)}
                 polygonId={`polygon-${pi}`}
               />
             ))}
@@ -108,13 +121,13 @@ const rootCss = css`
   g.selected {
     z-index: 1;
     polygon {
-      fill: currentColor;
+      /* fill: currentColor; */
     }
   }
   g.plate:hover {
     /* z-index: 1; */
     polygon {
-      fill: currentColor;
+      /* fill: currentColor; */
       /* fill: hsla(200, 80%, 50%, 0.5); */
     }
   }

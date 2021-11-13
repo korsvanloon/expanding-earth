@@ -4,7 +4,7 @@ import { jsx } from '@emotion/react'
 import { round } from 'lib/math'
 import { useEffect, useRef, useState } from 'react'
 import { AgeEarth } from 'lib/ageEarth'
-import EarthGeometry, { buildCubeSphere } from 'lib/EarthGeometry'
+import EarthGeometry from 'lib/EarthGeometry'
 import RangeInput from './RangeInput'
 import ChoiceInput from './ChoiceInput'
 import { useAnimationLoop } from 'hooks/useAnimationLoop'
@@ -13,7 +13,8 @@ import { Link } from 'wouter'
 import NavBar from './NavBar'
 import { toGeometryData } from 'lib/triangulation'
 import { load } from './StoreButton'
-import { Vector2 } from 'three'
+import { getPointsAtTime, Polygon, polygonFromRawJson } from 'lib/polygon'
+import { uvToPoint } from 'lib/sphere'
 
 const backgroundImages = [
   //
@@ -22,6 +23,7 @@ const backgroundImages = [
   'height-map.jpg',
   'age-map.png',
   'crustal-age-map.jpg',
+  'lines-map.png',
 ]
 
 const height = 400
@@ -29,14 +31,10 @@ const height = 400
 const resolution = 12
 
 // const geometry = new EarthGeometry(buildCubeSphere({ resolution, size: 1 }))
-const geometry = new EarthGeometry(
-  toGeometryData(
-    load<{ points: { x: number; y: number }[] }[]>('plates')?.map((xys, i) => ({
-      points: xys.points.map(({ x, y }) => new Vector2(x, y)),
-      color: `hsla(${(200 + 19 * i) % 360}, 80%, 50%, 0.3)`,
-    })) ?? [],
-  ),
-)
+
+const polygons = load<Polygon[]>('plates')?.map(polygonFromRawJson) ?? []
+
+const geometry = new EarthGeometry(toGeometryData(polygons))
 
 function Globe() {
   const webGlContainerRef = useRef<HTMLDivElement>(null)
@@ -60,13 +58,11 @@ function Globe() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
-  // useEffect(() => {
-  //   // actionsRef.current.age?.update(time)
-  //   const newUvs = movingPlates.flatMap(({ initial, end }) =>
-  //     cornersToSquare(initial.corners.map((c, i) => c.clone().lerp(end.corners[i], time))),
-  //   )
-  //   geometry.setUv(newUvs)
-  // }, [time, movingPlates])
+  useEffect(() => {
+    // actionsRef.current.age?.update(time)
+    const points = polygons.flatMap((p) => getPointsAtTime(p, time)).map((uv) => uvToPoint(uv))
+    geometry.setPoints(points)
+  }, [time])
 
   const humanAge = round(time * 280)
     .toString()

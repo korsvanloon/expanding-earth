@@ -10,7 +10,8 @@ type Props = {
   disabled?: boolean
   color?: string
   polygonId: string
-  onMove?: (uv: Vector2) => void
+  onMove?: (uv: Vector2, event: PointerEvent<SVGCircleElement>) => void
+  onClick?: (uv: Vector2, event: PointerEvent<SVGCircleElement>) => void
 }
 
 const ControlPoint = ({
@@ -18,15 +19,16 @@ const ControlPoint = ({
   containerHeight,
   disabled,
   onMove,
-  color = 'black',
+  onClick,
+  color = 'white',
   polygonId,
   ...rest
-}: Props & SVGProps<SVGCircleElement>) => {
+}: Props & Omit<SVGProps<SVGCircleElement>, keyof Props>) => {
   const [state, setState] = useState({
     active: false,
+    moved: false,
     offset: { x: 0, y: 0 },
     pixel: uvToPixel(uv, containerHeight),
-    uv: uv.clone(),
   })
 
   const onPointerDown = (e: PointerEvent<SVGCircleElement>) => {
@@ -42,15 +44,16 @@ const ControlPoint = ({
       const { x, y } = getOffset(e)
       state.pixel.x -= state.offset.x - x
       state.pixel.y -= state.offset.y - y
-      setState({ ...state })
+      setState({ ...state, moved: true })
     }
   }
-  const onPointerUp = () => {
-    setState({ ...state, active: false })
-    onMove?.(pixelToUv(state.pixel, containerHeight))
-  }
-  const onClick = () => {
-    // console.log(uv)
+  const onPointerUp = (event: PointerEvent<SVGCircleElement>) => {
+    if (state.moved) {
+      onMove?.(pixelToUv(state.pixel, containerHeight), event)
+    } else {
+      onClick?.(uv, event)
+    }
+    setState({ ...state, active: false, moved: false })
   }
 
   return (
@@ -58,8 +61,7 @@ const ControlPoint = ({
       {...rest}
       cx={state.pixel.x / containerHeight}
       cy={state.pixel.y / containerHeight}
-      r={0.01}
-      onClick={onClick}
+      r={0.005}
       fill={state.active ? 'blue' : color}
       // clipPath={state.active ? undefined : `url(#${polygonId})`}
       {...(disabled ? {} : { onPointerDown, onPointerUp, onPointerMove })}

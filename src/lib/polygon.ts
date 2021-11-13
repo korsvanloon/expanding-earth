@@ -13,7 +13,7 @@ export type Polygon = {
   timeline?: PointsInTime[]
 }
 
-export const getPointsAtTime = ({ points, timeline }: Polygon, time: number) => {
+export const getPointsAtTime = ({ points, timeline, color }: Polygon, time: number) => {
   const zeroPoints = { time: 0, points }
   const lower = timeline
     ? pipeInto(
@@ -51,3 +51,12 @@ export const setPointsAtTime = (polygon: Polygon, time: number, points: Vector2[
   }
   // polygon.timeline.sort((a, b) => a.time - b.time)
 }
+
+export const polygonFromRawJson = ({ points, timeline, color }: Polygon, i = 0) => ({
+  color: color ?? `hsla(${(200 + 19 * i) % 360}, 80%, 50%, 0.3)`,
+  points: points.map(({ x, y }) => new Vector2(x, y)),
+  timeline: timeline?.map(({ points, time }) => ({
+    time,
+    points: points.map(({ x, y }) => new Vector2(x, y)),
+  })),
+})

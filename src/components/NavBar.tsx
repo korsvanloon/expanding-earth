@@ -15,7 +15,7 @@ export default NavBar
 
 const style = css`
   display: flex;
-  justify-content: space-between;
+  justify-content: center;
   align-items: center;
   /* padding: 0.5rem; */
   > * {
