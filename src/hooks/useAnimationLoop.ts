@@ -1,7 +1,7 @@
 import { clamp01 } from 'lib/math'
 import { useState, useRef } from 'react'
 
-export const useAnimationLoop = (initialTime = 0) => {
+export const useAnimationLoop = (initialTime = 0, endTime = 1) => {
   const [time, setTime] = useState(initialTime)
   const [running, setRunning] = useState(false)
 
@@ -21,7 +21,7 @@ export const useAnimationLoop = (initialTime = 0) => {
       // to make sure we always have the latest state
       setTime((prevCount) => {
         const t = clamp01(prevCount + deltaTime * 0.0001 * (ascendingRef.current ? 1 : -1))
-        if (t >= 1) {
+        if (t >= endTime) {
           ascendingRef.current = false
         } else if (t <= 0) {
           ascendingRef.current = true

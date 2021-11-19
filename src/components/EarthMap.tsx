@@ -10,12 +10,11 @@ import ChoiceInput from './ChoiceInput'
 import { useAnimationLoop } from 'hooks/useAnimationLoop'
 import AgeFilter from './AgeFilter'
 import UvMesh from './UvMesh'
-import { getHull } from 'lib/triangulation'
 import { getPointsAtTime, Polygon, polygonFromRawJson, setPointsAtTime } from 'lib/polygon'
 import { Link } from 'wouter'
 import NavBar from './NavBar'
-import pointInPolygon from 'point-in-polygon'
 import CurrentState from './CurrentState'
+import { getPixelColor, loadImageData, pixelColorToHex, uvToPixel } from 'lib/image'
 
 const backgroundImages = [
   //
@@ -27,28 +26,51 @@ const backgroundImages = [
 ]
 
 // const height = 400
-const initialTime = 0.3
+const initialTime = 0.0
 
-const findPolygon = (uv: Vector2, polygons: Polygon[]) =>
-  polygons.find((p) =>
-    pointInPolygon(
-      uv.toArray(),
-      getHull(p.points).map((pt) => pt.toArray()),
-    ),
-  )
+// const findPolygon = (uv: Vector2, polygons: Polygon[]) =>
+//   polygons.find((p) =>
+//     pointInPolygon(
+//       uv.toArray(),
+//         pipeInto(
+//           getHull(p.points),
+//           map((pt) => pt.toArray()),
+//         ),
+//       ),
+//     ),
+//   )
 
 function EarthMap() {
   const [height, setHeight] = useState<number>(400)
   const [currentPointIndex, setCurrentPointIndex] = useState<number>()
   const [polygons, setPolygons] = useState<Polygon[]>([])
   const [currentPolygon, setCurrentPolygon] = useState<Polygon>()
+  const [ageData, setAgeData] = useState<ImageData>()
 
-  const { time, setTime, running, start, stop } = useAnimationLoop(initialTime)
+  const { time, setTime, running, start, stop } = useAnimationLoop(initialTime, initialTime)
 
   useEffect(() => {
     const height = Math.min(window.innerHeight - 100, window.innerWidth / 2 - 100)
     setHeight(height)
+    loadImageData('textures/age-map.png', height * 2, height).then((data) => {
+      setAgeData(data)
+    })
   }, [])
+
+  useEffect(() => {
+    const shortCuts = (event: KeyboardEvent) => {
+      if (document.activeElement !== document.body) return
+      event.preventDefault()
+      switch (event.key) {
+        case ' ':
+          if (running) stop()
+          else start()
+          break
+      }
+    }
+    window.addEventListener('keyup', shortCuts)
+    return () => window.removeEventListener('keyup', shortCuts)
+  }, [running, start, stop])
 
   const humanAge = round(time * 280)
     .toString()
@@ -58,7 +80,8 @@ function EarthMap() {
 
   const handleClick = useCallback(
     (uv: Vector2, event: MouseEvent) => {
-      const clickedPolygon = findPolygon(uv, polygons)
+      // const clickedPolygon = findPolygon(uv, polygons)
+      const clickedPolygon = polygons[0]
 
       if (clickedPolygon && clickedPolygon !== currentPolygon) {
         setCurrentPolygon(clickedPolygon)
@@ -107,7 +130,11 @@ function EarthMap() {
         </ChoiceInput>
         <StoreButton
           name={`plates`}
-          onLoad={(rawPolygons) => setPolygons(rawPolygons.map(polygonFromRawJson))}
+          onLoad={(rawPolygons) => {
+            const polygons = rawPolygons.map(polygonFromRawJson)
+            setPolygons(polygons)
+            setCurrentPolygon(polygons[0])
+          }}
           onSave={() => polygons}
         >
           Store
@@ -132,11 +159,23 @@ function EarthMap() {
           style={{ filter: 'url(#color-replace)' }}
           className="age-lines"
         />
+        {/* <img
+          alt=""
+          src="/textures/lines.png"
+          width={height * 2}
+          height={height}
+          className="age-lines"
+          style={{ opacity: 0.6 }}
+        /> */}
         <UvMesh
           height={height}
           polygons={polygons}
           current={currentPolygon}
+          currentPointIndex={currentPointIndex}
           time={time}
+          uvColor={(uv) =>
+            ageData ? pixelColorToHex(getPixelColor(ageData, uvToPixel(uv, height))) : undefined
+          }
           onClick={handleClick}
           onPointMoved={(oldUv, newUv, polygon, i) => {
             setCurrentPointIndex(i)
@@ -187,6 +226,7 @@ function EarthMap() {
           )
           setPolygons([...polygons])
         }}
+        onSelectAge={(age) => setTime(age.time)}
         onDeleteAge={(age) => {
           if (!currentPolygon) return
           currentPolygon.timeline = currentPolygon.timeline?.filter((a) => a !== age)

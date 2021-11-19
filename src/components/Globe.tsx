@@ -11,10 +11,15 @@ import { useAnimationLoop } from 'hooks/useAnimationLoop'
 import createGlobeEarth, { GlobeEarth } from 'lib/globeEarth'
 import { Link } from 'wouter'
 import NavBar from './NavBar'
-import { toGeometryData } from 'lib/triangulation'
 import { load } from './StoreButton'
 import { getPointsAtTime, Polygon, polygonFromRawJson } from 'lib/polygon'
 import { uvToPoint } from 'lib/sphere'
+import { TextureLoader } from 'three'
+import Delaunator from 'delaunator'
+import { combine, flatMap, map, toArray } from 'lib/iterable'
+import { delaunayTriangles, connectingTriangles } from 'lib/triangulation'
+import { pipeInto } from 'ts-functional-pipe'
+import { info } from 'lib/log'
 
 const backgroundImages = [
   //
@@ -26,15 +31,29 @@ const backgroundImages = [
   'lines-map.png',
 ]
 
-const height = 400
-
-const resolution = 12
-
+// const resolution = 12
 // const geometry = new EarthGeometry(buildCubeSphere({ resolution, size: 1 }))
 
 const polygons = load<Polygon[]>('plates')?.map(polygonFromRawJson) ?? []
-
-const geometry = new EarthGeometry(toGeometryData(polygons))
+const uvs = polygons.flatMap((p) => p.points)
+const vertices = uvs.map(uvToPoint)
+const delaunay = Delaunator.from(
+  uvs,
+  (p) => p.x,
+  (p) => p.y,
+)
+const geometry = new EarthGeometry({
+  uvs,
+  vertices,
+  normals: vertices,
+  indices: pipeInto(
+    info(delaunayTriangles(delaunay, uvs)),
+    combine(info(connectingTriangles(delaunay, uvs))),
+    flatMap((t) => [...t.nodes].reverse()),
+    map((n) => n.id),
+    toArray,
+  ),
+})
 
 function Globe() {
   const webGlContainerRef = useRef<HTMLDivElement>(null)
@@ -43,7 +62,7 @@ function Globe() {
     globe: undefined,
   })
 
-  const { time, setTime, running, start, stop } = useAnimationLoop()
+  const { time, setTime, running, start, stop } = useAnimationLoop(0, 0.3)
 
   useEffect(() => {
     if (webGlContainerRef.current) {
@@ -58,17 +77,23 @@ function Globe() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  const [background, setBackground] = useState(backgroundImages[0])
+
   useEffect(() => {
     // actionsRef.current.age?.update(time)
     const points = polygons.flatMap((p) => getPointsAtTime(p, time)).map((uv) => uvToPoint(uv))
     geometry.setPoints(points)
   }, [time])
 
+  useEffect(() => {
+    actionsRef.current.globe?.updateColorTexture(
+      new TextureLoader().load(`/textures/${background}`),
+    )
+  }, [background])
+
   const humanAge = round(time * 280)
     .toString()
     .padStart(3)
-
-  const [background, setBackground] = useState(backgroundImages[0])
 
   return (
     <div>

@@ -11,6 +11,7 @@ import {
   MeshPhongMaterial,
   RawShaderMaterial,
   SphereGeometry,
+  Texture,
   TextureLoader,
   Vector3,
   WebGLRenderer,
@@ -27,10 +28,11 @@ export type Props = {
 
 export type GlobeEarth = {
   cleanUp: () => void
+  updateColorTexture: (texture: Texture) => void
 }
 
 async function createGlobeEarth({ geometry, container }: Props): Promise<GlobeEarth> {
-  const [sphere, atmosphere] = createSphereWithGlow({
+  const [sphere, atmosphere, updateColorTexture] = createSphereWithGlow({
     geometry,
     radius: 100,
   })
@@ -68,6 +70,7 @@ async function createGlobeEarth({ geometry, container }: Props): Promise<GlobeEa
     cleanUp: () => {
       container.removeChild(renderer.domElement)
     },
+    updateColorTexture,
   }
 }
 
@@ -133,5 +136,9 @@ const createSphereWithGlow = ({
   atmosphere.scale.set(1.1, 1.1, 1.1)
   atmosphere.position.copy(position)
 
-  return [sphere, atmosphere]
+  function updateColorTexture(texture: Texture) {
+    color.map = texture
+  }
+
+  return [sphere, atmosphere, updateColorTexture] as const
 }

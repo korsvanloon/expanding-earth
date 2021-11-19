@@ -17,6 +17,13 @@ export const findMin = <T>(input: T[], callback: (item: T) => number) =>
 
 export const range = (length: number) => Array.from({ length }, (_, i) => i)
 
+export const average = (values: number[]) => sum(values) / values.length
+
+export const nearest =
+  <T>(value: number, getValue: (item: T) => number) =>
+  (a: T, b: T) =>
+    abs(getValue(a) - value) < abs(getValue(b) - value) ? a : b
+
 const {
   E,
   LN10,

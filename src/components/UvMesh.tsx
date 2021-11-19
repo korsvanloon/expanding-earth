@@ -7,14 +7,17 @@ import { Vector2 } from 'three'
 import ControlPoint from './ControlPoint'
 import Delaunator from 'delaunator'
 import { pipeInto } from 'ts-functional-pipe'
-import { makePocketsOf, map, toArray } from 'lib/iterable'
+import { combine, map, toArray } from 'lib/iterable'
 import clsx from 'clsx'
+import { delaunayTriangles, connectingTriangles } from 'lib/triangulation'
 
 type Props = {
   height: number
   time: number
   polygons: Polygon[]
   current?: Polygon
+  currentPointIndex?: number
+  uvColor: (uv: Vector2) => string | undefined
   onClick?: (uv: Vector2, event: MouseEvent) => void
   onPointMoved?: (oldUv: Vector2, newUv: Vector2, polygon: Polygon, index: number) => void
   onPointClick?: (
@@ -30,6 +33,8 @@ const UvMesh = ({
   time,
   polygons,
   current,
+  currentPointIndex,
+  uvColor,
   onClick,
   onPointMoved,
   onPointClick,
@@ -52,25 +57,27 @@ const UvMesh = ({
       }}
     >
       {polygons.map((polygon, pi) => {
-        // const hull = getHull(points)
-
-        const points = getPointsAtTime(polygon, time)
+        const uvs = getPointsAtTime(polygon, time)
+        const delaunay = Delaunator.from(
+          polygon.points,
+          (p) => p.x,
+          (p) => p.y,
+        )
 
         const triangles = pipeInto(
-          Delaunator.from(
-            polygon.points,
-            (p) => p.x,
-            (p) => p.y,
-          ).triangles,
-          map((i) => uvToPixel(points[i], height)),
-          makePocketsOf(3),
+          delaunayTriangles(delaunay, uvs),
+          combine(connectingTriangles(delaunay, uvs)),
+          map(({ id, nodes }) => ({
+            id,
+            pixels: nodes.map(({ value: uv }) => uvToPixel(uv, height)),
+          })),
           toArray,
         )
 
         return (
           <g key={pi} className={clsx('plate', polygon === current && 'selected')}>
             <clipPath id={`polygon-${pi}`}>{/* <polygon points={polygonPoints} /> */}</clipPath>
-            {triangles.map((pixels, i) => (
+            {triangles.map(({ pixels }, i) => (
               <polygon
                 key={pixelsToSvgPoints(pixels, height)}
                 points={pixelsToSvgPoints(pixels, height)}
@@ -81,13 +88,14 @@ const UvMesh = ({
                 style={{ color: polygon.color ?? 'hsla(0, 100%, 50%, 0.2' }}
               />
             ))}
-            {points.map((uv, i) => (
+            {uvs.map((uv, i) => (
               <ControlPoint
                 key={`${uv.x};${uv.y}:${pi}`}
+                xlinkTitle={`${uv.x};${uv.y}:${pi}`}
                 containerHeight={height}
                 uv={uv}
-                // color={`black`}
-                // color={`hsla(0, ${abs(round((initial.angles[i] - angles[i]) * 100))}%, 50%, 1`}
+                className={clsx(currentPointIndex === i && 'selected')}
+                color={uvColor(uv)}
                 onMove={(newUv) => {
                   onPointMoved?.(uv, newUv, polygon, i)
                   // end.corners = [...end.corners]
@@ -133,6 +141,10 @@ const rootCss = css`
   }
   circle:hover {
     fill: hsla(200, 80%, 50%, 1);
+  }
+  circle.selected {
+    stroke: hsla(200, 100%, 80%, 1);
+    stroke-width: 0.01px;
   }
 `
 

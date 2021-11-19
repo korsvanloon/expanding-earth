@@ -1,6 +1,8 @@
 // this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
-/** @jsx jsx */
-import { css } from '@emotion/react'
+/**
+ * @jsxFrag
+ * @jsx jsx */
+import { css, jsx } from '@emotion/react'
 import { PointsInTime, Polygon } from 'lib/polygon'
 import NumberInput from './NumberInput'
 import PointInput from './PointInput'
@@ -14,6 +16,7 @@ type Props = {
   onClosePoint: () => void
   onDeletePoint: () => void
   onAddAge: () => void
+  onSelectAge: (age: PointsInTime) => void
   onDeleteAge: (age: PointsInTime) => void
 }
 
@@ -25,80 +28,105 @@ const CurrentState = ({
   onChange,
   onClosePoint,
   onDeletePoint,
-  onDeleteAge,
   onAddAge,
-}: Props) => (
-  <div css={style}>
-    {currentPolygon && (
-      <div>
-        <header>
-          <h3>polygon</h3>
-          <span>{polygons.indexOf(currentPolygon)}</span>
-          <button onClick={onDeletePolygon}>Delete</button>
-        </header>
-      </div>
-    )}
-    {currentPolygon && currentPointIndex !== undefined && (
-      <table>
-        <thead>
-          <tr>
-            <th>age</th>
-            <th>
-              point
-              <small>{currentPointIndex}</small>
-            </th>
-            <td>
-              <button onClick={onDeletePoint}>Delete</button>
-              <button onClick={onClosePoint}>Close</button>
-            </td>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td className="readonly">
-              {(0.0).toLocaleString('nl-NL', {
-                maximumFractionDigits: 1,
-                minimumFractionDigits: 1,
-              })}
-            </td>
-            <td>
-              <PointInput value={currentPolygon.points[currentPointIndex]} onChange={onChange} />
-            </td>
-            <td></td>
-          </tr>
-          {currentPolygon.timeline?.map((age) => (
-            <tr key={age.time}>
+  onSelectAge,
+  onDeleteAge,
+}: Props) => {
+  return (
+    <div css={style}>
+      {currentPolygon && (
+        <div>
+          <header>
+            <h3>polygon</h3>
+            <span>{polygons.indexOf(currentPolygon)}</span>
+            <button onClick={onDeletePolygon}>Delete</button>
+          </header>
+        </div>
+      )}
+      {currentPolygon && (
+        <table>
+          <thead>
+            <tr>
+              <th>age</th>
+              <th>
+                {currentPointIndex !== undefined && (
+                  <>
+                    point
+                    <small>{currentPointIndex}</small>
+                  </>
+                )}
+              </th>
               <td>
-                <NumberInput
-                  value={age.time}
-                  step={0.1}
-                  max={1}
-                  onChange={(value) => {
-                    age.time = value
-                    onChange()
-                  }}
-                />
-              </td>
-              <td>
-                <PointInput value={age.points[currentPointIndex]} onChange={onChange} />
-              </td>
-              <td>
-                <button onClick={() => onDeleteAge(age)}>Delete</button>
+                {currentPointIndex !== undefined && (
+                  <>
+                    <button onClick={onDeletePoint}>Delete</button>
+                    <button onClick={onClosePoint}>Close</button>
+                  </>
+                )}
               </td>
             </tr>
-          ))}
-        </tbody>
-        <tfoot>
-          <tr>
-            <td>
-              <button onClick={onAddAge}>Add Age</button>
-            </td>
-          </tr>
-        </tfoot>
-      </table>
-    )}
-  </div>
-)
+          </thead>
+          <tbody>
+            <tr>
+              <td className="readonly">
+                {(0.0).toLocaleString('nl-NL', {
+                  maximumFractionDigits: 1,
+                  minimumFractionDigits: 1,
+                })}
+              </td>
+              <td>
+                {currentPointIndex !== undefined && (
+                  <PointInput
+                    value={currentPolygon.points[currentPointIndex]}
+                    onChange={onChange}
+                  />
+                )}
+              </td>
+              <td>
+                {currentPointIndex !== undefined && (
+                  <button onClick={() => onSelectAge({ time: 0, points: currentPolygon.points })}>
+                    Select
+                  </button>
+                )}
+              </td>
+            </tr>
+            {currentPolygon.timeline?.map((age) => (
+              <tr key={age.time}>
+                <td>
+                  <NumberInput
+                    value={age.time}
+                    step={0.1}
+                    max={1}
+                    onChange={(value) => {
+                      age.time = value
+                      onChange()
+                    }}
+                  />
+                </td>
+                <td>
+                  {currentPointIndex !== undefined && (
+                    <PointInput value={age.points[currentPointIndex]} onChange={onChange} />
+                  )}
+                </td>
+                <td>
+                  <button onClick={() => onSelectAge(age)}>Select</button>
+                  <button onClick={() => onDeleteAge(age)}>Delete</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+          <tfoot>
+            <tr>
+              <td>
+                <button onClick={onAddAge}>Add Age</button>
+              </td>
+            </tr>
+          </tfoot>
+        </table>
+      )}
+    </div>
+  )
+}
 
 export default CurrentState
 
