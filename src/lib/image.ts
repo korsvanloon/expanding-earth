@@ -1,5 +1,5 @@
 import { Vector2 } from 'three'
-import { round } from './math'
+import { round, clamp } from './math'
 
 export type PixelColor = readonly [number, number, number, number]
 
@@ -20,7 +20,8 @@ export const loadImageData = async (src: string, width: number, height: number) 
   })
 
 export function setPixelColor(imageData: ImageData, [r, g, b, a]: PixelColor, { x, y }: Vector2) {
-  const index = x + y * imageData.width
+  const index =
+    clamp(x, 0, imageData.width - 1) + clamp(y, 0, imageData.height - 1) * imageData.width
   imageData.data[index * 4 + 0] = r
   imageData.data[index * 4 + 1] = g
   imageData.data[index * 4 + 2] = b
@@ -28,7 +29,8 @@ export function setPixelColor(imageData: ImageData, [r, g, b, a]: PixelColor, { 
 }
 
 export const getPixelColor = (imageData: ImageData, { x, y }: Vector2): PixelColor => {
-  const index = x + y * imageData.width
+  const index =
+    clamp(x, 0, imageData.width - 1) + clamp(y, 0, imageData.height - 1) * imageData.width
   return [
     imageData.data[index * 4 + 0],
     imageData.data[index * 4 + 1],

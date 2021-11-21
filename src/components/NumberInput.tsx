@@ -25,7 +25,7 @@ const NumberInput = ({ value, min = 0, max, step, required = true, onChange, chi
         type="number"
         onChange={(e) => {
           setInnerValue(e.target.valueAsNumber)
-          if (e.target.value) {
+          if (e.target.value !== '') {
             return onChange(e.target.valueAsNumber)
           }
         }}
