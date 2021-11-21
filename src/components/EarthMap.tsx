@@ -167,33 +167,36 @@ function EarthMap() {
           className="age-lines"
           style={{ opacity: 0.6 }}
         /> */}
-        <UvMesh
-          height={height}
-          polygons={polygons}
-          current={currentPolygon}
-          currentPointIndex={currentPointIndex}
-          time={time}
-          uvColor={(uv) =>
-            ageData ? pixelColorToHex(getPixelColor(ageData, uvToPixel(uv, height))) : undefined
-          }
-          onClick={handleClick}
-          onPointMoved={(oldUv, newUv, polygon, i) => {
-            setCurrentPointIndex(i)
-            const newPoints = getPointsAtTime(polygon, time)
-            const uv = newPoints.find((p) => p.equals(oldUv))
-            uv?.setX(newUv.x)
-            uv?.setY(newUv.y)
-            setPointsAtTime(polygon, time, newPoints)
-            setPolygons([...polygons])
-          }}
-          onPointClick={(uv, event, polygon, i) => {
-            setCurrentPolygon(polygon)
-            setCurrentPointIndex(i)
-            if (event.shiftKey) {
-              deletePoint(polygon, i)
+        {ageData && (
+          <UvMesh
+            height={height}
+            polygons={polygons}
+            ageData={ageData}
+            current={currentPolygon}
+            currentPointIndex={currentPointIndex}
+            time={time}
+            uvColor={(uv) =>
+              ageData ? pixelColorToHex(getPixelColor(ageData, uvToPixel(uv, height))) : undefined
             }
-          }}
-        />
+            onClick={handleClick}
+            onPointMoved={(oldUv, newUv, polygon, i) => {
+              setCurrentPointIndex(i)
+              const newPoints = getPointsAtTime(polygon, time)
+              const uv = newPoints.find((p) => p.equals(oldUv))
+              uv?.setX(newUv.x)
+              uv?.setY(newUv.y)
+              setPointsAtTime(polygon, time, newPoints)
+              setPolygons([...polygons])
+            }}
+            onPointClick={(uv, event, polygon, i) => {
+              setCurrentPolygon(polygon)
+              setCurrentPointIndex(i)
+              if (event.shiftKey) {
+                deletePoint(polygon, i)
+              }
+            }}
+          />
+        )}
       </div>
       <CurrentState
         currentPointIndex={currentPointIndex}

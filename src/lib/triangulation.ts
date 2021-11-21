@@ -6,6 +6,7 @@ import { pipeInto } from 'ts-functional-pipe'
 export type Node<T> = {
   id: number
   value: T
+  mirror?: number
 }
 
 export type Triangle<T> = {
@@ -15,6 +16,9 @@ export type Triangle<T> = {
 }
 
 /**
+ * Creates a globe mesh consisting of triangles and uvs from a base set of points.
+ *
+ * The returning uvs
  *
  * @param points A set of uv-points.
  * @returns
@@ -32,16 +36,17 @@ export const globeMesh = (points: Vector2[]) => {
       (node, i): Node<Vector2> => ({
         id: i + points.length,
         value: new Vector2(node.value.x - 1, node.value.y),
+        mirror: node.id,
       }),
     ),
     toArray,
   )
 
   return {
-    uvs: pipeInto(
+    nodes: pipeInto(
       combine(
-        points,
-        connectingNodes.map(({ value }) => value),
+        points.map((value, id) => ({ id, value })),
+        connectingNodes,
       ),
       toArray,
     ),

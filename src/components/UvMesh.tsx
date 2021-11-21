@@ -1,18 +1,20 @@
 /** @jsx jsx */
 import { css } from '@emotion/react'
 import { MouseEvent, PointerEvent } from 'react'
-import { pixelToUv, uvToPixel } from 'lib/image'
+import { getPixelColor, pixelToUv, uvToPixel } from 'lib/image'
 import { getPointsAtTime, Polygon } from 'lib/polygon'
 import { Vector2 } from 'three'
 import ControlPoint from './ControlPoint'
 import { pipeInto } from 'ts-functional-pipe'
 import { map, toArray } from 'lib/iterable'
 import clsx from 'clsx'
-import { globeMesh } from 'lib/triangulation'
+import { globeMesh, Node } from 'lib/triangulation'
+import { triangleCenter, triangleDirection } from 'lib/algorithm'
 
 type Props = {
   height: number
   time: number
+  ageData: ImageData
   polygons: Polygon[]
   current?: Polygon
   currentPointIndex?: number
@@ -30,6 +32,7 @@ type Props = {
 const UvMesh = ({
   height,
   time,
+  ageData,
   polygons,
   current,
   currentPointIndex,
@@ -55,31 +58,54 @@ const UvMesh = ({
         onClick?.(pixelToUv(new Vector2(e.clientX - box.left, e.clientY - box.top), height), e)
       }}
     >
+      <defs>
+        <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="0" refY="3.5" orient="auto">
+          <polygon points="0 0, 10 3.5, 0 7" fill="currentColor" />
+        </marker>
+      </defs>
+
       {polygons.map((polygon, pi) => {
         const uvs = getPointsAtTime(polygon, time)
 
+        const nodeAges = uvs.map((uv) => getPixelColor(ageData, uvToPixel(uv, height))[0] / 256)
+
         const triangles = pipeInto(
           globeMesh(uvs).triangles,
-          map(({ id, nodes }) => ({
-            id,
-            pixels: nodes.map(({ value: uv }) => uvToPixel(uv, height)),
-          })),
+          map((triangle) => {
+            const center = triangleCenter(triangle)
+            return {
+              ...triangle,
+              center,
+              direction: triangleDirection(triangle, center, nodeAges),
+            }
+          }),
           toArray,
         )
 
         return (
           <g key={pi} className={clsx('plate', polygon === current && 'selected')}>
             <clipPath id={`polygon-${pi}`}>{/* <polygon points={polygonPoints} /> */}</clipPath>
-            {triangles.map(({ pixels }) => (
-              <polygon
-                key={pixelsToSvgPoints(pixels, height)}
-                points={pixelsToSvgPoints(pixels, height)}
-                stroke={'black'}
-                // fill={`hsla(0, 100%, 50%, ${10 * abs((1 - time * 0.5) * initial.area - area)})`}
-                strokeWidth={0.001}
-                onClick={() => console.log(polygon)}
-                style={{ color: polygon.color ?? 'hsla(0, 100%, 50%, 0.2' }}
-              />
+            {triangles.map(({ nodes, id, center, direction }) => (
+              <g key={id}>
+                <line
+                  x1={uvToPixel(center, height).x / height}
+                  y1={uvToPixel(center, height).y / height}
+                  x2={uvToPixel(center.clone().sub(direction), height).x / height}
+                  y2={uvToPixel(center.clone().sub(direction), height).y / height}
+                  color="red"
+                  stroke={'currentColor'}
+                  strokeWidth={0.001}
+                  marker-end="url(#arrowhead)"
+                />
+                <polygon
+                  points={nodesToSvgPoints(nodes, height)}
+                  stroke={'black'}
+                  // fill={`hsla(0, 100%, 50%, ${10 * abs((1 - time * 0.5) * initial.area - area)})`}
+                  strokeWidth={0.001}
+                  onClick={() => console.log(polygon)}
+                  style={{ color: polygon.color ?? 'hsla(0, 100%, 50%, 0.2' }}
+                />
+              </g>
             ))}
             {uvs.map((uv, i) => (
               <ControlPoint
@@ -141,5 +167,9 @@ const rootCss = css`
   }
 `
 
-const pixelsToSvgPoints = (pixels: Vector2[], height: number) =>
-  pixels.map(({ x, y }) => `${x / height},${y / height}`).join(' ')
+const nodesToSvgPoints = (nodes: Node<Vector2>[], height: number) =>
+  nodes
+    .map((x) => x.value)
+    .map((x) => uvToPixel(x, height))
+    .map(({ x, y }) => `${x / height},${y / height}`)
+    .join(' ')

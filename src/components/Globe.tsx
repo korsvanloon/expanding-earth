@@ -35,22 +35,21 @@ const backgroundImages = [
 const polygons = load<Polygon[]>('plates')?.map(polygonFromRawJson) ?? []
 const delaunayUvs = polygons.flatMap((p) => p.points)
 
-const { triangles, uvs } = globeMesh(delaunayUvs)
+const { triangles, nodes } = globeMesh(delaunayUvs)
+const uvs = nodes.map(({ value }) => value)
 const vertices = uvs.map(uvToPoint)
 
-const geometry = new EarthGeometry(
-  info({
-    uvs,
-    vertices,
-    normals: vertices,
-    indices: pipeInto(
-      triangles,
-      flatMap((t) => [...t.nodes].reverse()),
-      map((n) => n.id),
-      toArray,
-    ),
-  }),
-)
+const geometry = new EarthGeometry({
+  uvs,
+  vertices,
+  normals: vertices,
+  indices: pipeInto(
+    triangles,
+    flatMap((t) => [...t.nodes].reverse()),
+    map((n) => n.id),
+    toArray,
+  ),
+})
 
 function Globe() {
   const webGlContainerRef = useRef<HTMLDivElement>(null)
