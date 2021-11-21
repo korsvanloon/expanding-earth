@@ -1,16 +1,24 @@
-export function* range(size: number) {
-  for (let i = 0; i < size; i++) {
+export function* range({ size, step = 1 }: { size: number; step?: number }) {
+  for (let i = 0; i < size * step; i += step) {
     yield i
   }
 }
 
-export const combine = <T>(...others: Iterable<T>[]) =>
-  function* (items: Iterable<T>) {
-    yield* items
-    for (const otherItems of others) {
-      yield* otherItems
-    }
+export function* combine<T>(...others: Iterable<T>[]) {
+  for (const otherItems of others) {
+    yield* otherItems
   }
+}
+
+export function* zip<T>(...others: Iterable<T>[]) {
+  const iterators = others.map((o) => o[Symbol.iterator]())
+  let nextBatch = iterators.map((i) => i.next())
+  while (true) {
+    if (nextBatch.some((i) => i.done)) break
+    yield nextBatch.map((b) => b.value)
+    nextBatch = iterators.map((i) => i.next())
+  }
+}
 
 export const makePocketsOf = <T>(amount: number) =>
   function* (items: Iterable<T>) {
@@ -57,10 +65,11 @@ export const flat = function* <T>(items: Iterable<Iterable<T>>) {
   }
 }
 
-export const flatMap = <T, S>(mapped: (item: T) => S[]) =>
+export const flatMap = <T, S>(mapped: (item: T, index: number) => S[]) =>
   function* (items: Iterable<T>) {
+    let index = 0
     for (const item of items) {
-      for (const item2 of mapped(item)) {
+      for (const item2 of mapped(item, index++)) {
         yield item2
       }
     }
@@ -91,6 +100,11 @@ export const reduce = <T, S>(initialValue: S, accumulator: (previous: S, current
     return result
   }
 
+export const sort =
+  <T>(compare: (a: T, b: T) => number) =>
+  (items: T[]) =>
+    [...items].sort(compare)
+
 export const compare = <T>(comparison: (previous: T, current: T) => T) =>
   function (items: Iterable<T>) {
     let result: T | undefined = undefined
@@ -117,4 +131,7 @@ export const highest =
   (a: T, b: T) =>
     by(a) < by(b) ? a : b
 
-export const toArray = <T>(items: Iterable<T>) => (items instanceof Array ? items : [...items])
+export const toArray = <T>(items: Iterable<T>): T[] => (items instanceof Array ? items : [...items])
+
+export const isIterable = <T>(input: any): input is Iterable<T> =>
+  input && typeof input[Symbol.iterator] === 'function'

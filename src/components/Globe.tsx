@@ -1,6 +1,5 @@
 // this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
 /** @jsx jsx */
-import { jsx } from '@emotion/react'
 import { round } from 'lib/math'
 import { useEffect, useRef, useState } from 'react'
 import { AgeEarth } from 'lib/ageEarth'
@@ -12,12 +11,11 @@ import createGlobeEarth, { GlobeEarth } from 'lib/globeEarth'
 import { Link } from 'wouter'
 import NavBar from './NavBar'
 import { load } from './StoreButton'
-import { getPointsAtTime, Polygon, polygonFromRawJson } from 'lib/polygon'
+import { Polygon, polygonFromRawJson } from 'lib/polygon'
 import { uvToPoint } from 'lib/sphere'
 import { TextureLoader } from 'three'
-import Delaunator from 'delaunator'
-import { combine, flatMap, map, toArray } from 'lib/iterable'
-import { delaunayTriangles, connectingTriangles } from 'lib/triangulation'
+import { flatMap, map, toArray } from 'lib/iterable'
+import { globeMesh } from 'lib/triangulation'
 import { pipeInto } from 'ts-functional-pipe'
 import { info } from 'lib/log'
 
@@ -35,25 +33,24 @@ const backgroundImages = [
 // const geometry = new EarthGeometry(buildCubeSphere({ resolution, size: 1 }))
 
 const polygons = load<Polygon[]>('plates')?.map(polygonFromRawJson) ?? []
-const uvs = polygons.flatMap((p) => p.points)
+const delaunayUvs = polygons.flatMap((p) => p.points)
+
+const { triangles, uvs } = globeMesh(delaunayUvs)
 const vertices = uvs.map(uvToPoint)
-const delaunay = Delaunator.from(
-  uvs,
-  (p) => p.x,
-  (p) => p.y,
+
+const geometry = new EarthGeometry(
+  info({
+    uvs,
+    vertices,
+    normals: vertices,
+    indices: pipeInto(
+      triangles,
+      flatMap((t) => [...t.nodes].reverse()),
+      map((n) => n.id),
+      toArray,
+    ),
+  }),
 )
-const geometry = new EarthGeometry({
-  uvs,
-  vertices,
-  normals: vertices,
-  indices: pipeInto(
-    info(delaunayTriangles(delaunay, uvs)),
-    combine(info(connectingTriangles(delaunay, uvs))),
-    flatMap((t) => [...t.nodes].reverse()),
-    map((n) => n.id),
-    toArray,
-  ),
-})
 
 function Globe() {
   const webGlContainerRef = useRef<HTMLDivElement>(null)
@@ -81,8 +78,8 @@ function Globe() {
 
   useEffect(() => {
     // actionsRef.current.age?.update(time)
-    const points = polygons.flatMap((p) => getPointsAtTime(p, time)).map((uv) => uvToPoint(uv))
-    geometry.setPoints(points)
+    // const points = polygons.flatMap((p) => getPointsAtTime(p, time)).map((uv) => uvToPoint(uv))
+    // geometry.setPoints(points)
   }, [time])
 
   useEffect(() => {

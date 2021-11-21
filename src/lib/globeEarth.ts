@@ -10,6 +10,7 @@ import {
   MeshBasicMaterial,
   MeshPhongMaterial,
   RawShaderMaterial,
+  RepeatWrapping,
   SphereGeometry,
   Texture,
   TextureLoader,
@@ -107,6 +108,10 @@ const createSphereWithGlow = ({
     shininess: 25,
     bumpScale: 15,
   })
+  color.map!.wrapS = RepeatWrapping
+  color.bumpMap!.wrapS = RepeatWrapping
+  color.specularMap!.wrapS = RepeatWrapping
+  // color.normalMap!.wrapS = RepeatWrapping
   // onst multiMaterial = [color]
   const multiMaterial = [
     //

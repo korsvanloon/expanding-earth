@@ -1,15 +1,14 @@
 /** @jsx jsx */
-import { css, jsx } from '@emotion/react'
+import { css } from '@emotion/react'
 import { MouseEvent, PointerEvent } from 'react'
 import { pixelToUv, uvToPixel } from 'lib/image'
 import { getPointsAtTime, Polygon } from 'lib/polygon'
 import { Vector2 } from 'three'
 import ControlPoint from './ControlPoint'
-import Delaunator from 'delaunator'
 import { pipeInto } from 'ts-functional-pipe'
-import { combine, map, toArray } from 'lib/iterable'
+import { map, toArray } from 'lib/iterable'
 import clsx from 'clsx'
-import { delaunayTriangles, connectingTriangles } from 'lib/triangulation'
+import { globeMesh } from 'lib/triangulation'
 
 type Props = {
   height: number
@@ -58,15 +57,9 @@ const UvMesh = ({
     >
       {polygons.map((polygon, pi) => {
         const uvs = getPointsAtTime(polygon, time)
-        const delaunay = Delaunator.from(
-          polygon.points,
-          (p) => p.x,
-          (p) => p.y,
-        )
 
         const triangles = pipeInto(
-          delaunayTriangles(delaunay, uvs),
-          combine(connectingTriangles(delaunay, uvs)),
+          globeMesh(uvs).triangles,
           map(({ id, nodes }) => ({
             id,
             pixels: nodes.map(({ value: uv }) => uvToPixel(uv, height)),
@@ -77,7 +70,7 @@ const UvMesh = ({
         return (
           <g key={pi} className={clsx('plate', polygon === current && 'selected')}>
             <clipPath id={`polygon-${pi}`}>{/* <polygon points={polygonPoints} /> */}</clipPath>
-            {triangles.map(({ pixels }, i) => (
+            {triangles.map(({ pixels }) => (
               <polygon
                 key={pixelsToSvgPoints(pixels, height)}
                 points={pixelsToSvgPoints(pixels, height)}

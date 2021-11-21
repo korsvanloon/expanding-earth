@@ -4,8 +4,10 @@ import { PI, cos, sin, asin, acos, atan2, sum } from 'lib/math'
 // UV goes form 0,0 = left,bottom to 1,1 = right,top
 
 export const uvToPoint = (uv: Vector2) => {
+  // uv can be negative because of horizontal repetition.
+  const x = uv.x < 0 ? uv.x + 1 : uv.x
   // theta is a longitude angle (around the equator) in radians.
-  const theta = 2.0 * PI * uv.x
+  const theta = 2.0 * PI * x
   // phi is a latitude angle (north or south of the equator) in radians.
   const phi = PI * (uv.y - 0.5)
 

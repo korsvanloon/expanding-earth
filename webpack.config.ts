@@ -18,6 +18,7 @@ const webpackConfig = (
     extensions: ['.ts', '.tsx', '.js'],
     plugins: [new TsconfigPathsPlugin()],
   },
+  devtool: 'source-map',
   output: {
     path: path.join(__dirname, '/dist'),
     filename: 'build.js',

@@ -1,9 +1,7 @@
 import { Vector2 } from 'three'
 import Delaunator from 'delaunator'
-import { bufferCount, compare, map, toArray, where } from './iterable'
+import { map, toArray, where, range, combine } from './iterable'
 import { pipeInto } from 'ts-functional-pipe'
-import { getPixelColor, uvToPixel } from './image'
-import { average, nearest, range } from './math'
 
 export type Node<T> = {
   id: number
@@ -16,53 +14,90 @@ export type Triangle<T> = {
   nodes: Node<T>[]
 }
 
-export const convexHull = (delaunay: Delaunator<Vector2>, uvs: Vector2[]) =>
+/**
+ *
+ * @param points A set of uv-points.
+ * @returns
+ */
+export const globeMesh = (points: Vector2[]) => {
+  const delaunay = Delaunator.from(
+    points,
+    (p) => p.x,
+    (p) => p.y,
+  )
+  const connectingNodes = pipeInto(
+    convexHull(delaunay, points),
+    where((n) => n.value.x > 0.5),
+    map(
+      (node, i): Node<Vector2> => ({
+        id: i + points.length,
+        value: new Vector2(node.value.x - 1, node.value.y),
+      }),
+    ),
+    toArray,
+  )
+
+  return {
+    uvs: pipeInto(
+      combine(
+        points,
+        connectingNodes.map(({ value }) => value),
+      ),
+      toArray,
+    ),
+    triangles: pipeInto(
+      combine(
+        delaunayTriangles(delaunay, points),
+        connectingTriangles(delaunay, points, connectingNodes),
+      ),
+      toArray,
+    ),
+  }
+}
+
+const connectingTriangles = (
+  delaunay: Delaunator<Vector2>,
+  uvs: Vector2[],
+  connectingLeftNodes: Node<Vector2>[],
+) => {
+  const convexLeftNodes = pipeInto(
+    convexHull(delaunay, uvs),
+    where((n1) => n1.value.x < 0.5),
+  )
+  const nodes = pipeInto(combine(connectingLeftNodes, convexLeftNodes), toArray)
+
+  const connectingDelaunay = Delaunator.from(
+    nodes,
+    (p) => p.value.x,
+    (p) => p.value.y,
+  )
+  const baseTriangleSize = delaunayTriangleSize(delaunay)
+
+  return pipeInto(
+    range({ size: delaunayTriangleSize(connectingDelaunay) }),
+    map(
+      (id): Triangle<Vector2> => ({
+        id,
+        nodes: pipeInto(
+          pointIdsOfTriangle(connectingDelaunay, id),
+          map((i) => ({ id: nodes[i].id, value: nodes[i].value })),
+          toArray,
+        ),
+      }),
+    ),
+    where((triangle) => triangle.nodes.some((n) => connectingLeftNodes.some((o) => o.id === n.id))),
+    map((triangle, i): Triangle<Vector2> => ({ id: i + baseTriangleSize, nodes: triangle.nodes })),
+  )
+}
+const convexHull = (delaunay: Delaunator<Vector2>, uvs: Vector2[]) =>
   pipeInto(
     delaunay.hull,
     map((id): Node<Vector2> => ({ id, value: uvs[id] })),
   )
 
-const convexHullEdges = (delaunay: Delaunator<Vector2>, uvs: Vector2[]) =>
-  pipeInto(convexHull(delaunay, uvs), bufferCount(2, 1))
-
-const convexLeftHullEdges = (delaunay: Delaunator<Vector2>, uvs: Vector2[]) =>
+const delaunayTriangles = <T>(delaunay: Delaunator<T>, uvs: T[]) =>
   pipeInto(
-    convexHullEdges(delaunay, uvs),
-    where(([n1, n2]) => n1.value.x < 0.5 && n2.value.x < 0.5),
-  )
-
-const convexRightHullNodes = (delaunay: Delaunator<Vector2>, uvs: Vector2[]) =>
-  pipeInto(
-    convexHull(delaunay, uvs),
-    where((n) => n.value.x > 0.5),
-  )
-
-/**
- * Connects the left edge of the convex hull to the nearest points
- *
- * @return the triangles on the opposite of the convex hull to make the mesh cylindrical.
- */
-export const connectingTriangles = (delaunay: Delaunator<Vector2>, uvs: Vector2[]) =>
-  pipeInto(
-    convexLeftHullEdges(delaunay, uvs),
-    map(
-      ([p1, p2]): Triangle<Vector2> => ({
-        id: 0,
-        nodes: [
-          p1,
-          pipeInto(
-            convexRightHullNodes(delaunay, uvs),
-            compare(nearest(average([p1.value.y, p2.value.y]), (uv) => uv.value.y)),
-          )!,
-          p2,
-        ],
-      }),
-    ),
-  )
-
-export const delaunayTriangles = <T>(delaunay: Delaunator<T>, uvs: T[]) =>
-  pipeInto(
-    range(Math.floor(delaunay.triangles.length / 3)),
+    range({ size: delaunayTriangleSize(delaunay) }),
     map(
       (id): Triangle<T> => ({
         id,
@@ -107,25 +142,10 @@ calculate direction of triangles based on points strength
 calculate new size
 */
 
-const a = (uvs: Vector2[], ageData: ImageData, height: number) => {
-  const delaunator = Delaunator.from(
-    uvs,
-    (p) => p.x,
-    (p) => p.y,
-  )
-  return pipeInto(
-    delaunator.halfedges,
-    map((i1, i2) => ({
-      from: uvs[i1],
-      to: uvs[i2],
-      fromAge: getPixelColor(ageData, uvToPixel(uvs[i1], height))[0],
-      toAge: getPixelColor(ageData, uvToPixel(uvs[i2], height))[0],
-    })),
-    toArray,
-  )
-}
-
 export const triangleOfEdge = (edge: number) => Math.floor(edge / 3)
+
+export const delaunayTriangleSize = <T>(delaunay: Delaunator<T>) =>
+  Math.floor(delaunay.triangles.length / 3)
 
 export const nextHalfEdge = (edge: number) => (edge % 3 === 2 ? edge - 2 : edge + 1)
 export const prevHalfEdge = (edge: number) => (edge % 3 === 0 ? edge + 2 : edge - 1)
