@@ -135,3 +135,5 @@ export const toArray = <T>(items: Iterable<T>): T[] => (items instanceof Array ?
 
 export const isIterable = <T>(input: any): input is Iterable<T> =>
   input && typeof input[Symbol.iterator] === 'function'
+
+export const unique = <T>(value: T, index: number, self: T[]) => self.indexOf(value) === index

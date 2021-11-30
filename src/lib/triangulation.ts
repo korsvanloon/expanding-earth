@@ -21,7 +21,6 @@ export type Triangle<T> = {
  * The returning uvs
  *
  * @param points A set of uv-points.
- * @returns
  */
 export const globeMesh = (points: Vector2[]) => {
   const delaunay = Delaunator.from(
@@ -85,7 +84,7 @@ const connectingTriangles = (
         id,
         nodes: pipeInto(
           pointIdsOfTriangle(connectingDelaunay, id),
-          map((i) => ({ id: nodes[i].id, value: nodes[i].value })),
+          map((i) => nodes[i]),
           toArray,
         ),
       }),
@@ -126,26 +125,6 @@ export const edgesOfTriangle = (triangleId: number) => [
   3 * triangleId + 1,
   3 * triangleId + 2,
 ]
-
-/*
-MOVE POINTS
-
-initially
-for each point
-calculate strength based on age
-
-on time
-for each triangle
-initialize offset to 0
-
-do x times until minimization threshold
-for each triangle
-calculate size
-add forces to points based on size difference and triangle offset
-calculate direction of triangles based on points strength
-
-calculate new size
-*/
 
 export const triangleOfEdge = (edge: number) => Math.floor(edge / 3)
 
