@@ -2,16 +2,17 @@
 /**
  * @jsxFrag
  * @jsx jsx */
-import { css, jsx } from '@emotion/react'
+import { css } from '@emotion/react'
+import { getPixelColor, uvToPixel } from 'lib/image'
 import { PointsInTime, Polygon } from 'lib/polygon'
 import NumberInput from './NumberInput'
 import PointInput from './PointInput'
 
 type Props = {
-  polygons: Polygon[]
   currentPolygon?: Polygon
+  height?: number
   currentPointIndex?: number
-  onDeletePolygon: () => void
+  ageData?: ImageData
   onChange: () => void
   onClosePoint: () => void
   onDeletePoint: () => void
@@ -21,10 +22,10 @@ type Props = {
 }
 
 const CurrentState = ({
-  polygons,
+  height,
   currentPolygon,
   currentPointIndex,
-  onDeletePolygon,
+  ageData,
   onChange,
   onClosePoint,
   onDeletePoint,
@@ -38,8 +39,6 @@ const CurrentState = ({
         <div>
           <header>
             <h3>polygon</h3>
-            <span>{polygons.indexOf(currentPolygon)}</span>
-            <button onClick={onDeletePolygon}>Delete</button>
           </header>
         </div>
       )}
@@ -53,6 +52,16 @@ const CurrentState = ({
                   <>
                     point
                     <small>{currentPointIndex}</small>
+                    {ageData && height && (
+                      <strong>
+                        {
+                          getPixelColor(
+                            ageData,
+                            uvToPixel(currentPolygon.points[currentPointIndex], height),
+                          )[0]
+                        }
+                      </strong>
+                    )}
                   </>
                 )}
               </th>

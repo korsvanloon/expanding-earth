@@ -4,6 +4,7 @@
   "private": true,
   "license": "private",
   "scripts": {
+    "start": "NODE_ENV=development webpack serve --hot --progress --mode=development",
     "dev": "NODE_ENV=development webpack serve --hot --progress --mode=development",
     "dev-windows": "webpack serve --hot --progress --mode=development",
     "test": "jest"

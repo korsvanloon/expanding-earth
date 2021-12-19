@@ -1,10 +1,17 @@
 {
-  "cSpell.words": [
-    "delaunator",
-    "equirectangular",
-    "glsl",
-    "lerp",
-    "raycaster",
-    "wireframe"
-  ]
+  "typescript.tsdk": "./node_modules/typescript/lib",
+  "editor.codeActionsOnSave": {
+    "source.fixAll": true,
+    "source.organizeImports": true
+  },
+  "eslint.validate": ["typescript", "javascript"],
+  "eslint.packageManager": "yarn",
+  "typescript.updateImportsOnFileMove.enabled": "always",
+  "typescript.preferences.importModuleSpecifier": "non-relative",
+  "cSpell.words": ["delaunator", "equirectangular", "glsl", "lerp", "raycaster", "wireframe"],
+  "eslint.options": {
+    "parserOptions": {
+      "project": ["${workspaceFolder}/tsconfig.json"]
+    }
+  }
 }

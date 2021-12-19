@@ -1,20 +1,24 @@
 // this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
 /** @jsx jsx */
 import { css } from '@emotion/react'
-import { findMax, round } from 'lib/math'
-import { useCallback, useEffect, useState, MouseEvent } from 'react'
-import { Vector2 } from 'three'
-import StoreButton from './StoreButton'
-import RangeInput from './RangeInput'
-import ChoiceInput from './ChoiceInput'
 import { useAnimationLoop } from 'hooks/useAnimationLoop'
-import AgeFilter from './AgeFilter'
-import UvMesh from './UvMesh'
-import { getPointsAtTime, Polygon, polygonFromRawJson, setPointsAtTime } from 'lib/polygon'
-import { Link } from 'wouter'
-import NavBar from './NavBar'
-import CurrentState from './CurrentState'
+import { useRerender } from 'hooks/useRerender'
+import { useShortCuts } from 'hooks/useShortcuts'
+import { useUpdate } from 'hooks/useUpdate'
 import { getPixelColor, loadImageData, pixelColorToHex, uvToPixel } from 'lib/image'
+import { findMax, round } from 'lib/math'
+import { getPointsAtTime, Polygon, polygonFromRawJson, setPointsAtTime } from 'lib/polygon'
+import { globeMesh } from 'lib/triangulation'
+import { MouseEvent, useCallback, useEffect } from 'react'
+import { Vector2 } from 'three'
+import { Link } from 'wouter'
+import AgeFilter from './AgeFilter'
+import ChoiceInput from './ChoiceInput'
+import CurrentState from './CurrentState'
+import NavBar from './NavBar'
+import RangeInput from './RangeInput'
+import StoreButton from './StoreButton'
+import UvMesh from './UvMesh'
 
 const backgroundImages = [
   //
@@ -28,134 +32,105 @@ const backgroundImages = [
 // const height = 400
 const initialTime = 0.0
 
-// const findPolygon = (uv: Vector2, polygons: Polygon[]) =>
-//   polygons.find((p) =>
-//     pointInPolygon(
-//       uv.toArray(),
-//         pipeInto(
-//           getHull(p.points),
-//           map((pt) => pt.toArray()),
-//         ),
-//       ),
-//     ),
-//   )
+type Data = {
+  height: number
+  ageData?: ImageData
+  polygon: Polygon
+}
+
+type State = {
+  pointIndex?: number
+  currentTriangleIndex?: number
+  background: string
+}
 
 function EarthMap() {
-  const [height, setHeight] = useState<number>(400)
-  const [currentPointIndex, setCurrentPointIndex] = useState<number>()
-  const [polygons, setPolygons] = useState<Polygon[]>([])
-  const [currentPolygon, setCurrentPolygon] = useState<Polygon>()
-  const [ageData, setAgeData] = useState<ImageData>()
-
-  const { time, setTime, running, start, stop } = useAnimationLoop(initialTime, initialTime)
+  const [current, updateState] = useUpdate<State>({
+    background: backgroundImages[0],
+  })
+  const [data, updateData] = useUpdate<Data>({
+    height: 400,
+    polygon: { points: [] },
+  })
+  const animation = useAnimationLoop(initialTime, initialTime)
+  const rerender = useRerender()
 
   useEffect(() => {
     const height = Math.min(window.innerHeight - 100, window.innerWidth / 2 - 100)
-    setHeight(height)
-    loadImageData('textures/age-map.png', height * 2, height).then((data) => {
-      setAgeData(data)
-    })
+    updateData({ height })
+    loadImageData('textures/age-map.png', height * 2, height).then((ageData) =>
+      updateData({ ageData }),
+    )
   }, [])
 
-  useEffect(() => {
-    const shortCuts = (event: KeyboardEvent) => {
-      if (document.activeElement !== document.body) return
-      event.preventDefault()
-      switch (event.key) {
-        case ' ':
-          if (running) stop()
-          else start()
-          break
-      }
-    }
-    window.addEventListener('keyup', shortCuts)
-    return () => window.removeEventListener('keyup', shortCuts)
-  }, [running, start, stop])
+  useShortCuts(animation)
 
-  const humanAge = round(time * 280)
+  const humanAge = round(animation.time * 280)
     .toString()
     .padStart(3)
 
-  const [background, setBackground] = useState(backgroundImages[0])
-
-  const handleClick = useCallback(
+  const uvClick = useCallback(
     (uv: Vector2, event: MouseEvent) => {
-      // const clickedPolygon = findPolygon(uv, polygons)
-      const clickedPolygon = polygons[0]
-
-      if (clickedPolygon && clickedPolygon !== currentPolygon) {
-        setCurrentPolygon(clickedPolygon)
-        return
-      }
       if (event.shiftKey) {
-        const polygon = currentPolygon ?? { points: [] }
-
-        polygon.points.push(uv)
-        polygon.timeline?.forEach((t) => t.points.push(uv))
-        if (!polygons.includes(polygon)) {
-          setPolygons([...polygons, polygon])
-        } else {
-          setPolygons([...polygons])
-        }
-        setCurrentPolygon(polygon)
+        data.polygon.points.push(uv)
+        data.polygon.timeline?.forEach((t) => t.points.push(uv))
       }
     },
-    [currentPolygon, polygons],
+    [data.polygon],
   )
 
-  ;(window as any).polygons = polygons
+  ;(window as any).polygon = data.polygon
 
-  const deletePoint = (polygon: Polygon, pointIndex: number) => {
-    polygon.points.splice(pointIndex, 1)
-    polygon.timeline?.forEach((t) => t.points.splice(pointIndex, 1))
-    setCurrentPointIndex(undefined)
+  const deletePoint = (pointIndex: number) => {
+    data.polygon.points.splice(pointIndex, 1)
+    data.polygon.timeline?.forEach((t) => t.points.splice(pointIndex, 1))
+    updateState({ pointIndex: undefined })
   }
+  const uvs = getPointsAtTime(data.polygon, animation.time)
+
+  const mesh = globeMesh(uvs)
 
   return (
     <div>
       <NavBar>
-        <button autoFocus onClick={running ? stop : start}>
-          {running ? 'stop' : 'start'}
+        <button autoFocus onClick={animation.running ? animation.stop : animation.start}>
+          {animation.running ? 'stop' : 'start'}
         </button>
-        <RangeInput name="age" value={time} onValue={setTime} step={0.01}>
+        <RangeInput name="age" value={animation.time} onValue={animation.setTime} step={0.01}>
           <code>{humanAge}</code> million years ago
         </RangeInput>
         <ChoiceInput
           name="background"
           options={backgroundImages.map((value) => ({ value, label: value }))}
-          value={background}
-          onValue={setBackground}
+          value={current.background}
+          onValue={(background) => updateState({ background })}
         >
           Image
         </ChoiceInput>
         <StoreButton
           name={`plates`}
-          onLoad={(rawPolygons) => {
-            const polygons = rawPolygons.map(polygonFromRawJson)
-            setPolygons(polygons)
-            setCurrentPolygon(polygons[0])
-          }}
-          onSave={() => polygons}
+          onLoad={(rawPolygons) => updateData({ polygon: rawPolygons.map(polygonFromRawJson)[0] })}
+          onSave={() => [data.polygon!]}
         >
           Store
         </StoreButton>
         <Link href="/globe">Globe</Link>
       </NavBar>
 
-      <div css={style} style={{ width: `${height * 2}px`, height: `${height}px` }}>
-        <AgeFilter id="color-replace" time={time} />
+      <div css={style} style={{ width: `${data.height * 2}px`, height: `${data.height}px` }}>
+        <AgeFilter id="color-replace" time={animation.time} />
         <div
           className="background"
           style={{
-            backgroundImage: `url(/textures/${background})`,
-            backgroundSize: `${height * 2}px ${height}px`,
+            backgroundImage: `url(/textures/${current.background})`,
+            backgroundSize: `${data.height * 2}px ${data.height}px`,
           }}
         />
         <img
           alt=""
           src="/textures/age-map.png"
-          width={height * 2}
-          height={height}
+          width={data.height * 2}
+          height={data.height}
           style={{ filter: 'url(#color-replace)' }}
           className="age-lines"
         />
@@ -167,73 +142,63 @@ function EarthMap() {
           className="age-lines"
           style={{ opacity: 0.6 }}
         /> */}
-        {ageData && (
+        {data.ageData && data.polygon && (
           <UvMesh
-            height={height}
-            polygons={polygons}
-            ageData={ageData}
-            current={currentPolygon}
-            currentPointIndex={currentPointIndex}
-            time={time}
+            mesh={mesh}
+            height={data.height}
+            ageData={data.ageData}
+            selected={current}
+            time={animation.time}
             uvColor={(uv) =>
-              ageData ? pixelColorToHex(getPixelColor(ageData, uvToPixel(uv, height))) : undefined
+              data.ageData
+                ? pixelColorToHex(getPixelColor(data.ageData, uvToPixel(uv, data.height)))
+                : undefined
             }
-            onClick={handleClick}
-            onPointMoved={(oldUv, newUv, polygon, i) => {
-              setCurrentPointIndex(i)
-              const newPoints = getPointsAtTime(polygon, time)
+            onClick={uvClick}
+            onPointMoved={(oldUv, newUv, pointIndex) => {
+              updateState({ pointIndex })
+              const newPoints = getPointsAtTime(data.polygon, animation.time)
               const uv = newPoints.find((p) => p.equals(oldUv))
               uv?.setX(newUv.x)
               uv?.setY(newUv.y)
-              setPointsAtTime(polygon, time, newPoints)
-              setPolygons([...polygons])
+              setPointsAtTime(data.polygon, animation.time, newPoints)
+              rerender()
             }}
-            onPointClick={(uv, event, polygon, i) => {
-              setCurrentPolygon(polygon)
-              setCurrentPointIndex(i)
+            onPointClick={(_uv, event, pointIndex) => {
+              updateState({ pointIndex })
               if (event.shiftKey) {
-                deletePoint(polygon, i)
+                deletePoint(pointIndex)
               }
             }}
           />
         )}
       </div>
       <CurrentState
-        currentPointIndex={currentPointIndex}
-        currentPolygon={currentPolygon}
-        polygons={polygons}
-        onChange={() => {
-          setPolygons([...polygons])
-        }}
-        onDeletePolygon={() => {
-          setPolygons(polygons.filter((p) => p !== currentPolygon))
-          setCurrentPolygon(undefined)
-        }}
-        onDeletePoint={() => {
-          if (!currentPolygon || !currentPointIndex!) return
-          deletePoint(currentPolygon, currentPointIndex)
-        }}
-        onClosePoint={() => {
-          setCurrentPointIndex(undefined)
-        }}
+        height={data.height}
+        currentPointIndex={current.pointIndex}
+        currentPolygon={data.polygon}
+        ageData={data.ageData}
+        onChange={rerender}
+        onDeletePoint={() => data.polygon && current.pointIndex && deletePoint(current.pointIndex)}
+        onClosePoint={() => updateState({ pointIndex: undefined })}
         onAddAge={() => {
-          if (!currentPolygon) return
+          if (!data.polygon) return
 
-          const lastAge = currentPolygon.timeline
-            ? findMax(currentPolygon.timeline, (age) => age.time)
+          const lastAge = data.polygon.timeline
+            ? findMax(data.polygon.timeline, (age) => age.time)
             : undefined
           setPointsAtTime(
-            currentPolygon,
+            data.polygon,
             (lastAge?.time ?? 0) + 0.1,
-            (lastAge?.points ?? currentPolygon.points).map((x) => x.clone()),
+            (lastAge?.points ?? data.polygon.points).map((x) => x.clone()),
           )
-          setPolygons([...polygons])
+          rerender()
         }}
-        onSelectAge={(age) => setTime(age.time)}
+        onSelectAge={(age) => animation.setTime(age.time)}
         onDeleteAge={(age) => {
-          if (!currentPolygon) return
-          currentPolygon.timeline = currentPolygon.timeline?.filter((a) => a !== age)
-          setPolygons([...polygons])
+          if (!data.polygon) return
+          data.polygon.timeline = data.polygon.timeline?.filter((a) => a !== age)
+          rerender()
         }}
       />
     </div>

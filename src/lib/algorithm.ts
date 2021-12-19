@@ -1,8 +1,8 @@
-import { flatMap, toArray, unique, where } from 'lib/iterable'
-import { average } from 'lib/math'
 import { Vector2, Vector3 } from 'three'
 import { pipeInto } from 'ts-functional-pipe'
 import { getPixelColor, uvToPixel } from './image'
+import { flatMap, toArray, unique, where } from './iterable'
+import { average, range } from './math'
 import { areaOfTriangle, uvToPoint } from './sphere'
 import { Triangle } from './triangulation'
 
@@ -37,7 +37,7 @@ export const algorithm = ({
   uvs: Vector2[]
   ageData: ImageData
   height: number
-  triangles: Triangle<Vector2>[]
+  triangles: Triangle[]
   /** A value */
   growth: number
   /** A value */
@@ -65,80 +65,54 @@ export const algorithm = ({
 
   const targetTriangleSizes = initialTriangleSizes.map((size) => size * growth)
 
-  const nodeDirections = nodeNeighbors.map((neighborIs, i) => {
-    // const highest = max(...neighbors.map((i) => nodeAges[i]))
-
-    return neighborIs
-      .filter((neighborI) => nodeAges[neighborI] < nodeAges[i])
-      .reduce(
-        (result, neighborI) =>
-          result.add(
-            points[i]
+  const nextNodeDirections = (directions: Vector3[]) =>
+    nodeNeighbors.map((neighborIs, nodeI) =>
+      neighborIs
+        // .filter((neighborI) => nodeAges[neighborI] < nodeAges[nodeI])
+        .reduce(
+          (result, neighborI) =>
+            result
               .clone()
-              .sub(points[neighborI])
-              // .normalize()
-              .multiplyScalar(1 - nodeAges[neighborI]),
-          ),
-        new Vector3(),
-      )
-      .divideScalar(neighborIs.length)
-  })
-  // const nodeDirections = nodeTriangles.map((triangles, i) => {
-  //   const ages = triangles.map((triangle) => triangleAge(triangle, nodeAges))
-  //   const highest = max(...ages)
-  //   const point = points[i]
+              .add(
+                points[nodeI]
+                  .clone()
+                  .sub(points[neighborI])
+                  // .normalize()
+                  // .multiplyScalar(0.2)
+                  .multiplyScalar(Math.max(0, nodeAges[nodeI] - nodeAges[neighborI])),
+              )
+              .add(directions[neighborI]),
+          directions[nodeI],
+        )
+        .divideScalar(neighborIs.length),
+    )
 
-  //   return triangles
-  //     .reduce(
-  //       (result, triangle, index) =>
-  //         result.add(
-  //           averagePoint(triangle.nodes.map((n) => (n.mirror ? points[n.mirror] : points[n.id])))
-  //             .sub(point)
-  //             // .normalize()
-  //             .multiplyScalar(1 - (highest - ages[index])),
-  //         ),
-  //       new Vector3(),
-  //     )
-  //     .divideScalar(triangles.length)
-  // })
+  const nodeDirections = range(3).reduce(
+    nextNodeDirections,
+    nodeNeighbors.map(() => new Vector3()),
+  )
 
   return { nodeDirections, initialTriangleSizes, targetTriangleSizes }
-
-  // for (const triangle of triangles) {
-  //   const center = triangleCenter(triangle)
-
-  //   const direction = triangle.nodes
-  //     .reduce(
-  //       (result, node) =>
-  //         result.add(node.value.clone().sub(center).multiplyScalar(nodeAges[node.id])),
-  //       new Vector2(0, 0),
-  //     )
-  //     .normalize()
-
-  //   for (const node of triangle.nodes) {
-  //     const expansionStrength =
-  //       targetTriangleSizes[triangle.id] / initialTriangleSizes[triangle.id] / 2
-  //     nodeDirections[node.id].add(node.value.clone().sub(center).multiplyScalar(expansionStrength))
-  //   }
-  // }
 }
 
-export const triangleCenter = (triangle: Triangle<Vector2>) =>
+export const triangleCenter = (triangle: Triangle, uvs: Vector2[]) =>
   triangle.nodes
-    .reduce((result, current) => result.add(current.value), new Vector2())
+    .reduce((result, current) => result.add(uvs[current.id]), new Vector2())
     .divideScalar(3)
 export const averagePoint = (points: Vector3[]) =>
   points.reduce((result, current) => result.add(current), new Vector3()).divideScalar(points.length)
 
 export const triangleDirection = (
-  triangle: Triangle<Vector2>,
+  triangle: Triangle,
   center: Vector2,
+  uvs: Vector2[],
   nodeAges: number[],
 ) =>
   triangle.nodes.reduce(
-    (result, node) => result.add(node.value.clone().sub(center).multiplyScalar(nodeAges[node.id])),
+    (result, node) =>
+      result.add(uvs[node.id].clone().sub(center).multiplyScalar(nodeAges[node.id])),
     new Vector2(0, 0),
   )
 
-const triangleAge = (triangle: Triangle<Vector2>, nodeAges: number[]) =>
+const triangleAge = (triangle: Triangle, nodeAges: number[]) =>
   average(triangle.nodes.map((n) => (n.mirror !== undefined ? nodeAges[n.mirror] : nodeAges[n.id])))

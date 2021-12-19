@@ -45,3 +45,5 @@ export const useAnimationLoop = (initialTime = 0, endTime = 1) => {
 
   return { time, setTime, running, stop, start }
 }
+
+export type AnimationLoop = ReturnType<typeof useAnimationLoop>

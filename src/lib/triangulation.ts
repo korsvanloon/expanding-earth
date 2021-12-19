@@ -1,18 +1,17 @@
-import { Vector2 } from 'three'
 import Delaunator from 'delaunator'
-import { map, toArray, where, range, combine } from './iterable'
+import { Vector2 } from 'three'
 import { pipeInto } from 'ts-functional-pipe'
+import { combine, map, range, toArray, where } from './iterable'
 
-export type Node<T> = {
+export type Node = {
   id: number
-  value: T
   mirror?: number
 }
 
-export type Triangle<T> = {
+export type Triangle = {
   id: number
   /** counter clock-wise */
-  nodes: Node<T>[]
+  nodes: Node[]
 }
 
 /**
@@ -31,87 +30,55 @@ export const globeMesh = (points: Vector2[]) => {
   const connectingNodes = pipeInto(
     convexHull(delaunay, points),
     where((n) => n.value.x > 0.5),
-    map(
-      (node, i): Node<Vector2> => ({
-        id: i + points.length,
-        value: new Vector2(node.value.x - 1, node.value.y),
-        mirror: node.id,
-      }),
+    map((node, i): Node & { value: Vector2 } => ({
+      id: i + points.length,
+      value: new Vector2(node.value.x - 1, node.value.y),
+      mirror: node.id,
+    })),
+    toArray,
+  )
+
+  const nodes = pipeInto(
+    combine(
+      points.map<Node & { value: Vector2 }>((value, id) => ({ id, value })),
+      connectingNodes,
     ),
     toArray,
   )
 
-  return {
-    nodes: pipeInto(
-      combine(
-        points.map((value, id) => ({ id, value })),
-        connectingNodes,
-      ),
-      toArray,
-    ),
-    triangles: pipeInto(
-      combine(
-        delaunayTriangles(delaunay, points),
-        connectingTriangles(delaunay, points, connectingNodes),
-      ),
-      toArray,
-    ),
-  }
-}
+  const uvs = nodes.map((n) => n.value)
 
-const connectingTriangles = (
-  delaunay: Delaunator<Vector2>,
-  uvs: Vector2[],
-  connectingLeftNodes: Node<Vector2>[],
-) => {
-  const convexLeftNodes = pipeInto(
-    convexHull(delaunay, uvs),
-    where((n1) => n1.value.x < 0.5),
-  )
-  const nodes = pipeInto(combine(connectingLeftNodes, convexLeftNodes), toArray)
-
-  const connectingDelaunay = Delaunator.from(
+  const newDelaunay = Delaunator.from(
     nodes,
     (p) => p.value.x,
     (p) => p.value.y,
   )
-  const baseTriangleSize = delaunayTriangleSize(delaunay)
 
-  return pipeInto(
-    range({ size: delaunayTriangleSize(connectingDelaunay) }),
+  const triangles = pipeInto(
+    range({ size: delaunayTriangleSize(newDelaunay) }),
     map(
-      (id): Triangle<Vector2> => ({
+      (id): Triangle => ({
         id,
         nodes: pipeInto(
-          pointIdsOfTriangle(connectingDelaunay, id),
-          map((i) => nodes[i]),
+          pointIdsOfTriangle(newDelaunay, id),
+          map((id) => ({ id, value: nodes[id].value, mirror: nodes[id].mirror })),
           toArray,
         ),
       }),
     ),
-    where((triangle) => triangle.nodes.some((n) => connectingLeftNodes.some((o) => o.id === n.id))),
-    map((triangle, i): Triangle<Vector2> => ({ id: i + baseTriangleSize, nodes: triangle.nodes })),
+    where((t) => !t.nodes.every((n) => n.mirror)),
+    toArray,
   )
+
+  return { nodes, triangles, uvs }
 }
+
+export type GlobeMesh = ReturnType<typeof globeMesh>
+
 const convexHull = (delaunay: Delaunator<Vector2>, uvs: Vector2[]) =>
   pipeInto(
     delaunay.hull,
-    map((id): Node<Vector2> => ({ id, value: uvs[id] })),
-  )
-
-const delaunayTriangles = <T>(delaunay: Delaunator<T>, uvs: T[]) =>
-  pipeInto(
-    range({ size: delaunayTriangleSize(delaunay) }),
-    map(
-      (id): Triangle<T> => ({
-        id,
-        nodes: pipeInto(
-          pointIdsOfTriangle(delaunay, id),
-          map((id) => ({ id, value: uvs[id] })),
-          toArray,
-        ),
-      }),
-    ),
+    map((id): Node & { value: Vector2 } => ({ id, value: uvs[id] })),
   )
 
 export const pointIdsOfTriangle = <T>(delaunay: Delaunator<T>, triangleId: number) =>

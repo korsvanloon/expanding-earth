@@ -1,56 +1,57 @@
 /** @jsx jsx */
 import { css } from '@emotion/react'
-import { MouseEvent, PointerEvent } from 'react'
+import clsx from 'clsx'
+import { algorithm } from 'lib/algorithm'
 import { pixelToUv, uvToPixel } from 'lib/image'
-import { getPointsAtTime, Polygon } from 'lib/polygon'
+import { pointToUv, uvToPoint } from 'lib/sphere'
+import { GlobeMesh } from 'lib/triangulation'
+import { MouseEvent, PointerEvent } from 'react'
 import { Vector2, Vector3 } from 'three'
 import ControlPoint from './ControlPoint'
-import { pipeInto } from 'ts-functional-pipe'
-import { toArray } from 'lib/iterable'
-import clsx from 'clsx'
-import { globeMesh, Node } from 'lib/triangulation'
-import { algorithm } from 'lib/algorithm'
-import { pointToUv, uvToPoint } from 'lib/sphere'
 
 type Props = {
+  mesh: GlobeMesh
   height: number
   time: number
   ageData: ImageData
-  polygons: Polygon[]
-  current?: Polygon
-  currentPointIndex?: number
+  selected: { pointIndex?: number; triangleIndex?: number }
   uvColor: (uv: Vector2) => string | undefined
   onClick?: (uv: Vector2, event: MouseEvent) => void
-  onPointMoved?: (oldUv: Vector2, newUv: Vector2, polygon: Polygon, index: number) => void
-  onPointClick?: (
-    uv: Vector2,
-    event: PointerEvent<SVGCircleElement>,
-    polygon: Polygon,
-    index: number,
-  ) => void
+  onPointMoved?: (oldUv: Vector2, newUv: Vector2, index: number) => void
+  onPointClick?: (uv: Vector2, event: PointerEvent<SVGCircleElement>, index: number) => void
 }
 
 const UvMesh = ({
+  mesh,
   height,
   time,
   ageData,
-  polygons,
-  current,
-  currentPointIndex,
+  selected,
   uvColor,
   onClick,
   onPointMoved,
   onPointClick,
 }: Props) => {
+  const { nodeDirections } = algorithm({
+    ...mesh,
+    ageData,
+    height,
+    growth: 0.2,
+    time,
+  })
+
+  const mirrors = mesh.nodes.filter((n) => n.mirror)
+
   return (
     <svg
       version="1.1"
-      x="0px"
-      y="0px"
-      width={height * 2}
+      // x="0px"
+      // y="0px"
+      width={height * 2 * 1.2}
       height={height}
       viewBox="0.5 0 1 1"
       css={rootCss}
+      style={{ left: `-${height * 0.2}px` }}
       onClickCapture={(e) => {
         const box = e.currentTarget.getBoundingClientRect()
         if (e.target instanceof SVGCircleElement) {
@@ -65,31 +66,10 @@ const UvMesh = ({
         </marker>
       </defs>
 
-      {polygons.map((polygon, pi) => {
-        const uvs = getPointsAtTime(polygon, time)
-
-        // const nodeAges = uvs.map((uv) => getPixelColor(ageData, uvToPixel(uv, height))[0] / 256)
-
-        const triangles = pipeInto(
-          globeMesh(uvs).triangles,
-          // map((triangle) => {
-          //   const center = triangleCenter(triangle)
-          //   return {
-          //     ...triangle,
-          //     center,
-          //     direction: triangleDirection(triangle, center, nodeAges),
-          //   }
-          // }),
-          toArray,
-        )
-        const { nodeDirections } = algorithm({ uvs, triangles, ageData, height, growth: 0.2, time })
-
-        return (
-          <g key={pi} className={clsx('plate', polygon === current && 'selected')}>
-            <clipPath id={`polygon-${pi}`}>{/* <polygon points={polygonPoints} /> */}</clipPath>
-            {triangles.map(({ nodes, id }) => (
-              <g key={id}>
-                {/* <line
+      <g className={clsx('plate', 'selected')}>
+        {mesh.triangles.map(({ nodes, id }) => (
+          <g key={id}>
+            {/* <line
                   x1={uvToPixel(center, height).x / height}
                   y1={uvToPixel(center, height).y / height}
                   x2={uvToPixel(center.clone().sub(direction), height).x / height}
@@ -99,58 +79,78 @@ const UvMesh = ({
                   strokeWidth={0.001}
                   markerEnd="url(#arrowhead)"
                 /> */}
-                <polygon
-                  points={nodesToSvgPoints(nodes, height)}
-                  stroke={'black'}
-                  // fill={`hsla(0, 100%, 50%, ${10 * abs((1 - time * 0.5) * initial.area - area)})`}
-                  strokeWidth={0.001}
-                  onClick={() => console.log(polygon)}
-                  style={{ color: polygon.color ?? 'hsla(0, 100%, 50%, 0.2' }}
-                />
-              </g>
-            ))}
-            {uvs.map((uv, i) => (
-              <g key={`${uv.x};${uv.y}:${pi}`}>
-                {nodeDirections[i].equals(new Vector3()) ? undefined : (
-                  <line
-                    x1={uvToPixel(uv, height).x / height}
-                    y1={uvToPixel(uv, height).y / height}
-                    x2={
-                      uvToPixel(pointToUv(uvToPoint(uv).sub(nodeDirections[i])), height).x / height
-                    }
-                    y2={
-                      uvToPixel(pointToUv(uvToPoint(uv).sub(nodeDirections[i])), height).y / height
-                    }
-                    color="red"
-                    stroke={'currentColor'}
-                    strokeWidth={0.002}
-                    markerEnd="url(#arrowhead)"
-                  />
-                )}
-                <ControlPoint
-                  key={`${uv.x};${uv.y}:${pi}`}
-                  xlinkTitle={`${uv.x};${uv.y}:${pi}`}
-                  containerHeight={height}
-                  uv={uv}
-                  className={clsx(currentPointIndex === i && 'selected')}
-                  color={uvColor(uv)}
-                  onMove={(newUv) => {
-                    onPointMoved?.(uv, newUv, polygon, i)
-                    // end.corners = [...end.corners]
-                    // points[i].setX(newUv.x)
-                    // points[i].setY(newUv.y)
-                    // const [a, b, d, c] = end.corners.map(uvToPoint)
-                    // end.area = areaOfSquare(a, b, c, d)
-                    // end.angles = anglesOfSquare(a, b, c, d)
-                  }}
-                  onClick={(uv, event) => onPointClick?.(uv, event, polygon, i)}
-                  polygonId={`polygon-${pi}`}
-                />
-              </g>
-            ))}
+            <polygon
+              points={nodesToSvgPoints(
+                nodes.map((n) => mesh.uvs[n.id]),
+                height,
+              )}
+              stroke={'black'}
+              // fill={`hsla(0, 100%, 50%, ${10 * abs((1 - time * 0.5) * initial.area - area)})`}
+              strokeWidth={0.001}
+              style={{ color: 'hsla(0, 100%, 50%, 0.2' }}
+            />
           </g>
-        )
-      })}
+        ))}
+        {mesh.nodes
+          .filter((n) => !n.mirror)
+          .map((n) => ({ ...n, uv: mesh.uvs[n.id] }))
+          .map(({ value: uv, id }) => (
+            <g key={`${uv.x};${uv.y}`}>
+              {nodeDirections[id].equals(new Vector3()) ? undefined : (
+                <line
+                  x1={uvToPixel(uv, height).x / height}
+                  y1={uvToPixel(uv, height).y / height}
+                  x2={
+                    uvToPixel(pointToUv(uvToPoint(uv).sub(nodeDirections[id])), height).x / height
+                  }
+                  y2={
+                    uvToPixel(pointToUv(uvToPoint(uv).sub(nodeDirections[id])), height).y / height
+                  }
+                  color="red"
+                  stroke={'currentColor'}
+                  strokeWidth={0.002}
+                  markerEnd="url(#arrowhead)"
+                />
+              )}
+              <ControlPoint
+                key={`${uv.x};${uv.y}`}
+                xlinkTitle={`${uv.x};${uv.y}`}
+                containerHeight={height}
+                uv={uv}
+                className={clsx(selected.pointIndex === id && 'selected')}
+                color={uvColor(uv)}
+                onMove={(newUv) => {
+                  onPointMoved?.(uv, newUv, id)
+                  // end.corners = [...end.corners]
+                  // points[i].setX(newUv.x)
+                  // points[i].setY(newUv.y)
+                  // const [a, b, d, c] = end.corners.map(uvToPoint)
+                  // end.area = areaOfSquare(a, b, c, d)
+                  // end.angles = anglesOfSquare(a, b, c, d)
+                }}
+                onClick={(uv, event) => onPointClick?.(uv, event, id)}
+                polygonId={`polygon`}
+              />
+            </g>
+          ))}
+        {mirrors.map(({ value: uv, id, mirror }) => (
+          <g key={`${uv.x};${uv.y}`}>
+            <ControlPoint
+              key={`${uv.x};${uv.y}`}
+              xlinkTitle={`${uv.x};${uv.y}`}
+              containerHeight={height}
+              uv={uv}
+              className={clsx(selected.pointIndex === id && 'selected')}
+              color={uvColor(uv)}
+              onMove={(newUv) => {
+                // onPointMoved?.(uv, newUv, polygon, i)
+              }}
+              onClick={(uv, event) => onPointClick?.(uv, event, mirror!)}
+              polygonId={`polygon`}
+            />
+          </g>
+        ))}
+      </g>
     </svg>
   )
 }
@@ -187,9 +187,8 @@ const rootCss = css`
   }
 `
 
-const nodesToSvgPoints = (nodes: Node<Vector2>[], height: number) =>
+const nodesToSvgPoints = (nodes: Vector2[], height: number) =>
   nodes
-    .map((x) => x.value)
     .map((x) => uvToPixel(x, height))
     .map(({ x, y }) => `${x / height},${y / height}`)
     .join(' ')
