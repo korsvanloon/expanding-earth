@@ -14,7 +14,7 @@ import { getPointsAtTime, Polygon, polygonFromRawJson, setPointsAtTime } from 'l
 import { Link } from 'wouter'
 import NavBar from './NavBar'
 import CurrentState from './CurrentState'
-import { getPixelColor, loadImageData, pixelColorToHex, uvToPixel } from 'lib/image'
+import { getPixelColor, loadImageData, pixelColorToHex, uvToPixel } from '3d/image'
 
 const backgroundImages = [
   //

@@ -1,7 +1,7 @@
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
 import { useEffect, useState } from 'react'
-import main from '../lib/earth'
+import main from '../3d/earth'
 
 const Earth = () => {
   const [age, setAge] = useState(0)

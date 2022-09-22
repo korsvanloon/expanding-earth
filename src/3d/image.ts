@@ -1,5 +1,5 @@
 import { Vector2 } from 'three'
-import { round } from './math'
+import { round } from '../lib/math'
 
 export type PixelColor = readonly [number, number, number, number]
 
@@ -42,6 +42,8 @@ export const uvToPixel = (uv: Vector2, height: number) =>
 
 export const pixelToUv = (pixel: Vector2, height: number) =>
   new Vector2(pixel.x / (height * 2), 1 - pixel.y / height)
+;(window as any).uvToPixel = uvToPixel
+;(window as any).pixelToUv = pixelToUv
 
 export const alpha = ([r, g, b]: PixelColor, a: number): PixelColor => [r, g, b, a]
 

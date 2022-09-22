@@ -1,7 +1,7 @@
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
 import { MouseEvent, PointerEvent } from 'react'
-import { pixelToUv, uvToPixel } from 'lib/image'
+import { pixelToUv, uvToPixel } from '3d/image'
 import { getPointsAtTime, Polygon } from 'lib/polygon'
 import { Vector2 } from 'three'
 import ControlPoint from './ControlPoint'

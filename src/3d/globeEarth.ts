@@ -18,7 +18,7 @@ import {
 } from 'three'
 import { createScene, createCamera, createControls, createStarField } from './threejs'
 import { createMultiMaterialObject } from 'vendor/SceneUtils'
-import EarthGeometry from './EarthGeometry'
+import EarthGeometry from '../lib/EarthGeometry'
 
 export type Props = {
   geometry: EarthGeometry
@@ -107,7 +107,7 @@ const createSphereWithGlow = ({
     shininess: 25,
     bumpScale: 15,
   })
-  // onst multiMaterial = [color]
+  // const multiMaterial = [color]
   const multiMaterial = [
     //
     color,
@@ -115,6 +115,7 @@ const createSphereWithGlow = ({
     wireframeMaterial,
   ]
 
+  // const geometry = new SphereGeometry(radius, 10, 10)
   const sphere = createMultiMaterialObject(geometry, multiMaterial)
 
   sphere.scale.set(radius, radius, radius)

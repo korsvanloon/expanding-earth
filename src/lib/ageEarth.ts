@@ -1,4 +1,4 @@
-import { getPixelColor, loadImageData, PixelColor, pixelsInRange, setPixelColor } from './image'
+import { getPixelColor, loadImageData, PixelColor, pixelsInRange, setPixelColor } from '../3d/image'
 import convert from 'color-convert'
 import { abs, round } from './math'
 

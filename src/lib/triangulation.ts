@@ -2,7 +2,7 @@ import { Vector2 } from 'three'
 import Delaunator from 'delaunator'
 import { bufferCount, compare, map, toArray, where } from './iterable'
 import { pipeInto } from 'ts-functional-pipe'
-import { getPixelColor, uvToPixel } from './image'
+import { getPixelColor, uvToPixel } from '../3d/image'
 import { average, nearest, range } from './math'
 
 export type Node<T> = {
