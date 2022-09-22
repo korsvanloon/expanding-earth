@@ -4,7 +4,7 @@ import { jsx } from '@emotion/react'
 import { round } from 'lib/math'
 import { useEffect, useRef, useState } from 'react'
 import { AgeEarth } from 'lib/ageEarth'
-import EarthGeometry from 'lib/EarthGeometry'
+import EarthGeometry, { buildCubeSphere } from 'lib/EarthGeometry'
 import RangeInput from './RangeInput'
 import ChoiceInput from './ChoiceInput'
 import { useAnimationLoop } from 'hooks/useAnimationLoop'
@@ -47,8 +47,8 @@ const geometry = new EarthGeometry({
   vertices,
   normals: vertices,
   indices: pipeInto(
-    info(delaunayTriangles(delaunay, uvs)),
-    combine(info(connectingTriangles(delaunay, uvs))),
+    delaunayTriangles(delaunay, uvs),
+    combine(connectingTriangles(delaunay, uvs)),
     flatMap((t) => [...t.nodes].reverse()),
     map((n) => n.id),
     toArray,

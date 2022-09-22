@@ -76,7 +76,7 @@ const UvMesh = ({
 
         return (
           <g key={pi} className={clsx('plate', polygon === current && 'selected')}>
-            <clipPath id={`polygon-${pi}`}>{/* <polygon points={polygonPoints} /> */}</clipPath>
+            {/* <clipPath id={`polygon-${pi}`}><polygon points={polygonPoints} /></clipPath> */}
             {triangles.map(({ pixels }, i) => (
               <polygon
                 key={pixelsToSvgPoints(pixels, height)}
