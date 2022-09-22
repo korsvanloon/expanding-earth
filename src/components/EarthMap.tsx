@@ -18,11 +18,15 @@ import { getPixelColor, loadImageData, pixelColorToHex, uvToPixel } from 'lib/im
 
 const backgroundImages = [
   //
-  'earth-relief-map.jpg',
   'color-map.jpg',
+  'earth-relief-map.jpg',
   'height-map.jpg',
   'age-map.png',
   'crustal-age-map.jpg',
+  'climate-map.svg',
+  'topographic-map.jpg',
+  'location-map.png',
+  'population-density-map.png',
 ]
 
 // const height = 400
