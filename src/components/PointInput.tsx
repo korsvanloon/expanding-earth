@@ -2,7 +2,7 @@
 /** @jsx jsx */
 import { css } from '@emotion/react'
 import { Vector2 } from 'three'
-import NumberInput from './NumberInput'
+import NumberInput from './form/NumberInput'
 
 type Props = {
   value: Vector2
@@ -41,8 +41,7 @@ export default PointInput
 const style = css`
   display: inline-flex;
   label {
-    padding-left: 1rem;
-    padding-right: 1rem;
+    padding: 0 1rem;
   }
   span {
     padding: 0.5rem;

@@ -2,9 +2,11 @@ import { BufferGeometry, Float32BufferAttribute, Vector2, Vector3 } from 'three'
 import { sum, sqrt, range } from './math'
 import { pointToUv } from './sphere'
 
-type EarthParameters = {
-  size: number
-  resolution: number
+type GeometryData = {
+  indices: number[]
+  normals: Vector3[]
+  vertices: Vector3[]
+  uvs: Vector2[]
 }
 
 class EarthGeometry extends BufferGeometry {
@@ -32,11 +34,9 @@ class EarthGeometry extends BufferGeometry {
 
 export default EarthGeometry
 
-export type GeometryData = {
-  indices: number[]
-  normals: Vector3[]
-  vertices: Vector3[]
-  uvs: Vector2[]
+type EarthParameters = {
+  size: number
+  resolution: number
 }
 
 export const buildCubeSphere = (parameters: EarthParameters): GeometryData => {

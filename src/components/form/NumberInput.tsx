@@ -40,3 +40,9 @@ const NumberInput = ({ value, min = 0, max, step, required = true, onChange, chi
 }
 
 export default NumberInput
+
+const style = css`
+  label {
+    padding: 0 1rem;
+  }
+`

@@ -41,6 +41,8 @@ export function load<T>(name: string) {
   if (raw)
     try {
       return JSON.parse(raw) as T
-    } catch {}
+    } catch (e) {
+      console.error(e)
+    }
   return undefined
 }

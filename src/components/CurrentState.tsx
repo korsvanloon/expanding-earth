@@ -4,7 +4,8 @@
  * @jsx jsx */
 import { css, jsx } from '@emotion/react'
 import { PointsInTime, Polygon } from 'lib/polygon'
-import NumberInput from './NumberInput'
+import NumberInput from './form/NumberInput'
+import TextInput from './form/TextInput'
 import PointInput from './PointInput'
 
 type Props = {
@@ -47,8 +48,9 @@ const CurrentState = ({
         <table>
           <thead>
             <tr>
-              <th>age</th>
-              <th>
+              <th className="name">name</th>
+              <th className="age">age</th>
+              <th className="point">
                 {currentPointIndex !== undefined && (
                   <>
                     point
@@ -56,7 +58,7 @@ const CurrentState = ({
                   </>
                 )}
               </th>
-              <td>
+              <td className="actions">
                 {currentPointIndex !== undefined && (
                   <>
                     <button onClick={onDeletePoint}>Delete</button>
@@ -68,6 +70,17 @@ const CurrentState = ({
           </thead>
           <tbody>
             <tr>
+              <td>
+                {currentPointIndex !== undefined && (
+                  <TextInput
+                    value={currentPolygon.names[currentPointIndex]}
+                    onChange={(value) => {
+                      currentPolygon.names[currentPointIndex] = value
+                      onChange()
+                    }}
+                  />
+                )}
+              </td>
               <td className="readonly">
                 {(0.0).toLocaleString('nl-NL', {
                   maximumFractionDigits: 1,
@@ -84,7 +97,14 @@ const CurrentState = ({
               </td>
               <td>
                 {currentPointIndex !== undefined && (
-                  <button onClick={() => onSelectAge({ time: 0, points: currentPolygon.points })}>
+                  <button
+                    onClick={() =>
+                      onSelectAge({
+                        time: 0,
+                        points: currentPolygon.points,
+                      })
+                    }
+                  >
                     Select
                   </button>
                 )}
@@ -109,14 +129,15 @@ const CurrentState = ({
                   )}
                 </td>
                 <td>
-                  <button onClick={() => onSelectAge(age)}>Select</button>
                   <button onClick={() => onDeleteAge(age)}>Delete</button>
+                  <button onClick={() => onSelectAge(age)}>Select</button>
                 </td>
               </tr>
             ))}
           </tbody>
           <tfoot>
             <tr>
+              <td />
               <td>
                 <button onClick={onAddAge}>Add Age</button>
               </td>
@@ -156,6 +177,7 @@ const style = css`
   }
   button {
     font-size: 0.5rem;
+    width: 100%;
   }
   input,
   .readonly {
@@ -168,6 +190,23 @@ const style = css`
     border: 1px solid hsla(0, 0%, 100%, 0.2);
     border-radius: 3px;
     height: 24px;
+  }
+  table {
+    width: 100%;
+  }
+  .name {
+  }
+  .age {
+    width: 5rem;
+  }
+  .point {
+    width: 20rem;
+  }
+  .actions {
+    width: 5rem;
+  }
+  td {
+    text-align: center;
   }
   tbody > tr {
     &:hover {
