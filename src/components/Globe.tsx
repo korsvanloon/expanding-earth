@@ -31,29 +31,35 @@ const backgroundImages = [
   'lines-map.png',
 ]
 
-// const resolution = 12
-// const geometry = new EarthGeometry(buildCubeSphere({ resolution, size: 1 }))
+const initSphereGeometry = () => {
+  const resolution = 12
+  return new EarthGeometry(buildCubeSphere({ resolution, size: 1 }))
+}
 
-const polygons = load<Polygon[]>('plates')?.map(polygonFromRawJson) ?? []
-const uvs = polygons.flatMap((p) => p.points)
-const vertices = uvs.map(uvToPoint)
-const delaunay = Delaunator.from(
-  uvs,
-  (p) => p.x,
-  (p) => p.y,
-)
-const geometry = new EarthGeometry({
-  uvs,
-  vertices,
-  normals: vertices,
-  indices: pipeInto(
-    delaunayTriangles(delaunay, uvs),
-    combine(connectingTriangles(delaunay, uvs)),
-    flatMap((t) => [...t.nodes].reverse()),
-    map((n) => n.id),
-    toArray,
-  ),
-})
+const initDelaunayGeometry = () => {
+  const polygons = load<Polygon[]>('plates')?.map(polygonFromRawJson) ?? []
+  const uvs = polygons.flatMap((p) => p.points)
+  const vertices = uvs.map(uvToPoint)
+  const delaunay = Delaunator.from(
+    uvs,
+    (p) => p.x,
+    (p) => p.y,
+  )
+  return new EarthGeometry({
+    uvs,
+    vertices,
+    normals: vertices,
+    indices: pipeInto(
+      delaunayTriangles(delaunay, uvs),
+      combine(connectingTriangles(delaunay, uvs)),
+      flatMap((t) => [...t.nodes].reverse()),
+      map((n) => n.id),
+      toArray,
+    ),
+  })
+}
+const IS_SPHERE = true
+const geometry = IS_SPHERE ? initSphereGeometry() : initDelaunayGeometry()
 
 function Globe() {
   const webGlContainerRef = useRef<HTMLDivElement>(null)
@@ -79,11 +85,11 @@ function Globe() {
 
   const [background, setBackground] = useState(backgroundImages[0])
 
-  useEffect(() => {
-    // actionsRef.current.age?.update(time)
-    const points = polygons.flatMap((p) => getPointsAtTime(p, time)).map((uv) => uvToPoint(uv))
-    geometry.setPoints(points)
-  }, [time])
+  // useEffect(() => {
+  // actionsRef.current.age?.update(time)
+  //   const points = polygons.flatMap((p) => getPointsAtTime(p, time)).map((uv) => uvToPoint(uv))
+  //   geometry.setPoints(points)
+  // }, [time])
 
   useEffect(() => {
     actionsRef.current.globe?.updateColorTexture(

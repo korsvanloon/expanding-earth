@@ -1,7 +1,7 @@
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
 import { pixelToUv, uvToPixel } from '3d/image'
-import { useState, PointerEvent, SVGProps } from 'react'
+import { useState, PointerEvent, SVGProps, useEffect } from 'react'
 import { Vector2 } from 'three'
 
 type Props = {
@@ -30,6 +30,17 @@ const ControlPoint = ({
     offset: { x: 0, y: 0 },
     pixel: uvToPixel(uv, containerHeight),
   })
+
+  useEffect(
+    () =>
+      setState({
+        active: false,
+        moved: false,
+        offset: { x: 0, y: 0 },
+        pixel: uvToPixel(uv, containerHeight),
+      }),
+    [containerHeight],
+  )
 
   const onPointerDown = (e: PointerEvent<SVGCircleElement>) => {
     e.currentTarget.setPointerCapture(e.pointerId)
@@ -61,7 +72,7 @@ const ControlPoint = ({
       {...rest}
       cx={state.pixel.x / containerHeight}
       cy={state.pixel.y / containerHeight}
-      r={0.005}
+      r={0.015}
       fill={state.active ? 'blue' : color}
       // clipPath={state.active ? undefined : `url(#${polygonId})`}
       {...(disabled ? {} : { onPointerDown, onPointerUp, onPointerMove })}
