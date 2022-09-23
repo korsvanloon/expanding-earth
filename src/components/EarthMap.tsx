@@ -15,6 +15,7 @@ import { Link } from 'wouter'
 import NavBar from './NavBar'
 import CurrentState from './CurrentState'
 import { getPixelColor, loadImageData, pixelColorToHex, uvToPixel } from '3d/image'
+import { useSave } from 'hooks/useSave'
 
 const backgroundImages = [
   //
@@ -30,7 +31,6 @@ const backgroundImages = [
 ]
 
 // const height = 400
-const initialTime = 0.0
 
 // const findPolygon = (uv: Vector2, polygons: Polygon[]) =>
 //   polygons.find((p) =>
@@ -44,14 +44,32 @@ const initialTime = 0.0
 //     ),
 //   )
 
+// const layerName = 'plates'
+// const storePolygons = (polygons: Polygon[]) =>
+//   localStorage.setItem(layerName, JSON.stringify(polygons))
+
+type UserState = {
+  currentPointIndex?: number | null
+  currentPolygonIndex?: number | null
+  initialTime?: number | null
+  background: string
+}
+const initialUserState: UserState = {
+  background: backgroundImages[0],
+}
+
 function EarthMap() {
   const [height, setHeight] = useState<number>(400)
-  const [currentPointIndex, setCurrentPointIndex] = useState<number>()
-  const [polygons, setPolygons] = useState<Polygon[]>([])
-  const [currentPolygon, setCurrentPolygon] = useState<Polygon>()
+  const [userState, saveUserState] = useSave('current', initialUserState)
+  const [polygons, savePolygons] = useSave<Polygon[]>('plates', [], (rawPolygons) =>
+    rawPolygons.map(polygonFromRawJson),
+  )
   const [ageData, setAgeData] = useState<ImageData>()
 
-  const { time, setTime, running, start, stop } = useAnimationLoop(initialTime, initialTime)
+  const { time, setTime, running, start, stop } = useAnimationLoop(
+    userState.initialTime ?? 0,
+    userState.initialTime ?? 0,
+  )
 
   useEffect(() => {
     const height = Math.min(window.innerHeight - 100, window.innerWidth / 2 - 100)
@@ -80,31 +98,32 @@ function EarthMap() {
     .toString()
     .padStart(3)
 
-  const [background, setBackground] = useState(backgroundImages[0])
+  // const [background, setBackground] = useState(backgroundImages[0])
 
   const handleClick = useCallback(
     (uv: Vector2, event: MouseEvent) => {
       // const clickedPolygon = findPolygon(uv, polygons)
-      const clickedPolygon = polygons[0]
+      const polygonIndex = 0
+      const clickedPolygon = polygons[polygonIndex]
 
-      if (clickedPolygon && clickedPolygon !== currentPolygon) {
-        setCurrentPolygon(clickedPolygon)
+      if (polygonIndex !== 0) {
+        saveUserState({ currentPolygonIndex: polygonIndex })
         return
       }
       if (event.shiftKey) {
-        const polygon = currentPolygon ?? { points: [] }
+        const polygon = clickedPolygon ?? { points: [], names: [] }
 
         polygon.points.push(uv)
         polygon.timeline?.forEach((t) => t.points.push(uv))
         if (!polygons.includes(polygon)) {
-          setPolygons([...polygons, polygon])
+          savePolygons([...polygons, polygon])
         } else {
-          setPolygons([...polygons])
+          savePolygons([...polygons])
         }
-        setCurrentPolygon(polygon)
+        saveUserState({ currentPolygonIndex: polygonIndex })
       }
     },
-    [currentPolygon, polygons],
+    [polygons],
   )
 
   ;(window as any).polygons = polygons
@@ -112,38 +131,41 @@ function EarthMap() {
   const deletePoint = (polygon: Polygon, pointIndex: number) => {
     polygon.points.splice(pointIndex, 1)
     polygon.timeline?.forEach((t) => t.points.splice(pointIndex, 1))
-    setCurrentPointIndex(undefined)
+    saveUserState({ currentPointIndex: null })
   }
+
+  const currentPolygon =
+    userState.currentPolygonIndex !== undefined && userState.currentPolygonIndex !== null
+      ? polygons[userState.currentPolygonIndex]
+      : undefined
 
   return (
     <div>
       <NavBar>
-        <button autoFocus onClick={running ? stop : start}>
-          {running ? 'stop' : 'start'}
-        </button>
+        <button onClick={running ? stop : start}>{running ? 'stop' : 'start'}</button>
         <RangeInput name="age" value={time} onValue={setTime} step={0.01}>
           <code>{humanAge}</code> million years ago
         </RangeInput>
         <ChoiceInput
           name="background"
           options={backgroundImages.map((value) => ({ value, label: value }))}
-          value={background}
-          onValue={setBackground}
+          value={userState.background}
+          onValue={(background) => saveUserState({ background })}
         >
           Image
         </ChoiceInput>
-        <StoreButton
-          name={`plates`}
+        <Link href="/globe">Globe</Link>
+        {/* <StoreButton
+          name={layerName}
           onLoad={(rawPolygons) => {
             const polygons = rawPolygons.map(polygonFromRawJson)
             setPolygons(polygons)
-            setCurrentPolygon(polygons[0])
+            saveUserState({ currentPolygon: polygons[0] })
           }}
           onSave={() => polygons}
         >
           Store
-        </StoreButton>
-        <Link href="/globe">Globe</Link>
+        </StoreButton> */}
       </NavBar>
 
       <div css={style} style={{ width: `${height * 2}px`, height: `${height}px` }}>
@@ -151,7 +173,7 @@ function EarthMap() {
         <div
           className="background"
           style={{
-            backgroundImage: `url(/textures/${background})`,
+            backgroundImage: `url(/textures/${userState.background})`,
             backgroundSize: `${height * 2}px ${height}px`,
           }}
         />
@@ -175,24 +197,27 @@ function EarthMap() {
           height={height}
           polygons={polygons}
           current={currentPolygon}
-          currentPointIndex={currentPointIndex}
+          currentPointIndex={userState.currentPointIndex ?? undefined}
           time={time}
           uvColor={(uv) =>
             ageData ? pixelColorToHex(getPixelColor(ageData, uvToPixel(uv, height))) : undefined
           }
           onClick={handleClick}
           onPointMoved={(oldUv, newUv, polygon, i) => {
-            setCurrentPointIndex(i)
+            saveUserState({ currentPointIndex: i })
             const newPoints = getPointsAtTime(polygon, time)
             const uv = newPoints.find((p) => p.equals(oldUv))
             uv?.setX(newUv.x)
             uv?.setY(newUv.y)
             setPointsAtTime(polygon, time, newPoints)
-            setPolygons([...polygons])
+            savePolygons([...polygons])
+            // storePolygons(polygons)
           }}
           onPointClick={(uv, event, polygon, i) => {
-            setCurrentPolygon(polygon)
-            setCurrentPointIndex(i)
+            saveUserState({
+              currentPolygonIndex: polygons.indexOf(polygon),
+              currentPointIndex: event.shiftKey ? null : i,
+            })
             if (event.shiftKey) {
               deletePoint(polygon, i)
             }
@@ -200,22 +225,23 @@ function EarthMap() {
         />
       </div>
       <CurrentState
-        currentPointIndex={currentPointIndex}
-        currentPolygon={currentPolygon}
+        currentPointIndex={userState.currentPointIndex ?? undefined}
+        currentPolygon={currentPolygon ?? undefined}
         polygons={polygons}
         onChange={() => {
-          setPolygons([...polygons])
+          savePolygons([...polygons])
+          // storePolygons(polygons)
         }}
         onDeletePolygon={() => {
-          setPolygons(polygons.filter((p) => p !== currentPolygon))
-          setCurrentPolygon(undefined)
+          savePolygons(polygons.filter((p) => p !== currentPolygon))
+          saveUserState({ currentPolygonIndex: null })
         }}
         onDeletePoint={() => {
-          if (!currentPolygon || !currentPointIndex!) return
-          deletePoint(currentPolygon, currentPointIndex)
+          if (!currentPolygon || !userState.currentPointIndex!) return
+          deletePoint(currentPolygon, userState.currentPointIndex)
         }}
         onClosePoint={() => {
-          setCurrentPointIndex(undefined)
+          saveUserState({ currentPointIndex: null })
         }}
         onAddAge={() => {
           if (!currentPolygon) return
@@ -228,13 +254,13 @@ function EarthMap() {
             (lastAge?.time ?? 0) + 0.1,
             (lastAge?.points ?? currentPolygon.points).map((x) => x.clone()),
           )
-          setPolygons([...polygons])
+          savePolygons([...polygons])
         }}
         onSelectAge={(age) => setTime(age.time)}
         onDeleteAge={(age) => {
           if (!currentPolygon) return
           currentPolygon.timeline = currentPolygon.timeline?.filter((a) => a !== age)
-          setPolygons([...polygons])
+          savePolygons([...polygons])
         }}
       />
     </div>
