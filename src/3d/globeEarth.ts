@@ -57,10 +57,9 @@ async function createGlobeEarth({ geometry, container }: Props): Promise<GlobeEa
     renderer.setSize(width, height)
   }
   onWindowResize()
+  spotLight.position.copy(camera.position)
 
   async function update() {
-    spotLight.position.copy(camera.position)
-
     renderer.render(scene, camera)
     requestAnimationFrame(update)
   }

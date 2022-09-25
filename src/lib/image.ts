@@ -1,5 +1,5 @@
 import { Vector2 } from 'three'
-import { round } from '../lib/math'
+import { round } from './math'
 
 export type PixelColor = readonly [number, number, number, number]
 

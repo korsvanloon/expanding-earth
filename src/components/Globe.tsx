@@ -104,6 +104,7 @@ function Globe() {
   return (
     <div>
       <NavBar>
+        <Link href="/">&lt;</Link>
         <button onClick={running ? stop : start} autoFocus>
           {running ? 'stop' : 'start'}
         </button>
@@ -118,7 +119,6 @@ function Globe() {
         >
           Image
         </ChoiceInput>
-        <Link href="/map">Map</Link>
       </NavBar>
 
       <div ref={webGlContainerRef} style={{ width: '100vw', height: 'calc(100vh - 70px)' }}></div>

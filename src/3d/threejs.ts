@@ -5,12 +5,18 @@ import {
   MeshBasicMaterial,
   Object3D,
   PerspectiveCamera,
+  PlaneGeometry,
   Scene,
+  ShaderMaterial,
   SphereGeometry,
+  Texture,
   TextureLoader,
+  Vector2,
   Vector3,
 } from 'three'
 import { OrbitControls } from '../vendor/OrbitControls'
+import vertexShader from '../shaders/worldmap.vert.glsl'
+import fragmentShader from '../shaders/worldmap.frag.glsl'
 
 export const createScene = (...children: Object3D[]) => {
   const scene = new Scene()
@@ -60,4 +66,28 @@ export const createControls = (camera: PerspectiveCamera, element: HTMLCanvasEle
   controls.autoRotate = false
   controls.update()
   return controls
+}
+
+export const createOrthographicMap = (centerLatLng: Vector2) => {
+  const shader = new ShaderMaterial({
+    vertexShader,
+    fragmentShader,
+    uniforms: {
+      topographicTexture: { value: new TextureLoader().load('textures/topographic-map.jpg') },
+      densityTexture: { value: new TextureLoader().load('textures/population-density-map.png') },
+      centerLatLng: { value: centerLatLng },
+    },
+  })
+  const size = 200
+  const plane = new PlaneGeometry(size, size)
+
+  return {
+    image: new Mesh(plane, shader),
+    updateColorTexture: (texture: Texture) => {
+      shader.uniforms.globeTexture.value = texture
+    },
+    setCenter: (latLng: Vector2) => {
+      shader.uniforms.centerLatLng.value = latLng
+    },
+  }
 }

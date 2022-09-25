@@ -4,7 +4,6 @@ import { css } from '@emotion/react'
 import { findMax, round } from 'lib/math'
 import { useCallback, useEffect, useState, MouseEvent } from 'react'
 import { Vector2 } from 'three'
-import StoreButton from './StoreButton'
 import RangeInput from './RangeInput'
 import ChoiceInput from './ChoiceInput'
 import { useAnimationLoop } from 'hooks/useAnimationLoop'
@@ -14,7 +13,7 @@ import { getPointsAtTime, Polygon, polygonFromRawJson, setPointsAtTime } from 'l
 import { Link } from 'wouter'
 import NavBar from './NavBar'
 import CurrentState from './CurrentState'
-import { getPixelColor, loadImageData, pixelColorToHex, uvToPixel } from '3d/image'
+import { getPixelColor, loadImageData, pixelColorToHex, uvToPixel } from 'lib/image'
 import { useSave } from 'hooks/useSave'
 
 const backgroundImages = [
@@ -98,8 +97,6 @@ function EarthMap() {
     .toString()
     .padStart(3)
 
-  // const [background, setBackground] = useState(backgroundImages[0])
-
   const handleClick = useCallback(
     (uv: Vector2, event: MouseEvent) => {
       // const clickedPolygon = findPolygon(uv, polygons)
@@ -142,6 +139,7 @@ function EarthMap() {
   return (
     <div>
       <NavBar>
+        <Link href="/">&lt;</Link>
         <button onClick={running ? stop : start}>{running ? 'stop' : 'start'}</button>
         <RangeInput name="age" value={time} onValue={setTime} step={0.01}>
           <code>{humanAge}</code> million years ago
@@ -154,18 +152,6 @@ function EarthMap() {
         >
           Image
         </ChoiceInput>
-        <Link href="/globe">Globe</Link>
-        {/* <StoreButton
-          name={layerName}
-          onLoad={(rawPolygons) => {
-            const polygons = rawPolygons.map(polygonFromRawJson)
-            setPolygons(polygons)
-            saveUserState({ currentPolygon: polygons[0] })
-          }}
-          onSave={() => polygons}
-        >
-          Store
-        </StoreButton> */}
       </NavBar>
 
       <div css={style} style={{ width: `${height * 2}px`, height: `${height}px` }}>
@@ -230,7 +216,6 @@ function EarthMap() {
         polygons={polygons}
         onChange={() => {
           savePolygons([...polygons])
-          // storePolygons(polygons)
         }}
         onDeletePolygon={() => {
           savePolygons(polygons.filter((p) => p !== currentPolygon))

@@ -10,6 +10,7 @@ const Index = () => {
         <Link href="/earth">earth</Link>
         <Link href="/globe">globe</Link>
         <Link href="/map">map</Link>
+        <Link href="/game">game</Link>
       </NavBar>
     </div>
   )

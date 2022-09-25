@@ -1,19 +1,18 @@
 // this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
 /** @jsx jsx */
 import { Global, jsx } from '@emotion/react'
-import ReactDOM from 'react-dom'
+import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './components/App'
 import reportWebVitals from './reportWebVitals'
 import theme from 'lib/theme'
 
-ReactDOM.render(
+createRoot(document.getElementById('root')!).render(
   <div>
     <Global styles={theme} />
     <App />
   </div>,
   // <React.StrictMode>{/* <App /> */}</React.StrictMode>,
-  document.getElementById('root'),
 )
 
 // If you want to start measuring performance in your app, pass a function
