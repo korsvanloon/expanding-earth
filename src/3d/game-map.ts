@@ -1,5 +1,6 @@
 import { PI } from 'lib/math'
-import { AmbientLight, DirectionalLight, Texture, Vector, Vector2, WebGLRenderer } from 'three'
+import { LatLng, UV } from 'lib/orthographic'
+import { AmbientLight, DirectionalLight, Texture, Vector2, WebGLRenderer } from 'three'
 import { createScene, createCamera, createOrthographicMap } from './threejs'
 
 export type Props = {
@@ -10,48 +11,58 @@ export type Props = {
 export type GameMap = {
   cleanUp: () => void
   updateColorTexture: (texture: Texture) => void
-  setCenter: (latLng: Vector2) => void
+  setCenter: (latLng: LatLng) => void
+  setMouse: (uv: UV) => void
+  update: () => void
 }
 
-export const NORTH_POLE = new Vector2(0, 0.5 * PI)
-export const SOUTH_POLE = new Vector2(0, -0.5 * PI)
+export const NORTH_POLE = new Vector2(0.0, 0.5 * PI)
+export const SOUTH_POLE = new Vector2(0.0, -0.5 * PI)
+export const ATLANTIC = new Vector2(-0.25 * PI, 0.125 * PI)
 
 async function createGame({ container, centerLatLng }: Props): Promise<GameMap> {
   const spotLight = new DirectionalLight(0xffffff, 1)
   const camera = createCamera()
   const ambientLight = new AmbientLight(0x888888)
 
-  const { image, updateColorTexture, setCenter } = createOrthographicMap(centerLatLng)
+  const { image, updateColorTexture, setCenter, setMouse } = createOrthographicMap({
+    centerLatLng,
+    onLoad: update,
+  })
   const scene = createScene(ambientLight, camera, image)
 
   const renderer = new WebGLRenderer({ antialias: true })
 
   container.appendChild(renderer.domElement)
 
-  const width = container.clientWidth
-  const height = container.clientHeight
-
   function onWindowResize() {
+    const width = container.clientWidth
+    const height = container.clientHeight
     camera.aspect = width / height
     camera.updateProjectionMatrix()
     renderer.setSize(width, height)
+    update()
   }
   onWindowResize()
+  window.addEventListener('resize', onWindowResize)
 
   async function update() {
     spotLight.position.copy(camera.position)
 
     renderer.render(scene, camera)
-    requestAnimationFrame(update)
+    // requestAnimationFrame(update)
   }
   requestAnimationFrame(update)
 
   return {
     cleanUp: () => {
       container.removeChild(renderer.domElement)
+      window.removeEventListener('resize', onWindowResize)
     },
     updateColorTexture,
     setCenter,
+    setMouse,
+    update,
   }
 }
 

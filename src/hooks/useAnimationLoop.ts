@@ -1,8 +1,13 @@
-import { clamp01 } from 'lib/math'
+import { clamp } from 'lib/math'
 import { useState, useRef } from 'react'
 
-export const useAnimationLoop = (initialTime = 0, endTime = 1) => {
-  const [time, setTime] = useState(initialTime)
+export const useAnimationLoop = ({
+  startTime = 0,
+  endTime = 1,
+  step = 0.0001,
+  speed = 0,
+}: { startTime?: number; endTime?: number; step?: number; speed?: number } = {}) => {
+  const [time, setTime] = useState(startTime)
   const [running, setRunning] = useState(false)
 
   // Use useRef for mutable variables that we want to persist
@@ -15,15 +20,17 @@ export const useAnimationLoop = (initialTime = 0, endTime = 1) => {
     if (previousTRef.current !== undefined) {
       const deltaTime = t - previousTRef.current
 
-      // const approxTime = time + deltaTime * 0.0001 * (ascending ? 1 : -1))
-
       // Pass on a function to the setter of the state
       // to make sure we always have the latest state
       setTime((prevCount) => {
-        const t = clamp01(prevCount + deltaTime * 0.0001 * (ascendingRef.current ? 1 : -1))
+        const t = clamp(
+          prevCount + deltaTime * step * (ascendingRef.current ? 1 : -1),
+          startTime,
+          endTime,
+        )
         if (t >= endTime) {
           ascendingRef.current = false
-        } else if (t <= 0) {
+        } else if (t <= startTime) {
           ascendingRef.current = true
         }
         return t

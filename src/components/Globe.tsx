@@ -68,7 +68,7 @@ function Globe() {
     globe: undefined,
   })
 
-  const { time, setTime, running, start, stop } = useAnimationLoop(0, 0.3)
+  const { time, setTime, running, start, stop } = useAnimationLoop({ startTime: 0, endTime: 0.3 })
 
   useEffect(() => {
     if (webGlContainerRef.current) {

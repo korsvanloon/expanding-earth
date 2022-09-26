@@ -3,6 +3,7 @@ import {
   DoubleSide,
   Mesh,
   MeshBasicMaterial,
+  NearestFilter,
   Object3D,
   PerspectiveCamera,
   PlaneGeometry,
@@ -17,6 +18,7 @@ import {
 import { OrbitControls } from '../vendor/OrbitControls'
 import vertexShader from '../shaders/worldmap.vert.glsl'
 import fragmentShader from '../shaders/worldmap.frag.glsl'
+import { LatLng, UV } from 'lib/orthographic'
 
 export const createScene = (...children: Object3D[]) => {
   const scene = new Scene()
@@ -68,14 +70,39 @@ export const createControls = (camera: PerspectiveCamera, element: HTMLCanvasEle
   return controls
 }
 
-export const createOrthographicMap = (centerLatLng: Vector2) => {
+export const createOrthographicMap = ({
+  centerLatLng,
+  onLoad,
+}: {
+  centerLatLng: Vector2
+  onLoad: () => void
+}) => {
+  const loader = new TextureLoader()
+  let textureLoaded = 0
+  const checkOnLoad = () => {
+    textureLoaded++
+    if (textureLoaded === 2) {
+      onLoad()
+    }
+  }
+
+  const topographicTexture = loader.load('textures/topographic-map.jpg', checkOnLoad)
+
+  const densityTexture = loader.load('textures/population-density-map.png', checkOnLoad)
+
+  const areaTexture = loader.load('textures/areas-map.png', checkOnLoad)
+  areaTexture.magFilter = NearestFilter
+  areaTexture.minFilter = NearestFilter
+
   const shader = new ShaderMaterial({
     vertexShader,
     fragmentShader,
     uniforms: {
-      topographicTexture: { value: new TextureLoader().load('textures/topographic-map.jpg') },
-      densityTexture: { value: new TextureLoader().load('textures/population-density-map.png') },
+      topographicTexture: { value: topographicTexture },
+      densityTexture: { value: densityTexture },
+      areaTexture: { value: areaTexture },
       centerLatLng: { value: centerLatLng },
+      mouseUV: { value: new Vector2() },
     },
   })
   const size = 200
@@ -86,8 +113,12 @@ export const createOrthographicMap = (centerLatLng: Vector2) => {
     updateColorTexture: (texture: Texture) => {
       shader.uniforms.globeTexture.value = texture
     },
-    setCenter: (latLng: Vector2) => {
-      shader.uniforms.centerLatLng.value = latLng
+    setCenter: (latLng: LatLng) => {
+      shader.uniforms.centerLatLng.value = new Vector2(latLng.x, latLng.y)
     },
+    setMouse: (value: UV) => {
+      shader.uniforms.mouseUV.value = new Vector2(value.x, value.y)
+    },
+    onLoad,
   }
 }

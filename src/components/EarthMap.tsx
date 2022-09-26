@@ -65,10 +65,10 @@ function EarthMap() {
   )
   const [ageData, setAgeData] = useState<ImageData>()
 
-  const { time, setTime, running, start, stop } = useAnimationLoop(
-    userState.initialTime ?? 0,
-    userState.initialTime ?? 0,
-  )
+  const { time, setTime, running, start, stop } = useAnimationLoop({
+    startTime: userState.initialTime ?? 0,
+    endTime: userState.initialTime ?? 0,
+  })
 
   useEffect(() => {
     const height = Math.min(window.innerHeight - 100, window.innerWidth / 2 - 100)

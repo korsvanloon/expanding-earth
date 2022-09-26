@@ -32,7 +32,6 @@ const webpackConfig = (
     rules: [
       {
         test: /\.tsx?$/,
-        // exclude: /dist/,
         exclude: /node_modules/,
         use: [
           {
@@ -44,12 +43,6 @@ const webpackConfig = (
               transpileOnly: isDevelopment,
             },
           },
-          // {
-          //   loader: require.resolve('babel-loader'),
-          //   options: {
-          //     plugins: [isDevelopment && require.resolve('react-refresh/babel')].filter(Boolean),
-          //   },
-          // },
         ],
       },
       {
@@ -58,7 +51,26 @@ const webpackConfig = (
       },
       {
         test: /\.css$/i,
+        use: [
+          'style-loader',
+          {
+            loader: 'css-loader',
+            options: {
+              importLoaders: 1,
+              modules: true,
+            },
+          },
+        ],
+        include: /\.module\.css$/,
+      },
+      {
+        test: /\.css$/,
         use: ['style-loader', 'css-loader'],
+        exclude: /\.module\.css$/,
+      },
+      {
+        test: /\.svg$/,
+        use: ['@svgr/webpack'],
       },
     ],
   },
@@ -71,11 +83,7 @@ const webpackConfig = (
       'process.env.NAME': JSON.stringify(require('./package.json').name),
       'process.env.VERSION': JSON.stringify(require('./package.json').version),
     }),
-    new ForkTsCheckerWebpackPlugin({
-      // eslint: {
-      //   files: './src/**/*.{ts,tsx,js,jsx}', // required - same as command `eslint ./src/**/*.{ts,tsx,js,jsx} --ext .ts,.tsx,.js,.jsx`
-      // },
-    }),
+    new ForkTsCheckerWebpackPlugin({}),
     ...(isDevelopment
       ? [new webpack.HotModuleReplacementPlugin(), new ReactRefreshWebpackPlugin()]
       : []),
