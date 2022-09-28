@@ -1,5 +1,5 @@
 import { PI } from 'lib/math'
-import { LatLng, UV } from 'lib/orthographic'
+import { LatLng, UV } from 'lib/type'
 import { AmbientLight, DirectionalLight, Texture, Vector2, WebGLRenderer } from 'three'
 import { createScene, createCamera, createOrthographicMap } from './threejs'
 
@@ -12,7 +12,7 @@ export type GameMap = {
   cleanUp: () => void
   updateColorTexture: (texture: Texture) => void
   setCenter: (latLng: LatLng) => void
-  setMouse: (uv: UV) => void
+  setMouse: (latLng: LatLng) => void
   update: () => void
 }
 

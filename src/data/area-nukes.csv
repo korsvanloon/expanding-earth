@@ -1,0 +1,21 @@
+name	lng	lat	active	reserve	country
+Britische Inseln	-0.005	0.923	225	120
+China	2.127	0.761	350	0
+Frankreich	0.076	0.839	290	280
+Heimat	0.135	0.857	20	0
+Indien	1.285	0.462	160	0
+Israel	0.615	0.555	90	0
+Italien	0.186	0.786	40	0
+Mittelsiberien	2.041	0.91	200	1000	Russland
+Moskau	0.583	0.956	200	1000	Russland
+Niederlande	0.077	0.891	40	0
+Nordkorea	2.205	0.691	20	0
+Nordrussland	0.626	1.194	200	1000	Russland
+Ostsiberien	2.764	0.919	200	1000	Russland
+Pakistan	1.195	0.512	165	0
+Suedrussland	0.762	0.826	200	1000	Russland
+Tuerkei	0.611	0.721	50	0
+VS Norden	-1.673	0.806	200	1500	VS
+VS Sued	-1.723	0.604	300	2000	VS
+VS Westen	-1.961	0.806	300	2000	VS
+Westsiberien	1.318	0.981	200	1000	Russland

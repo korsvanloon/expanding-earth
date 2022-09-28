@@ -4,7 +4,7 @@ uniform sampler2D topographicTexture;
 uniform sampler2D densityTexture;
 uniform sampler2D areaTexture;
 uniform vec3 centerLatLng;
-uniform vec2 mouseUV;
+uniform vec2 mouseLatLng;
 
 varying vec2 vertexUV; // position on the plane
 // vec2 latlng => λ:lng:x, φ:lat:y
@@ -82,12 +82,12 @@ void main() {
   }
 
   vec2 uv = latLngToUv(pixelToOrthographicLatLng(uvToPixel(vertexUV)));
-  vec2 mouseUv = latLngToUv(pixelToOrthographicLatLng(uvToPixel(mouseUV)));
+  vec2 mouseUV = latLngToUv(mouseLatLng);
 
   vec3 topographicColor = texture2D(topographicTexture, uv).xyz;
   vec3 densityColor = texture2D(densityTexture, uv).xyz;
   vec3 countriesColor = texture2D(areaTexture, uv).xyz;
-  vec3 mouseCountriesColor = texture2D(areaTexture, mouseUv).xyz;
+  vec3 mouseCountriesColor = texture2D(areaTexture, mouseUV).xyz;
   vec3 color = topographicColor * 0.5;
 
   // Add yellow population density spots.
@@ -96,7 +96,8 @@ void main() {
   }
   // Highlight current country
   if(closeTo(countriesColor, mouseCountriesColor)) {
-    color += vec3(0.2, 0.2, 0.2);
+    color += topographicColor * 0.2;
+    // color += vec3(0.2, 0.2, 0.2);
   }
 
   gl_FragColor = vec4(color, 1.0);

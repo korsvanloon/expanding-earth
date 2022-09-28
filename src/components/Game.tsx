@@ -1,7 +1,7 @@
 // this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
 /** @jsx jsx */
 import { css, jsx } from '@emotion/react'
-import { round } from 'lib/math'
+import { PI, round, sqrt } from 'lib/math'
 import { useEffect, useRef, useState } from 'react'
 import RangeInput from './RangeInput'
 import ChoiceInput from './ChoiceInput'
@@ -11,13 +11,15 @@ import { Link } from 'wouter'
 import NavBar from './NavBar'
 import { useSave } from 'hooks/useSave'
 import {
-  coordinateToOrthographicLatLng,
-  LatLng,
-  Pixel,
-  Point,
-  UV,
+  latLngToOrthographicPoint,
+  orthographicPointToLatLng,
   withinCircle,
 } from 'lib/orthographic'
+import colorToCountry from '../data/color-area.json'
+import { getPixelColor, loadImageData, pixelColorToHex, pixelsInRange, uvToPixel } from 'lib/image'
+import { isValue } from 'lib/iterable'
+import { LatLng, Point, UV } from 'lib/type'
+import { areaNukes } from '../data'
 
 type GameState = {
   globeCenter: number
@@ -38,7 +40,9 @@ function Game() {
   const [state, saveState] = useSave<GameState>('game', {
     globeCenter: 0,
   })
-  const [point, setPoint] = useState<Point>()
+  const [latLng, setLatLng] = useState<LatLng>()
+  const [areaData, setAreaData] = useState<ImageData>()
+  // const [histogram, setHistogram] = useState<Record<string, number[]>>({})
 
   const { time, setTime, running, start, stop } = useAnimationLoop({
     startTime: 1945,
@@ -55,6 +59,19 @@ function Game() {
         actionsRef.current.gameMap = actions
       })
     }
+    loadImageData('textures/areas-map.png', 2048, 1024).then((d) => {
+      setAreaData(d)
+      // for (const pixel of pixelsInRange(d)) {
+      //   const color = getPixelColor(d, pixel)
+      //   if (color[3]) {
+      //     const hex = pixelColorToHex(color)
+      //     if (!histogram[hex]) histogram[hex] = [0, pixel.x, pixel.y]
+      //     histogram[hex][0]++
+      //   }
+      // }
+      // setHistogram(histogram)
+    })
+
     return () => {
       actionsRef.current.gameMap?.cleanUp()
     }
@@ -66,17 +83,15 @@ function Game() {
   }, [state.globeCenter])
 
   useEffect(() => {
-    if (point) {
-      const uv: UV = {
-        x: point.x,
-        y: 1.0 - point.y,
-      }
-      actionsRef.current.gameMap?.setMouse(uv)
+    if (latLng) {
+      actionsRef.current.gameMap?.setMouse(latLng)
       actionsRef.current.gameMap?.update()
     }
-  }, [point])
+  }, [latLng])
 
   const year = round(time)
+
+  const dimension = webGlContainerRef.current?.clientHeight
 
   return (
     <div>
@@ -98,33 +113,75 @@ function Game() {
         </ChoiceInput>
       </NavBar>
 
-      <div
-        ref={webGlContainerRef}
-        style={{ width: '100vw', height: 'calc(100vh - 70px)' }}
-        onMouseMove={(e) => {
-          const box = e.currentTarget.getBoundingClientRect()
-          const diameter = 0.8 * box.height
-          const top = 0.1 * box.height
-          const left = (box.width - diameter) / 2
-          const point: Point = {
-            x: (e.clientX - box.left - left) / diameter,
-            y: (e.clientY - box.top - top) / diameter,
+      <main css={style}>
+        <div
+          ref={webGlContainerRef}
+          style={{ width: '100%', height: '100%' }}
+          onMouseMove={(e) => {
+            const box = e.currentTarget.getBoundingClientRect()
+
+            const point: Point = {
+              x: (e.clientX - box.left) / box.height,
+              y: (e.clientY - box.top) / box.height,
+            }
+            const latLng = orthographicPointToLatLng(point, centers[state.globeCenter].value)
+            setLatLng(withinCircle(point) ? latLng : undefined)
+          }}
+          onClick={() =>
+            console.log(`${latLng?.x.toLocaleString('nl')}\t${latLng?.y.toLocaleString('nl')}`)
           }
-          const uv: UV = {
-            x: point.x,
-            y: 1 - point.y,
-          }
-          setPoint(withinCircle(uv) ? point : undefined)
-        }}
-      ></div>
-      <button css={hyperboreaStyle} style={globeCenterLabelOffset[state.globeCenter]}>
-        {centers[state.globeCenter].label}
-        <div style={globeCenterOffset[state.globeCenter]} />
-      </button>
-      {point && <PointInfoBox point={point} centerLatLng={centers[state.globeCenter].value} />}
+        ></div>
+        {dimension &&
+          areaNukes
+            .map(({ name, lat, lng, active }) => ({
+              name,
+              active,
+              point: latLngToOrthographicPoint(
+                { x: lng, y: lat },
+                centers[state.globeCenter].value,
+              ),
+            }))
+            .map((a) => (
+              <button
+                className="nuke-site"
+                key={a.name}
+                title={a.name}
+                style={{
+                  top: `${a.point.y * dimension}px`,
+                  left: `${a.point.x * dimension}px`,
+                  width: `${sqrt(a.active)}px`,
+                  height: `${sqrt(a.active)}px`,
+                }}
+              ></button>
+            ))}
+        <button css={hideoutStyle} style={globeCenterLabelOffset[state.globeCenter]}>
+          {centers[state.globeCenter].label}
+          <div style={globeCenterOffset[state.globeCenter]} />
+        </button>
+        {latLng && <PointInfoBox latLng={latLng} areaData={areaData} />}
+      </main>
     </div>
   )
 }
+
+const style = css`
+  width: calc(100vh - 70px);
+  height: calc(100vh - 70px);
+  margin: 0 auto;
+  position: relative;
+
+  .nuke-site {
+    position: absolute;
+    width: 1%;
+    height: 1%;
+    border-radius: 100%;
+    background-color: hsl(0 50% 50% / 80%);
+    padding: 0;
+    border: none;
+    cursor: pointer;
+    transform: translate(-50%, -50%);
+  }
+`
 
 const globeCenterOffset = [
   {
@@ -147,7 +204,7 @@ const globeCenterLabelOffset = [
   {},
   {},
 ]
-const hyperboreaStyle = css`
+const hideoutStyle = css`
   position: absolute;
   left: calc(50vw - 6rem);
   top: calc(50vh);
@@ -176,32 +233,59 @@ const hyperboreaStyle = css`
   }
 `
 
-const PointInfoBox = ({ point, centerLatLng }: { point: Point; centerLatLng: LatLng }) => {
-  const pixel: Pixel = {
-    x: point.x - 0.5,
-    y: 0.5 - point.y,
-  }
+const PointInfoBox = ({ latLng, areaData }: { latLng: Point; areaData?: ImageData }) => {
   const uv: UV = {
-    x: point.x,
-    y: 1 - point.y,
+    x: latLng.x / (2 * PI) + 0.5,
+    y: latLng.y / PI + 0.5,
   }
-  const latLng = coordinateToOrthographicLatLng(pixel, centerLatLng)
+
+  const height = 1024
+  const color = areaData
+    ? pixelColorToHex(getPixelColor(areaData, uvToPixel(uv, height)))
+    : undefined
+  const name =
+    color && color in colorToCountry
+      ? colorToCountry[color as keyof typeof colorToCountry]
+      : undefined
+
+  const nukes = areaNukes.find((n) => n.name === name)
   return (
     <div css={preStyle}>
       {'       horiz. verti.'}
       {[
-        { name: 'Point ', value: point },
-        { name: 'Pixel ', value: pixel },
         { name: 'UV    ', value: uv },
         { name: 'LatLng', value: latLng },
-      ].map(({ name, value }) => (
-        <div key={name}>
-          {name} {value.x.toFixed(3).padStart(6, ' ')} {value.y.toFixed(3).padStart(6, ' ')}
+      ]
+        .filter(isValue)
+        .map(({ name, value }) => (
+          <div key={name}>
+            {name} {formatFloat(value.x)} {formatFloat(value.y)}
+          </div>
+        ))}
+      {color && (
+        <div className="color" style={{ backgroundColor: color }}>
+          {name}
         </div>
-      ))}
+      )}
+      {nukes && (
+        <div>
+          <div>
+            Nukes{'   '}
+            {formatInt(nukes.active)}
+            {'  '}
+            {formatInt(nukes.reserve)}
+          </div>
+          <div>
+            LatLng {formatFloat(nukes.lng)} {formatFloat(nukes.lat)}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
+
+const formatFloat = (value: number) => value.toFixed(3).padStart(6, ' ')
+const formatInt = (value: number) => Math.round(value).toString().padStart(5, ' ')
 
 export default Game
 

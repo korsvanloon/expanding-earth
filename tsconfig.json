@@ -25,6 +25,7 @@
   },
   "include": [
     "src",
+    "scripts",
     "./webpack.config.ts"
   ],
   "exclude": [

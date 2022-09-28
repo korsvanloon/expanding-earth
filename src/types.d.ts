@@ -5,3 +5,8 @@ type Unwrap<T> = T extends Promise<infer U>
   : T extends (...args: any) => infer U
   ? U
   : T
+
+declare module '*.csv' {
+  const value: Record<String, any>
+  export default value
+}

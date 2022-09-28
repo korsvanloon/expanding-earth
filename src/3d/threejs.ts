@@ -18,7 +18,7 @@ import {
 import { OrbitControls } from '../vendor/OrbitControls'
 import vertexShader from '../shaders/worldmap.vert.glsl'
 import fragmentShader from '../shaders/worldmap.frag.glsl'
-import { LatLng, UV } from 'lib/orthographic'
+import { LatLng } from 'lib/type'
 
 export const createScene = (...children: Object3D[]) => {
   const scene = new Scene()
@@ -102,10 +102,10 @@ export const createOrthographicMap = ({
       densityTexture: { value: densityTexture },
       areaTexture: { value: areaTexture },
       centerLatLng: { value: centerLatLng },
-      mouseUV: { value: new Vector2() },
+      mouseLatLng: { value: new Vector2() },
     },
   })
-  const size = 200
+  const size = 248
   const plane = new PlaneGeometry(size, size)
 
   return {
@@ -116,8 +116,8 @@ export const createOrthographicMap = ({
     setCenter: (latLng: LatLng) => {
       shader.uniforms.centerLatLng.value = new Vector2(latLng.x, latLng.y)
     },
-    setMouse: (value: UV) => {
-      shader.uniforms.mouseUV.value = new Vector2(value.x, value.y)
+    setMouse: (latLng: LatLng) => {
+      shader.uniforms.mouseLatLng.value = new Vector2(latLng.x, latLng.y)
     },
     onLoad,
   }

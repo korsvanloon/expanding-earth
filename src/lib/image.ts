@@ -1,5 +1,6 @@
 import { Vector2 } from 'three'
 import { round } from './math'
+import { Pixel, UV } from './type'
 
 export type PixelColor = readonly [number, number, number, number]
 
@@ -27,7 +28,7 @@ export function setPixelColor(imageData: ImageData, [r, g, b, a]: PixelColor, { 
   imageData.data[index * 4 + 3] = a
 }
 
-export const getPixelColor = (imageData: ImageData, { x, y }: Vector2): PixelColor => {
+export const getPixelColor = (imageData: ImageData, { x, y }: Pixel): PixelColor => {
   const index = x + y * imageData.width
   return [
     imageData.data[index * 4 + 0],
@@ -37,7 +38,7 @@ export const getPixelColor = (imageData: ImageData, { x, y }: Vector2): PixelCol
   ]
 }
 
-export const uvToPixel = (uv: Vector2, height: number) =>
+export const uvToPixel = (uv: UV, height: number) =>
   new Vector2(round(uv.x * height * 2), round((1 - uv.y) * height))
 
 export const pixelToUv = (pixel: Vector2, height: number) =>

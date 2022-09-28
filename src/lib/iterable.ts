@@ -118,3 +118,6 @@ export const highest =
     by(a) < by(b) ? a : b
 
 export const toArray = <T>(items: Iterable<T>) => (items instanceof Array ? items : [...items])
+
+export const isValue = <T>(input: T): input is NonNullable<T> =>
+  input !== null && input !== undefined
