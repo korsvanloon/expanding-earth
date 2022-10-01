@@ -1,0 +1,38 @@
+origin,destination,speed,start,amount,type
+
+Suedrussland,Tuerkei,800,0,40,bomber
+Suedrussland,Italien,800,0,40,bomber
+Suedrussland,Frankreich,800,0,40,bomber
+
+Moskau,Tuerkei,800,0,40,bomber
+Moskau,Italien,800,0,40,bomber
+Moskau,Frankreich,800,0,40,bomber
+Moskau,Heimat,800,0,40,bomber
+Moskau,Niederlande,800,0,40,bomber
+Moskau,Britische Inseln,800,0,40,bomber
+
+Nordrussland,Britische Inseln,800,0,40,bomber
+Nordrussland,Niederlande,800,0,40,bomber
+Nordrussland,Heimat,800,0,40,bomber
+Nordrussland,Frankreich,800,0,40,bomber
+Nordrussland,Italien,800,0,40,bomber
+
+Tuerkei,Suedrussland,800,0.5,40,bomber
+Italien,Suedrussland,800,0.5,40,bomber
+Frankreich,Suedrussland,800,0.5,40,bomber
+Frankreich,Moskau,800,0.5,40,bomber
+Frankreich,Nordrussland,800,0.5,40,bomber
+Heimat,Moskau,800,0.5,40,bomber
+Britische Inseln,Suedrussland, 800,0.5,40,bomber
+Britische Inseln,Moskau, 800,0.5,40,bomber
+Britische Inseln,Nordrussland, 800,0.5,40,bomber
+Niederlande,Nordrussland,800,0.5,40,bomber
+
+Ostsiberien,VS Westen,24000,4,40,missile
+Mittelsiberien,VS Norden,24000,4,40,missile
+Westsiberien,VS Sued,24000,4,40,missile
+
+VS Westen,Ostsiberien,24000,4.15,40,missile
+VS Sued,Mittelsiberien,24000,4.15,40,missile
+VS Norden,Westsiberien,24000,4.15,40,missile
+

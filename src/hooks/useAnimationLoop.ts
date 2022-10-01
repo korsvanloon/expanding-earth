@@ -6,7 +6,14 @@ export const useAnimationLoop = ({
   endTime = 1,
   step = 0.0001,
   speed = 0,
-}: { startTime?: number; endTime?: number; step?: number; speed?: number } = {}) => {
+  startOver = false,
+}: {
+  startTime?: number
+  endTime?: number
+  step?: number
+  speed?: number
+  startOver?: boolean
+} = {}) => {
   const [time, setTime] = useState(startTime)
   const [running, setRunning] = useState(false)
 
@@ -28,12 +35,16 @@ export const useAnimationLoop = ({
           startTime,
           endTime,
         )
-        if (t >= endTime) {
-          ascendingRef.current = false
-        } else if (t <= startTime) {
-          ascendingRef.current = true
+        if (startOver) {
+          return t >= endTime ? 0 : t
+        } else {
+          if (t >= endTime) {
+            ascendingRef.current = false
+          } else if (t <= startTime) {
+            ascendingRef.current = true
+          }
+          return t
         }
-        return t
       })
     }
     previousTRef.current = t

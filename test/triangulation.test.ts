@@ -3,6 +3,7 @@ import { Polygon, getPointsAtTime } from '../src/lib/polygon'
 
 const polygon: Polygon = {
   points: [new Vector2(0, 0)],
+  names: [],
   timeline: [
     {
       time: 0.1,

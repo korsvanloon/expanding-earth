@@ -1,7 +1,5 @@
-// this comment tells babel to convert jsx to calls to a function called jsx instead of React.createElement
-/** @jsx jsx */
-import { css } from '@emotion/react'
 import { useEffect, useRef, useState } from 'react'
+import classes from './TextInput.module.css'
 
 type Props = {
   value: string
@@ -9,8 +7,6 @@ type Props = {
   onChange: (value: string) => void
   children?: React.ReactNode
 }
-
-const minWidth = 6
 
 const TextInput = ({ value, required = true, onChange, children }: Props) => {
   const [innerValue, setInnerValue] = useState(value)
@@ -23,7 +19,7 @@ const TextInput = ({ value, required = true, onChange, children }: Props) => {
     setInnerValue(value)
   }, [value])
   return (
-    <label css={style}>
+    <label className={classes.root}>
       <span>{children}</span>
       <input
         ref={ref}
@@ -43,11 +39,3 @@ const TextInput = ({ value, required = true, onChange, children }: Props) => {
 }
 
 export default TextInput
-
-const style = css`
-  padding: 0 1rem;
-  input {
-    /* min-width: ${minWidth}rem;
-    width: 100%; */
-  }
-`

@@ -1,0 +1,17 @@
+.root {
+  display: block;
+}
+.root > label > div {
+  display: flex;
+  align-items: center;
+}
+.root input {
+  display: block;
+  font-family: monospace;
+}
+.root [type='range'] {
+  margin-right: 1rem;
+}
+.root [type='number'] {
+  min-width: 3.75rem;
+}

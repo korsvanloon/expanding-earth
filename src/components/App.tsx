@@ -5,7 +5,7 @@ import EarthMap from './EarthMap'
 import Earth from './Earth'
 import Globe from './Globe'
 import Index from './Index'
-import Game from './Game'
+import Game from './game/Game'
 import Countries from './Countries'
 
 const App = () => {

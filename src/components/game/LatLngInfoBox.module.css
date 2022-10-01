@@ -1,0 +1,7 @@
+.container {
+  font-family: monospace;
+  white-space: pre;
+  position: fixed;
+  top: 5rem;
+  right: 1rem;
+}

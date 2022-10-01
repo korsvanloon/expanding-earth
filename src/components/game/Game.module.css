@@ -1,0 +1,60 @@
+.main {
+  width: calc(100vh - 70px);
+  height: calc(100vh - 70px);
+  margin: 0 auto;
+  position: relative;
+}
+
+.place {
+  position: absolute;
+  width: 1%;
+  height: 1%;
+  border-radius: 100%;
+  background-color: currentColor;
+  padding: 0;
+  border: none;
+  cursor: pointer;
+  transform: translate(-50%, -50%);
+}
+.place:hover {
+  box-shadow: 0 0 10px currentColor;
+}
+
+.nukePlace {
+  color: hsl(0 50% 50% / 80%);
+}
+
+.nuke {
+  position: absolute;
+  background-color: orange;
+  border: none;
+  padding: 0;
+  transform: translate(-50%, -50%);
+}
+
+.hideout {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  border: none;
+  cursor: pointer;
+  font-size: 1.5rem;
+  padding: 0.5rem;
+  color: black;
+  background-color: hsl(0 0% 100% / 10%);
+}
+
+.hideout > * {
+  position: absolute;
+  display: block;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 1rem;
+  background: hsl(0 0% 100% / 40%);
+  box-shadow: 0 0 16px 2px hsl(0 0% 100% / 100%);
+  transition: background-color 1s ease-out;
+}
+.hideout:hover > * {
+  background: hsl(0 0% 100% / 80%);
+}

@@ -11,6 +11,7 @@ module.exports = {
   //   '<rootDir>/src/**/*.{spec,test}.{js,jsx,ts,tsx}',
   // ],
   transform: {
+    '^.+\\.csv$': './jest-csv-transformer.js',
     // '^.+\\.(js|jsx|mjs|cjs|ts|tsx)$': 'babel-jest',
     // '^.+\\.css$': '<rootDir>/config/jest/cssTransform.js',
     // '^(?!.*\\.(js|jsx|mjs|cjs|ts|tsx|css|json)$)': '<rootDir>/config/jest/fileTransform.js',

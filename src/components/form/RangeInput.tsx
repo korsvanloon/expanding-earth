@@ -1,7 +1,6 @@
-/** @jsx jsx */
-import { css, jsx } from '@emotion/react'
 import { clamp } from 'lib/math'
 import { ReactNode, ChangeEvent } from 'react'
+import classes from './RangeInput.module.css'
 
 type Props = {
   name: string
@@ -20,7 +19,7 @@ function RangeInput({ name, step = 0.1, min = 0, max = 1, value, children, onVal
   const inputProps = { name, value, min, max, step, onChange }
 
   return (
-    <div css={rootCss}>
+    <div className={classes.root}>
       <label htmlFor={name}>
         <span>{children}</span>
         <div>
@@ -33,23 +32,3 @@ function RangeInput({ name, step = 0.1, min = 0, max = 1, value, children, onVal
 }
 
 export default RangeInput
-
-const rootCss = css`
-  display: block;
-  > label > div {
-    display: flex;
-    align-items: center;
-    > input {
-      display: block;
-      font-family: monospace;
-      &[type='range'] {
-        margin-right: 1rem;
-      }
-      &[type='number'] {
-        min-width: 3.75rem;
-      }
-    }
-  }
-`
-
-// RangeInput.style = rootCss

@@ -1,6 +1,5 @@
-/** @jsx jsx */
-import { css, jsx } from '@emotion/react'
 import { ReactNode } from 'react'
+import classes from './ChoiceInput.module.css'
 
 type Props = {
   name: string
@@ -12,7 +11,7 @@ type Props = {
 
 function ChoiceInput({ name, options, value, children, onValue }: Props) {
   return (
-    <div css={style}>
+    <div className={classes.root}>
       <label htmlFor={name}>{children}</label>
       <select id={name} name={name} value={value} onChange={(e) => onValue(e.target.value)}>
         {options.map((o) => (
@@ -26,14 +25,3 @@ function ChoiceInput({ name, options, value, children, onValue }: Props) {
 }
 
 export default ChoiceInput
-
-const style = css`
-  display: block;
-  select {
-    display: block;
-  }
-  label {
-    display: block;
-    margin-bottom: 0.5rem;
-  }
-`

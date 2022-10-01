@@ -1,0 +1,11 @@
+.root {
+  display: block;
+}
+
+.root select {
+  display: block;
+}
+.root label {
+  display: block;
+  margin-bottom: 0.5rem;
+}

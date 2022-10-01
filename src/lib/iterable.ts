@@ -121,3 +121,14 @@ export const toArray = <T>(items: Iterable<T>) => (items instanceof Array ? item
 
 export const isValue = <T>(input: T): input is NonNullable<T> =>
   input !== null && input !== undefined
+
+type RequiredNotNull<T> = {
+  [P in keyof T]: NonNullable<T[P]>
+}
+
+type Ensure<T, K extends keyof T> = T & RequiredNotNull<Pick<T, K>>
+
+export const hasProperty =
+  <T extends object, K extends keyof T>(property: keyof T) =>
+  (input: T): input is Ensure<T, K> =>
+    Boolean(input[property])
