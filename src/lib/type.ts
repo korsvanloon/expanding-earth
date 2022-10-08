@@ -58,12 +58,12 @@ export type Point3D = {
   x: number
   /** Y
    *
-   * top...bottom: -y...y
+   * far...near: -y...y
    */
   y: number
   /** Y
    *
-   * far...near: -z...z
+   * bottom...top: -z...z
    */
   z: number
 }

@@ -63,3 +63,8 @@ export type Nuke = {
   amount: number
   type: 'missile' | 'gravity'
 }
+
+export type FlyingSaucer = {
+  number: number
+  amount: number
+}

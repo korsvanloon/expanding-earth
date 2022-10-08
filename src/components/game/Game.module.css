@@ -26,10 +26,37 @@
 
 .nuke {
   position: absolute;
-  background-color: orange;
+  /* background-color: orange; */
   border: none;
   padding: 0;
-  transform: translate(-50%, -50%);
+  transform-origin: center;
+  --diameter: min(var(--amount), calc(var(--distance) / 5));
+  /* width: var(--diameter); */
+  /* height: var(--diameter); */
+  height: 20px;
+  width: 20px;
+  border-radius: var(--diameter);
+  border-right: 10px solid orange;
+  background: transparent;
+}
+.nuke.detonated {
+  width: 40px;
+  height: 40px;
+  background-color: gray;
+  border: none;
+}
+
+.flyingSaucer {
+  position: absolute;
+  background-color: lightgray;
+  border: none;
+  padding: 0;
+  transform-origin: center;
+  --diameter: 10px;
+  width: var(--diameter);
+  height: var(--diameter);
+  height: var(--diameter);
+  border-radius: var(--diameter);
 }
 
 .hideout {

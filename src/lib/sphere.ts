@@ -1,5 +1,6 @@
 import { Vector2, Vector3 } from 'three'
 import { PI, cos, sin, asin, acos, atan2, sum } from 'lib/math'
+import { vec2 } from './lat-lng'
 
 // UV goes form 0,0 = left,bottom to 1,1 = right,top
 

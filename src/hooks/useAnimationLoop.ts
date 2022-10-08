@@ -21,7 +21,7 @@ export const useAnimationLoop = ({
   // without triggering a re-render on their change
   const requestRef = useRef<number>()
   const previousTRef = useRef<number>()
-  const ascendingRef = useRef<boolean>(false)
+  const ascendingRef = useRef<boolean>(true)
 
   const animate = (t: number) => {
     if (previousTRef.current !== undefined) {

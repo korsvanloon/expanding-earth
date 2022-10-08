@@ -1,12 +1,13 @@
 import { Vector2, Vector3 } from 'three'
-import { sin, cos, atan2, sqrt, PI, acos, sign } from './math'
+import { sin, cos, atan2, sqrt, PI, acos, sign, asin, abs, max, min } from './math'
 import { LatLng, Point3D } from './type'
 
 /** Earth radius in km */
-const R = 6371
+export const EARTH_RADIUS = 6371
+export const EARTH_CIRCUMFERENCE = 2 * PI * EARTH_RADIUS
 
 /** Earth distance (in km if r = R) */
-export const getDistance = (latLng1: LatLng, latLng2: LatLng, r = R) => {
+export const getDistance = (latLng1: LatLng, latLng2: LatLng, r = EARTH_RADIUS) => {
   const deltaY = latLng2.y - latLng1.y
   const deltaX = latLng2.x - latLng1.x
 
@@ -18,6 +19,9 @@ export const getDistance = (latLng1: LatLng, latLng2: LatLng, r = R) => {
 
   return r * c
 }
+
+export const inRange = (source: LatLng, target: LatLng, distance: number) =>
+  getDistance(source, target) < distance
 
 export const vec2 = ({ x, y }: { x: number; y: number }) => new Vector2(x, y)
 export const vec3 = ({ x, y, z }: { x: number; y: number; z: number }) => new Vector3(x, y, z)
@@ -80,7 +84,7 @@ export const getPointOnLine = (startPoint: Point3D, bearing: number, distance: n
     .add(vec3(d).multiplyScalar(sin(distance)))
 }
 
-export const getAngle = (distance: number, r = R) => distance / r
+export const getAngle = (distance: number, r = EARTH_RADIUS) => distance / r
 
 export const getPointOnCircle = (p1: Point3D, p2: Point3D, distance: number) => {
   const pointsAngle = acos(vec3(p1).dot(vec3(p2)))
@@ -90,4 +94,37 @@ export const getPointOnCircle = (p1: Point3D, p2: Point3D, distance: number) => 
     .multiplyScalar(sin(pointsAngle - newAngle))
     .add(vec3(p2).multiplyScalar(sin(newAngle)))
     .divideScalar(sin(pointsAngle))
+}
+
+/**
+ * Returns the point of intersection of two paths defined by
+ * the great circle line (p1,p2) and the great circle line (q1, q2).
+ */
+export const getIntersections = (p1: Point3D, p2: Point3D, q1: Point3D, q2: Point3D) => {
+  const normal1 = vec3(p1).cross(vec3(p2))
+  const normal2 = vec3(q1).cross(vec3(q2))
+
+  const intersection1 = vec3(normal1).cross(vec3(normal2)).normalize()
+
+  const intersection2 = vec3(intersection1).multiplyScalar(-1)
+
+  return [intersection1, intersection2]
+}
+
+/**
+ * Returns the initial bearing from ‘this’ point to destination point.
+ *
+ * @example
+ *   const p1 = new LatLon(52.205, 0.119);
+ *   const p2 = new LatLon(48.857, 2.351);
+ *   const b1 = p1.initialBearingTo(p2); // 156.2°
+ */
+export const initialBearingTo = (latLng1: LatLng, latLng2: LatLng) => {
+  if (vec2(latLng1).equals(vec2(latLng2))) return
+
+  const deltaLongitude = latLng2.x - latLng1.x
+
+  const x = cos(latLng1.y) * sin(latLng2.y) - sin(latLng1.y) * cos(latLng2.y) * cos(deltaLongitude)
+  const y = sin(deltaLongitude) * cos(latLng2.y)
+  return atan2(y, x)
 }

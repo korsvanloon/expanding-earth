@@ -9,10 +9,20 @@ type Props = {
   min?: number
   max?: number
   step?: number
+  sliderStep?: number
   children: ReactNode
 }
 
-function RangeInput({ name, step = 0.1, min = 0, max = 1, value, children, onValue }: Props) {
+function RangeInput({
+  name,
+  step = 0.1,
+  sliderStep = step,
+  min = 0,
+  max = 1,
+  value,
+  children,
+  onValue,
+}: Props) {
   const onChange = (e: ChangeEvent<HTMLInputElement>) =>
     onValue(isNaN(e.target.valueAsNumber) ? min : clamp(e.target.valueAsNumber, min, max))
 
@@ -23,7 +33,7 @@ function RangeInput({ name, step = 0.1, min = 0, max = 1, value, children, onVal
       <label htmlFor={name}>
         <span>{children}</span>
         <div>
-          <input type="range" {...inputProps} />
+          <input type="range" {...inputProps} {...{ step: sliderStep }} />
           <input type="number" id={name} {...inputProps} />
         </div>
       </label>

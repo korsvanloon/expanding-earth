@@ -1,14 +1,14 @@
 origin,destination,speed,start,amount,type
 
-Suedrussland,Tuerkei,800,0,40,bomber
-Suedrussland,Italien,800,0,40,bomber
-Suedrussland,Frankreich,800,0,40,bomber
+Suedrussland,Tuerkei,800,0,50,bomber
+Suedrussland,Italien,800,0,50,bomber
+Suedrussland,Frankreich,800,0,50,bomber
+Moskau,Britische Inseln,800,0,50,bomber
 
 Moskau,Tuerkei,800,0,40,bomber
 Moskau,Italien,800,0,40,bomber
 Moskau,Frankreich,800,0,40,bomber
 Moskau,Heimat,800,0,40,bomber
-Moskau,Niederlande,800,0,40,bomber
 Moskau,Britische Inseln,800,0,40,bomber
 
 Nordrussland,Britische Inseln,800,0,40,bomber
@@ -17,22 +17,34 @@ Nordrussland,Heimat,800,0,40,bomber
 Nordrussland,Frankreich,800,0,40,bomber
 Nordrussland,Italien,800,0,40,bomber
 
-Tuerkei,Suedrussland,800,0.5,40,bomber
+Tuerkei,Suedrussland,800,0.5,50,bomber
 Italien,Suedrussland,800,0.5,40,bomber
-Frankreich,Suedrussland,800,0.5,40,bomber
-Frankreich,Moskau,800,0.5,40,bomber
-Frankreich,Nordrussland,800,0.5,40,bomber
-Heimat,Moskau,800,0.5,40,bomber
-Britische Inseln,Suedrussland, 800,0.5,40,bomber
-Britische Inseln,Moskau, 800,0.5,40,bomber
-Britische Inseln,Nordrussland, 800,0.5,40,bomber
+Frankreich,Suedrussland,800,0.5,90,bomber
+Frankreich,Moskau,800,0.5,100,bomber
+Frankreich,Nordrussland,800,0.5,100,bomber
+Heimat,Moskau,800,0.5,20,bomber
+Britische Inseln,Suedrussland, 800,0.5,75,bomber
+Britische Inseln,Moskau, 800,0.5,75,bomber
+Britische Inseln,Nordrussland, 800,0.5,75,bomber
 Niederlande,Nordrussland,800,0.5,40,bomber
 
-Ostsiberien,VS Westen,24000,4,40,missile
-Mittelsiberien,VS Norden,24000,4,40,missile
-Westsiberien,VS Sued,24000,4,40,missile
+Ostsiberien,VS Westen,24000,4,70,missile
+Ostsiberien,VS Norden,24000,4,70,missile
+Ostsiberien,VS Sued,24000,4,70,missile
+Mittelsiberien,VS Westen,24000,4,70,missile
+Mittelsiberien,VS Norden,24000,4,70,missile
+Mittelsiberien,VS Sued,24000,4,70,missile
+Westsiberien,VS Westen,24000,4,70,missile
+Westsiberien,VS Norden,24000,4,70,missile
+Westsiberien,VS Sued,24000,4,70,missile
 
-VS Westen,Ostsiberien,24000,4.15,40,missile
-VS Sued,Mittelsiberien,24000,4.15,40,missile
-VS Norden,Westsiberien,24000,4.15,40,missile
+VS Westen,Ostsiberien,24000,4.15,100,missile
+VS Westen,Mittelsiberien,24000,4.15,100,missile
+VS Westen,Westsiberien,24000,4.15,100,missile
+VS Sued,Ostsiberien,24000,4.15,100,missile
+VS Sued,Mittelsiberien,24000,4.15,100,missile
+VS Sued,Westsiberien,24000,4.15,100,missile
+VS Norden,Ostsiberien,24000,4.15,70,missile
+VS Norden,Mittelsiberien,24000,4.15,70,missile
+VS Norden,Westsiberien,24000,4.15,70,missile
 
