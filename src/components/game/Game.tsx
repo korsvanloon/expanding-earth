@@ -14,13 +14,14 @@ import {
 } from 'lib/orthographic'
 import { loadImageData } from 'lib/image'
 import { LatLng, Point } from 'lib/type'
-import { areaNukes, FlyingSaucer, MovementPathObject, scenario } from '../../data'
+import { areaNukes, FlyingSaucer, MovementPathObject, nukePlan } from '../../data'
 import LatLngInfoBox from './LatLngInfoBox'
 import classes from './Game.module.css'
 import clsx from 'clsx'
 import { hasCaptured, withPosition } from 'lib/game'
 import { formatHours } from 'lib/format'
 import { getDistance, vec2 } from 'lib/lat-lng'
+import ProgressBox from 'components/ProgressBox'
 
 type GameState = {
   globeCenter: number
@@ -90,22 +91,9 @@ function Game() {
   const displayTime = formatHours(time)
 
   const flyingSaucers = withPosition(allFlyingSaucers, time)
-  const pNukes = withPosition(scenario, time)
+  const pNukes = withPosition(nukePlan, time)
 
   const nukes = pNukes.filter((n) => !flyingSaucers.some((s) => hasCaptured(s, n, 200, time)))
-
-  const totalNukes = sumBy(scenario, (x) => x.object.amount)
-  const launchedNukes = sumBy(
-    scenario.filter((n) => n.movementPath.startTime <= time),
-    (x) => x.object.amount,
-  )
-
-  const explodedNukes = sumBy(
-    nukes.filter((n) => vec2(n.currentPosition).equals(vec2(n.movementPath.destination))),
-    (n) => n.object.amount,
-  )
-
-  const totalSaucers = sumBy(flyingSaucers, (s) => s.object.amount)
 
   const center = centers[state.globeCenter].value
 
@@ -135,18 +123,6 @@ function Game() {
         >
           Center
         </ChoiceInput>
-        <div>
-          <div>Nukes</div>
-          <div>
-            {launchedNukes} / {totalNukes}
-          </div>
-          <div>Exploded</div>
-          <div>{explodedNukes}</div>
-        </div>
-        <div>
-          <div>Saucers</div>
-          <div>{totalSaucers}</div>
-        </div>
       </NavBar>
 
       <main
@@ -259,6 +235,7 @@ function Game() {
         </button>
         {latLng && <LatLngInfoBox latLng={latLng} areaData={areaData} />}
       </main>
+      <ProgressBox time={time} allFlyingSaucers={allFlyingSaucers} scenario={nukePlan} />
       <div className="rich-text light">
         <h2>Germania One</h2>
 

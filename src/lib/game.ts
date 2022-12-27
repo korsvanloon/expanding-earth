@@ -14,7 +14,10 @@ import {
 import { abs, acos } from './math'
 import { LatLng, Point3D } from './type'
 
-export const withPosition = <T>(objects: MovementPathObject<T>[], time: number) =>
+export const withPosition = <T extends {}>(
+  objects: MovementPathObject<T>[],
+  time: number,
+): WithPosition<T>[] =>
   objects
     .map((mo) => ({
       ...mo,
@@ -22,7 +25,7 @@ export const withPosition = <T>(objects: MovementPathObject<T>[], time: number) 
     }))
     .filter(hasProperty('currentPosition'))
 
-type WithPosition<T extends {} = {}> = Ensure<
+export type WithPosition<T extends {} = {}> = Ensure<
   {
     currentPosition: LatLng | undefined
     movementPath: MovementPath
@@ -121,7 +124,7 @@ const getTimeToPoint = (movement: MovementPath, point: Point3D) =>
 
 // gravity bombs by strategic or fighter bombers
 
-const vehiclePositionAt = (vehicle: MovementPath, time: number) => {
+export const vehiclePositionAt = (vehicle: MovementPath, time: number) => {
   const deltaTime = time - vehicle.startTime
 
   if (deltaTime < 0) return

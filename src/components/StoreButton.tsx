@@ -1,5 +1,3 @@
-/** @jsx jsx */
-import { css, jsx } from '@emotion/react'
 import { ButtonHTMLAttributes, ReactNode, useEffect } from 'react'
 
 type Props<T> = {

@@ -1,5 +1,3 @@
-/** @jsx jsx */
-import { css, jsx } from '@emotion/react'
 import { pixelToUv, uvToPixel } from 'lib/image'
 import { useState, PointerEvent, SVGProps, useEffect } from 'react'
 import { Vector2 } from 'three'

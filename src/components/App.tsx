@@ -1,5 +1,3 @@
-/** @jsx jsx */
-import { jsx } from '@emotion/react'
 import useLocation from 'wouter/use-location'
 import EarthMap from './EarthMap'
 import Earth from './Earth'

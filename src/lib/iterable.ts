@@ -129,7 +129,13 @@ type RequiredNotNull<T> = {
 export type Ensure<T, K extends keyof T> = T & RequiredNotNull<Pick<T, K>>
 
 export type WithProperty<T extends object, K extends keyof T> = Ensure<T, K>
+
 export const hasProperty =
   <T extends object, K extends keyof T>(property: K) =>
   (input: T): input is Ensure<T, K> =>
     Boolean(input[property])
+
+export const hasProperty2 = <T extends object, K extends keyof T>(
+  input: T,
+  property: K,
+): input is Ensure<T, K> => Boolean(input[property])

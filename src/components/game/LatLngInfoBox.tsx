@@ -1,5 +1,5 @@
-import { areaNukes, colorToCountry } from 'data'
-import { formatFloat, formatInt } from 'lib/format'
+import { areaNukes, areas } from 'data'
+import { formatFloat, formatInt, formatNumber } from 'lib/format'
 import { getPixelColor, pixelColorToHex, uvToPixel } from 'lib/image'
 import { isValue } from 'lib/iterable'
 import { PI } from 'lib/math'
@@ -16,12 +16,9 @@ const LatLngInfoBox = ({ latLng, areaData }: { latLng: Point; areaData?: ImageDa
   const color = areaData
     ? pixelColorToHex(getPixelColor(areaData, uvToPixel(uv, height)))
     : undefined
-  const name =
-    color && color in colorToCountry
-      ? colorToCountry[color as keyof typeof colorToCountry]
-      : undefined
+  const area = color ? areas.find((a) => a.color === color) : undefined
 
-  const nukes = areaNukes.find((n) => n.name === name)
+  const nukes = areaNukes.find((n) => n.name === area?.name)
   return (
     <div className={classes.container}>
       {'       horiz. verti.'}
@@ -35,9 +32,11 @@ const LatLngInfoBox = ({ latLng, areaData }: { latLng: Point; areaData?: ImageDa
             {name} {formatFloat(value.x)} {formatFloat(value.y)}
           </div>
         ))}
-      {color && (
-        <div className="color" style={{ backgroundColor: color }}>
-          {name}
+      {color && <div className={classes.color} style={{ backgroundColor: color }}></div>}
+      {area && (
+        <div>
+          <div>Name {area.name}</div>
+          <div>Pop {formatNumber(area.population)} k</div>
         </div>
       )}
       {nukes && (
