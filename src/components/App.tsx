@@ -5,6 +5,7 @@ import Globe from './Globe'
 import Index from './Index'
 import Game from './game/Game'
 import Countries from './Countries'
+import TestMap from './TestMap'
 
 const App = () => {
   const [location] = useLocation()
@@ -20,6 +21,8 @@ const App = () => {
       return <Globe />
     case '/countries':
       return <Countries />
+    case '/test':
+      return <TestMap />
     default:
       return <Index />
   }

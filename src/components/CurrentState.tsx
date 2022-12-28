@@ -6,7 +6,7 @@ import { css, jsx } from '@emotion/react'
 import { PointsInTime, Polygon } from 'lib/polygon'
 import NumberInput from './form/NumberInput'
 import TextInput from './form/TextInput'
-import PointInput from './PointInput'
+import PointInput from './form/PointInput'
 
 type Props = {
   polygons: Polygon[]

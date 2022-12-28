@@ -1,5 +1,5 @@
 import { Vector2, Vector3 } from 'three'
-import { getIntermediatePoint, pointToUv, uvToPoint } from '../src/lib/sphere'
+import { getIntermediatePoint, point3DToUv, uvToPoint3D } from '../src/lib/sphere'
 
 /**
  * UV goes from bottom-left to top-right (like math xy-axis, unlike pixels)
@@ -12,7 +12,7 @@ describe('uvToPoint', () => {
     { point: new Vector3(0, 0, 1), uv: new Vector2(0.5, 0.5) },
     { point: new Vector3(0.475, 0.587, 0.654), uv: new Vector2(0.6, 0.7) },
   ])('uv:($uv.x, $uv.y) => p:($point.x, $point.y, $point.z)', ({ point, uv }) => {
-    const result = uvToPoint(uv)
+    const result = uvToPoint3D(uv)
     expect(result.x).toBeCloseTo(point.x)
     expect(result.y).toBeCloseTo(point.y)
     expect(result.z).toBeCloseTo(point.z)
@@ -26,7 +26,7 @@ describe('pointToUv', () => {
     { point: new Vector3(0, 0, 1), uv: new Vector2(0.5, 0.5) },
     { point: new Vector3(0.475, 0.587, 0.654), uv: new Vector2(0.6, 0.7) },
   ])('p:($point.x, $point.y, $point.z) => uv:($uv.x, $uv.y)', ({ point, uv }) => {
-    const result = pointToUv(point)
+    const result = point3DToUv(point)
     expect(result.x).toBeCloseTo(uv.x)
     expect(result.y).toBeCloseTo(uv.y)
   })
@@ -38,7 +38,7 @@ describe('symmetry', () => {
     // new Vector2(0.4, 0.7),
     new Vector2(0.6, 0.7),
   ])('uv:($x, $y)', (uv) => {
-    const result = pointToUv(uvToPoint(uv))
+    const result = point3DToUv(uvToPoint3D(uv))
     expect({ x: result.x, y: result.y }).toEqual({ x: uv.x, y: uv.y })
   })
 })

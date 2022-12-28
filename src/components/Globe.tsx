@@ -13,7 +13,7 @@ import { Link } from 'wouter'
 import NavBar from './NavBar'
 import { load } from './StoreButton'
 import { getPointsAtTime, Polygon, polygonFromRawJson } from 'lib/polygon'
-import { uvToPoint } from 'lib/sphere'
+import { uvToPoint3D } from 'lib/sphere'
 import { TextureLoader } from 'three'
 import Delaunator from 'delaunator'
 import { combine, flatMap, map, toArray } from 'lib/iterable'
@@ -39,7 +39,7 @@ const initSphereGeometry = () => {
 const initDelaunayGeometry = () => {
   const polygons = load<Polygon[]>('plates')?.map(polygonFromRawJson) ?? []
   const uvs = polygons.flatMap((p) => p.points)
-  const vertices = uvs.map(uvToPoint)
+  const vertices = uvs.map(uvToPoint3D)
   const delaunay = Delaunator.from(
     uvs,
     (p) => p.x,

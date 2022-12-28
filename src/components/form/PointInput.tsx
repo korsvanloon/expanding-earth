@@ -2,18 +2,32 @@
 /** @jsx jsx */
 import { css } from '@emotion/react'
 import { Vector2 } from 'three'
-import NumberInput from './form/NumberInput'
+import NumberInput from './NumberInput'
 
 type Props = {
   value: Vector2
   onChange: (value: Vector2) => void
+  step?: number
+  minX?: number
+  maxX?: number
+  minY?: number
+  maxY?: number
 }
 
-const PointInput = ({ value: point, onChange }: Props) => (
+const PointInput = ({
+  value: point,
+  step = 0.001,
+  minX = 0,
+  maxX = 1,
+  minY = 0,
+  maxY = 1,
+  onChange,
+}: Props) => (
   <div css={style}>
     <NumberInput
-      max={1}
-      step={0.001}
+      min={minX}
+      max={maxX}
+      step={step}
       value={point.x}
       onChange={(value) => {
         point.setX(value)
@@ -23,8 +37,9 @@ const PointInput = ({ value: point, onChange }: Props) => (
       x
     </NumberInput>
     <NumberInput
-      max={1}
-      step={0.001}
+      min={minY}
+      max={maxY}
+      step={step}
       value={point.y}
       onChange={(value) => {
         point.setY(value)

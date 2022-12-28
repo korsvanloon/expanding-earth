@@ -1,6 +1,6 @@
 import { BufferGeometry, Float32BufferAttribute, Vector2, Vector3 } from 'three'
 import { sum, sqrt, range } from './math'
-import { pointToUv } from './sphere'
+import { point3DToUv } from './sphere'
 
 type GeometryData = {
   indices: number[]
@@ -75,7 +75,7 @@ const buildPlane = (
 
   for (const { points, triangles } of planeSquares(parameters.resolution)) {
     const vectors = points.map(toVector(faceConfig, parameters))
-    const faceUvs = vectors.map(pointToUv)
+    const faceUvs = vectors.map(point3DToUv)
     fixEdgeUvs(faceUvs)
 
     for (let i = 0; i < points.length; i++) {

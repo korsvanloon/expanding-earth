@@ -20,7 +20,7 @@ export const loadImageData = async (src: string, width: number, height: number) 
     }
   })
 
-export function setPixelColor(imageData: ImageData, [r, g, b, a]: PixelColor, { x, y }: Vector2) {
+export function setPixelColor(imageData: ImageData, [r, g, b, a]: PixelColor, { x, y }: Pixel) {
   const index = x + y * imageData.width
   imageData.data[index * 4 + 0] = r
   imageData.data[index * 4 + 1] = g
@@ -41,7 +41,7 @@ export const getPixelColor = (imageData: ImageData, { x, y }: Pixel): PixelColor
 export const uvToPixel = (uv: UV, height: number) =>
   new Vector2(round(uv.x * height * 2), round((1 - uv.y) * height))
 
-export const pixelToUv = (pixel: Vector2, height: number) =>
+export const pixelToUv = (pixel: Pixel, height: number): UV & Vector2 =>
   new Vector2(pixel.x / (height * 2), 1 - pixel.y / height)
 ;(window as any).uvToPixel = uvToPixel
 ;(window as any).pixelToUv = pixelToUv

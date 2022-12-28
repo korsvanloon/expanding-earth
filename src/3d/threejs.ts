@@ -86,9 +86,9 @@ export const createOrthographicMap = ({
     }
   }
 
-  const topographicTexture = loader.load('textures/topographic-map.jpg', checkOnLoad)
+  const heightTexture = loader.load('textures/height-map.jpg', checkOnLoad)
 
-  const densityTexture = loader.load('textures/population-density-map.png', checkOnLoad)
+  const ageTexture = loader.load('textures/age-map.png', checkOnLoad)
 
   const areaTexture = loader.load('textures/areas-map.png', checkOnLoad)
   areaTexture.magFilter = NearestFilter
@@ -98,8 +98,10 @@ export const createOrthographicMap = ({
     vertexShader,
     fragmentShader,
     uniforms: {
-      topographicTexture: { value: topographicTexture },
-      densityTexture: { value: densityTexture },
+      heightTexture: { value: heightTexture },
+      seaLevel: { value: 0.633 },
+      temperature: { value: 0.5 },
+      ageTexture: { value: ageTexture },
       areaTexture: { value: areaTexture },
       centerLatLng: { value: centerLatLng },
       mouseLatLng: { value: new Vector2() },

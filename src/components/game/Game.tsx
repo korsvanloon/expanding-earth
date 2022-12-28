@@ -1,5 +1,5 @@
-import { atan2, sqrt, sumBy } from 'lib/math'
-import { CSSProperties, useEffect, useRef, useState } from 'react'
+import { atan2, clamp, PI } from 'lib/math'
+import { useEffect, useRef, useState } from 'react'
 import RangeInput from '../form/RangeInput'
 import ChoiceInput from '../form/ChoiceInput'
 import { useAnimationLoop } from 'hooks/useAnimationLoop'
@@ -14,27 +14,25 @@ import {
 } from 'lib/orthographic'
 import { loadImageData } from 'lib/image'
 import { LatLng, Point } from 'lib/type'
-import { areaNukes, FlyingSaucer, MovementPathObject, nukePlan } from '../../data'
 import LatLngInfoBox from './LatLngInfoBox'
 import classes from './Game.module.css'
-import clsx from 'clsx'
-import { hasCaptured, withPosition } from 'lib/game'
 import { formatHours } from 'lib/format'
-import { getDistance, vec2 } from 'lib/lat-lng'
-import ProgressBox from 'components/ProgressBox'
+import { vec2 } from 'lib/lat-lng'
+import { Vector2 } from 'three'
+import PointInput from 'components/form/PointInput'
 
 type GameState = {
-  globeCenter: number
+  globeCenter: Vector2
 }
 
 const startTime = 0
 const endTime = 5
 
-const centers = [
-  { label: 'Thule', value: NORTH_POLE },
-  { label: 'Neuschwabenland', value: SOUTH_POLE },
-  { label: 'Neuatlantis', value: ATLANTIC },
-]
+// const centers = [
+//   { label: 'Thule', value: NORTH_POLE },
+//   { label: 'Neuatlantis', value: ATLANTIC },
+//   { label: 'Neuschwabenland', value: SOUTH_POLE },
+// ]
 
 function Game() {
   const webGlContainerRef = useRef<HTMLDivElement>(null)
@@ -42,9 +40,15 @@ function Game() {
     gameMap: undefined,
   })
 
-  const [state, saveState] = useSave<GameState>('game', {
-    globeCenter: 0,
-  })
+  const [state, saveState] = useSave<GameState>(
+    'game',
+    {
+      globeCenter: ATLANTIC,
+    },
+    (data) => ({
+      globeCenter: vec2(data.globeCenter),
+    }),
+  )
   const [latLng, setLatLng] = useState<LatLng>()
   const [areaData, setAreaData] = useState<ImageData>()
 
@@ -55,15 +59,14 @@ function Game() {
     startOver: true,
   })
 
-  const [allFlyingSaucers, setFlyingSaucers] = useState<MovementPathObject<FlyingSaucer>[]>([])
-
   useEffect(() => {
     if (webGlContainerRef.current) {
       createGame({
         container: webGlContainerRef.current,
-        centerLatLng: centers[state.globeCenter].value,
+        centerLatLng: state.globeCenter,
       }).then((actions) => {
         actionsRef.current.gameMap = actions
+        webGlContainerRef.current?.focus()
       })
     }
     loadImageData('textures/areas-map.png', 2048, 1024).then((d) => {
@@ -76,9 +79,9 @@ function Game() {
   }, [])
 
   useEffect(() => {
-    actionsRef.current.gameMap?.setCenter(centers[state.globeCenter].value)
+    actionsRef.current.gameMap?.setCenter(state.globeCenter)
     actionsRef.current.gameMap?.update()
-  }, [state.globeCenter])
+  }, [state])
 
   useEffect(() => {
     if (latLng) {
@@ -86,24 +89,16 @@ function Game() {
       actionsRef.current.gameMap?.update()
     }
   }, [latLng])
-  const dimension = webGlContainerRef.current?.clientHeight
 
   const displayTime = formatHours(time)
 
-  const flyingSaucers = withPosition(allFlyingSaucers, time)
-  const pNukes = withPosition(nukePlan, time)
-
-  const nukes = pNukes.filter((n) => !flyingSaucers.some((s) => hasCaptured(s, n, 200, time)))
-
-  const center = centers[state.globeCenter].value
+  const center = state.globeCenter
 
   return (
     <div className="dark">
       <NavBar>
         <Link href="/">&lt;</Link>
-        <button onClick={running ? stop : start} autoFocus>
-          {running ? 'stop' : 'start'}
-        </button>
+        <button onClick={running ? stop : start}>{running ? 'stop' : 'start'}</button>
         <RangeInput
           name="year"
           value={time}
@@ -115,42 +110,18 @@ function Game() {
         >
           <code>{displayTime}</code>
         </RangeInput>
-        <ChoiceInput
-          name="background"
-          options={centers.map(({ label }, i) => ({ value: i.toString(), label }))}
-          value={state.globeCenter.toString()}
-          onValue={(value) => saveState({ globeCenter: Number(value) })}
-        >
-          Center
-        </ChoiceInput>
+        <PointInput
+          value={state.globeCenter}
+          onChange={(globeCenter) => saveState({ globeCenter })}
+          step={0.1}
+          minX={-Math.round(1.0 * PI * 100) / 100}
+          maxX={Math.round(1.0 * PI * 100) / 100}
+          minY={-Math.round(0.5 * PI * 100) / 100}
+          maxY={Math.round(0.5 * PI * 100) / 100}
+        />
       </NavBar>
 
-      <main
-        className={classes.main}
-        onClick={() => {
-          if (!latLng) return
-
-          if (running) {
-            setFlyingSaucers((v) => [
-              ...v,
-              {
-                movementPath: {
-                  origin: center,
-                  destination: latLng,
-                  speed: 40_000,
-                  startTime: time,
-                },
-                object: {
-                  number: v.length,
-                  amount: 50,
-                },
-              },
-            ])
-          }
-          console.log(`${latLng.x.toLocaleString('nl')}\t${latLng.y.toLocaleString('nl')}`)
-          console.log(`${latLng.x.toFixed(3)},${latLng.y.toFixed(3)}`)
-        }}
-      >
+      <main className={classes.main}>
         <div
           ref={webGlContainerRef}
           style={{ width: '100%', height: '100%' }}
@@ -164,78 +135,31 @@ function Game() {
             const latLng = orthographicPointToLatLng(point, center)
             setLatLng(withinCircle(point) ? latLng : undefined)
           }}
+          contentEditable
+          onKeyDown={(event) => {
+            switch (event.key) {
+              case 'ArrowLeft':
+              case 'ArrowRight':
+              case 'ArrowUp':
+              case 'ArrowDown':
+                event.preventDefault()
+                const difference = vec2({
+                  x:
+                    -0.1 * Number(event.key === 'ArrowLeft') +
+                    0.1 * Number(event.key === 'ArrowRight'),
+                  y:
+                    -0.1 * Number(event.key === 'ArrowDown') +
+                    0.1 * Number(event.key === 'ArrowUp'),
+                })
+                const point = vec2(state.globeCenter).add(difference)
+                point.y = clamp(point.y, -0.5 * PI, 0.5 * PI)
+                saveState({ globeCenter: point })
+                break
+            }
+          }}
         ></div>
-        {dimension && (
-          <>
-            {areaNukes.map((a) => (
-              <button
-                className={clsx(classes.place, classes.nukePlace)}
-                key={a.name}
-                title={a.name}
-                style={{
-                  ...toTopLeft(latLngToOrthographicPoint(a.latLng, center), dimension),
-                  width: `${sqrt(a.active)}px`,
-                  height: `${sqrt(a.active)}px`,
-                }}
-              ></button>
-            ))}
-            {nukes.map(({ object, currentPosition, movementPath: { destination, origin } }, i) => (
-              <button
-                className={clsx(
-                  classes.nuke,
-                  vec2(currentPosition).equals(vec2(destination)) && classes.detonated,
-                )}
-                key={i}
-                title={`${object.amount}`}
-                style={
-                  {
-                    ...toTopLeft(latLngToOrthographicPoint(currentPosition, center), dimension),
-                    '--amount': `${object.amount}px`,
-                    '--distance': `${getDistance(currentPosition, origin)}px`,
-                    transform: `translate(-50%, -50%) rotate(${getRotation(
-                      currentPosition,
-                      destination,
-                      center,
-                    )}rad)`,
-                  } as CSSProperties
-                }
-              ></button>
-            ))}
-            {flyingSaucers.map(
-              (
-                { currentPosition, movementPath: { destination, origin }, object: { number } },
-                i,
-              ) => (
-                <button
-                  className={clsx(classes.flyingSaucer)}
-                  key={number}
-                  title={`FS:${number}`}
-                  style={
-                    {
-                      ...toTopLeft(latLngToOrthographicPoint(currentPosition, center), dimension),
-                      '--distance': `${getDistance(currentPosition, origin)}px`,
-                      transform: `translate(-50%, -50%) rotate(${getRotation(
-                        currentPosition,
-                        destination,
-                        center,
-                      )}rad)`,
-                    } as CSSProperties
-                  }
-                ></button>
-              ),
-            )}
-          </>
-        )}
-        <button
-          className={clsx(classes.hideout, 'rich-text')}
-          style={globeCenterLabelOffset[state.globeCenter]}
-        >
-          {centers[state.globeCenter].label}
-          <div style={globeCenterOffset[state.globeCenter]} />
-        </button>
         {latLng && <LatLngInfoBox latLng={latLng} areaData={areaData} />}
       </main>
-      <ProgressBox time={time} allFlyingSaucers={allFlyingSaucers} scenario={nukePlan} />
       <div className="rich-text light">
         <h2>Germania One</h2>
 

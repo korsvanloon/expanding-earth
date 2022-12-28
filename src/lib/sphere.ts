@@ -1,10 +1,10 @@
 import { Vector2, Vector3 } from 'three'
 import { PI, cos, sin, asin, acos, atan2, sum } from 'lib/math'
-import { vec2 } from './lat-lng'
+import { Point3D, UV } from './type'
 
 // UV goes form 0,0 = left,bottom to 1,1 = right,top
 
-export const uvToPoint = (uv: Vector2) => {
+export const uvToPoint3D = (uv: UV): Point3D & Vector3 => {
   // theta is a longitude angle (around the equator) in radians.
   const theta = 2.0 * PI * uv.x
   // phi is a latitude angle (north or south of the equator) in radians.
@@ -17,7 +17,7 @@ export const uvToPoint = (uv: Vector2) => {
   return new Vector3(-c * sin(theta), sin(phi), -c * cos(theta)).normalize()
 }
 
-export const pointToUv = (p: Vector3) =>
+export const point3DToUv = (p: Point3D): UV & Vector2 =>
   new Vector2(
     0.5 + atan2(p.x, p.z) / (2.0 * PI), //
     0.5 + asin(p.y) / PI, //
@@ -112,6 +112,6 @@ export const movePolygon = (polygon: Vector2[], newCenter: Vector2) => {
   const center = centerOfPolygon(polygon)
   const direction = center.clone().sub(newCenter)
   for (const uv of polygon) {
-    const point = uvToPoint(uv)
+    const point = uvToPoint3D(uv)
   }
 }

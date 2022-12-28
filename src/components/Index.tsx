@@ -1,5 +1,3 @@
-/** @jsx jsx */
-import { css, jsx } from '@emotion/react'
 import { Link } from 'wouter'
 import NavBar from './NavBar'
 
@@ -12,6 +10,7 @@ const Index = () => {
         <Link href="/map">map</Link>
         <Link href="/game">game</Link>
         <Link href="/countries">countries</Link>
+        <Link href="/test">countries</Link>
       </NavBar>
     </div>
   )

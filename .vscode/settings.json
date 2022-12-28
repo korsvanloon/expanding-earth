@@ -7,4 +7,6 @@
     "raycaster",
     "wireframe"
   ],
+  "editor.formatOnSave": true,
+
 }
