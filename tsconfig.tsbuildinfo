@@ -1,1 +1,0 @@
-{"root":["./src/App.tsx","./src/data.ts","./src/main.tsx","./src/store.ts","./src/scene/Globe.tsx","./src/scene/Scene.tsx","./src/scene/shaders.ts","./src/ui/Chart.tsx","./src/ui/Panel.tsx","./src/ui/Timeline.tsx","./src/ui/useClockTime.ts","./shared/model.ts","./test/model.test.ts","./vite.config.ts"],"version":"5.9.3"}

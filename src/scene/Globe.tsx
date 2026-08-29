@@ -1,6 +1,7 @@
 import { useFrame, useLoader } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
+import { asset } from '@/assets'
 import { sampleFrame, type Dataset } from '@/data'
 import { clock, useStore } from '@/store'
 import { fragmentShader, vertexShader } from './shaders'
@@ -10,7 +11,7 @@ const MODES = { surface: 0, age: 1, strain: 2 } as const
 export function Globe({ data }: { data: Dataset }) {
   const geometry = useRef<THREE.BufferGeometry>(null)
   const material = useRef<THREE.ShaderMaterial>(null)
-  const map = useLoader(THREE.TextureLoader, 'textures/blue-marble-map.jpg')
+  const map = useLoader(THREE.TextureLoader, asset('textures/blue-marble-map.jpg'))
 
   const mode = useStore((s) => s.mode)
   const showGrid = useStore((s) => s.showGrid)

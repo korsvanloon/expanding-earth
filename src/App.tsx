@@ -8,6 +8,9 @@ import { clock, useStore } from '@/store'
 export default function App() {
   const [data, setData] = useState<Dataset>()
   const [error, setError] = useState<string>()
+  // On a narrow screen the globe is the whole point, so the readouts start out
+  // of the way and the reader opens them.
+  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 760)
 
   useEffect(() => {
     loadDataset().then(setData, (e: unknown) => setError(String(e)))
@@ -43,7 +46,14 @@ export default function App() {
   return (
     <div className="app">
       <Scene data={data} />
-      <Panel data={data} />
+      <button
+        className="panel-toggle"
+        onClick={() => setPanelOpen(!panelOpen)}
+        aria-expanded={panelOpen}
+      >
+        {panelOpen ? 'Hide' : 'Details'}
+      </button>
+      {panelOpen && <Panel data={data} />}
       <Timeline endMa={data.meta.endTimeMa} />
     </div>
   )

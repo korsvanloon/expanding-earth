@@ -1,4 +1,6 @@
 import { R0_KM, sampleCurve, type Meta } from '@shared/model'
+import type { InlineData } from '@/assets'
+import { asset, inlineData } from '@/assets'
 
 export interface Dataset {
   meta: Meta
@@ -15,12 +17,10 @@ export interface Dataset {
 }
 
 export async function loadDataset(): Promise<Dataset> {
-  const [meta, mesh, frames, strain] = await Promise.all([
-    fetch('data/meta.json').then((r) => r.json() as Promise<Meta>),
-    fetch('data/mesh.bin').then((r) => r.arrayBuffer()),
-    fetch('data/frames.bin').then((r) => r.arrayBuffer()),
-    fetch('data/strain.bin').then((r) => r.arrayBuffer()),
-  ])
+  const inline = inlineData()
+  const { meta, mesh, frames, strain } = inline
+    ? await inline
+    : await fetchDataset()
 
   const [vertexCount, faceCount] = new Uint32Array(mesh, 0, 2)
   let offset = 8
@@ -51,6 +51,16 @@ export async function loadDataset(): Promise<Dataset> {
     strain: new Uint8Array(strain),
     radiusKm: meta.crustModels[0].radiusKm,
   }
+}
+
+async function fetchDataset(): Promise<InlineData> {
+  const [meta, mesh, frames, strain] = await Promise.all([
+    fetch(asset('data/meta.json')).then((r) => r.json() as Promise<Meta>),
+    fetch(asset('data/mesh.bin')).then((r) => r.arrayBuffer()),
+    fetch(asset('data/frames.bin')).then((r) => r.arrayBuffer()),
+    fetch(asset('data/strain.bin')).then((r) => r.arrayBuffer()),
+  ])
+  return { meta, mesh, frames, strain }
 }
 
 export const radiusAt = (data: Dataset, timeMa: number) =>
