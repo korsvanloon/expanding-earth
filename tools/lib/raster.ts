@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { PNG } from 'pngjs'
 import jpeg from 'jpeg-js'
+import { directionToPixel } from '../../shared/sphere.js'
 
 /**
  * A single-channel equirectangular raster: x spans longitude -180..180,
@@ -21,11 +22,8 @@ export class Raster {
 
   /** Sample at a unit direction vector (y = north pole). */
   atDirection(dx: number, dy: number, dz: number): number {
-    const lat = Math.asin(Math.max(-1, Math.min(1, dy)))
-    const lon = Math.atan2(dz, dx)
-    const x = Math.floor(((lon / (2 * Math.PI) + 0.5) % 1) * this.width)
-    const y = Math.floor((0.5 - lat / Math.PI) * this.height)
-    return this.at(x, y)
+    const [column, row] = directionToPixel(dx, dy, dz, this.width, this.height)
+    return this.at(column, row)
   }
 
   /** cos(latitude) weight of row y — the relative area of a cell in that row. */

@@ -19,6 +19,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
+import { directionToPixel } from '../shared/sphere.js'
 import { PERMANENT_MA, R0_KM, crustScale, type CrustModel, type CrustModelId, type Meta } from '../shared/model.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -329,11 +330,8 @@ function sampleFaceAges(
   const faceCount = mesh.indices.length / 3
   const out = new Float32Array(faceCount)
   const lookup = (x: number, y: number, z: number) => {
-    const lat = Math.asin(Math.max(-1, Math.min(1, y)))
-    const lon = Math.atan2(z, x)
-    const px = Math.floor(((lon / (2 * Math.PI) + 0.5) % 1) * grid.width)
-    const py = Math.min(grid.height - 1, Math.floor((0.5 - lat / Math.PI) * grid.height))
-    return field[py * grid.width + ((px % grid.width) + grid.width) % grid.width]
+    const [column, row] = directionToPixel(x, y, z, grid.width, grid.height)
+    return field[row * grid.width + column]
   }
 
   const samples = new Float64Array(4)

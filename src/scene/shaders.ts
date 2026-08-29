@@ -38,10 +38,18 @@ out vec4 fragColor;
 const float PI = 3.14159265;
 const float PERMANENT = 1.0e8;
 
+/**
+ * GLSL twin of directionToUv in shared/sphere.ts. The two must stay identical:
+ * that function decides which crust a triangle is made of, this one decides
+ * which pixel gets painted on it.
+ *
+ * The z is negated so that east runs to the right when the globe is seen from
+ * outside with north up. Without it everything is still self-consistent, just
+ * mirrored. v is inverted because three.js uploads images flipped, so v = 1 is
+ * the top row of the texture, where the north pole belongs.
+ */
 vec2 dirToUv(vec3 d) {
-  // v is inverted because three.js uploads images flipped, so v = 1 is the top
-  // row of the texture and the north pole belongs there.
-  return vec2(atan(d.z, d.x) / (2.0 * PI) + 0.5, 1.0 - acos(clamp(d.y, -1.0, 1.0)) / PI);
+  return vec2(atan(-d.z, d.x) / (2.0 * PI) + 0.5, 1.0 - acos(clamp(d.y, -1.0, 1.0)) / PI);
 }
 
 /**
