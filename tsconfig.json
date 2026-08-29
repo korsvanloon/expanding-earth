@@ -12,9 +12,10 @@
     "noEmit": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["vite/client"],
+    "types": ["vite/client", "vitest/globals"],
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"], "@shared/*": ["shared/*"] }
   },
-  "include": ["src", "shared", "vite.config.ts"]
+  "include": ["src", "shared", "test", "vite.config.ts"],
+  "exclude": ["legacy"]
 }

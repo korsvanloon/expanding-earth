@@ -11,7 +11,7 @@
     "prebuild": "npm run data",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -b --noEmit false --emitDeclarationOnly false && tsc -p tsconfig.tools.json --noEmit",
+    "typecheck": "tsc -b && tsc -p tsconfig.tools.json",
     "test": "vitest run"
   },
   "dependencies": {

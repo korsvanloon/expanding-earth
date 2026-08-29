@@ -132,6 +132,14 @@ function main() {
   for (let i = 0; i < vertexCount * 3; i++) pos[i] = dirs[i] * r0
   const previous = new Float64Array(pos)
 
+  // Present-day area of every triangle: the area that piece of crust has, and
+  // therefore keeps.
+  const restArea = new Float64Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    restArea[f] =
+      solidAngle(dirs, indices[f * 3] * 3, indices[f * 3 + 1] * 3, indices[f * 3 + 2] * 3) * r0 * r0
+  }
+
   const adjacency = buildVertexAdjacency(indices, vertexCount)
   const vertexBlock = new Int32Array(vertexCount)
   const frames: Int16Array[] = []
@@ -140,12 +148,16 @@ function main() {
 
   const record = (t: number) => {
     frames.push(quantise(pos, vertexCount))
-    strains.push(perVertexStrain(pos, edges, edgeAge, rest, edgeCount, vertexCount, t))
+    strains.push(
+      perVertexStrain(
+        faceStrain(pos, indices, restArea, faceCount), indices, restArea, faceCount, vertexCount,
+      ),
+    )
     diagnostics.push({
       timeMa: t,
       radiusKm: radiusAt(t),
       ...coverage(pos, indices, faceAges, faceCount, t),
-      ...strainStats(pos, edges, edgeAge, rest, edgeCount, t),
+      ...strainStats(faceStrain(pos, indices, restArea, faceCount), faceAges, restArea, faceCount, t),
       reliefKm: relief(pos, vertexCount, radiusAt(t)),
       blockCount: labelBlocks(
         indices, faceAges, faceCount, vertexCount,
@@ -574,38 +586,6 @@ function quantise(pos: Float64Array, vertexCount: number) {
 
 // --- diagnostics -----------------------------------------------------------
 
-function strainStats(
-  pos: Float64Array, edges: Uint32Array, edgeAge: Float64Array,
-  rest: Float64Array, edgeCount: number, t: number,
-) {
-  let square = 0
-  let signed = 0
-  let weight = 0
-  const magnitudes: number[] = []
-  for (let e = 0; e < edgeCount; e++) {
-    if (edgeAge[e] < t) continue
-    const i = edges[e * 2] * 3
-    const j = edges[e * 2 + 1] * 3
-    const length = Math.hypot(pos[i] - pos[j], pos[i + 1] - pos[j + 1], pos[i + 2] - pos[j + 2])
-    const strain = length / rest[e] - 1
-    square += strain * strain * rest[e]
-    signed += strain * rest[e]
-    weight += rest[e]
-    magnitudes.push(Math.abs(strain))
-  }
-  if (weight === 0) return { rmsStrain: 0, meanStrain: 0, medianStrain: 0, p90Strain: 0 }
-  magnitudes.sort((a, b) => a - b)
-  return {
-    rmsStrain: Math.sqrt(square / weight),
-    meanStrain: signed / weight,
-    // The RMS is dominated by a thin fringe of badly distorted cells along
-    // ridges and faults. The median says what the crust away from them is
-    // actually asked to do, which is the number worth judging the model by.
-    medianStrain: magnitudes[magnitudes.length >> 1],
-    p90Strain: magnitudes[Math.floor(magnitudes.length * 0.9)],
-  }
-}
-
 /** RMS departure from the sphere: how far the model has to buckle the crust. */
 function relief(pos: Float64Array, vertexCount: number, r: number) {
   let sum = 0
@@ -616,29 +596,88 @@ function relief(pos: Float64Array, vertexCount: number, r: number) {
   return Math.sqrt(sum / vertexCount)
 }
 
+/**
+ * Linear strain per triangle, from how much its area has changed.
+ *
+ * Measuring edge lengths instead invites a checkerboard: relaxation on a
+ * triangle mesh happily settles into a state where alternate edges are long and
+ * short, which averages out to nothing real but shows up as a dense speckle and
+ * inflates every strain statistic. Area is blind to that mode, and area change
+ * is the more meaningful quantity anyway -- it is what tells you whether the
+ * model is asking the crust to be squeezed or pulled apart.
+ */
+function faceStrain(
+  pos: Float64Array, indices: Uint32Array, restArea: Float64Array, faceCount: number,
+) {
+  const out = new Float32Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    const a = indices[f * 3] * 3
+    const b = indices[f * 3 + 1] * 3
+    const c = indices[f * 3 + 2] * 3
+    const radius = Math.hypot(pos[a], pos[a + 1], pos[a + 2]) || 1
+    const area = solidAngle(pos, a, b, c) * radius * radius
+    out[f] = Math.sqrt(area / restArea[f]) - 1
+  }
+  return out
+}
+
+function strainStats(
+  strain: Float32Array, faceAges: Float32Array, restArea: Float64Array, faceCount: number, t: number,
+) {
+  let square = 0
+  let signed = 0
+  let weight = 0
+  const magnitudes: { value: number; weight: number }[] = []
+  for (let f = 0; f < faceCount; f++) {
+    if (faceAges[f] < t) continue
+    const w = restArea[f]
+    square += strain[f] * strain[f] * w
+    signed += strain[f] * w
+    weight += w
+    magnitudes.push({ value: Math.abs(strain[f]), weight: w })
+  }
+  if (weight === 0) return { rmsStrain: 0, meanStrain: 0, medianStrain: 0, p90Strain: 0 }
+  magnitudes.sort((a, b) => a.value - b.value)
+  const quantile = (q: number) => {
+    let seen = 0
+    for (const m of magnitudes) {
+      seen += m.weight
+      if (seen >= weight * q) return m.value
+    }
+    return magnitudes[magnitudes.length - 1].value
+  }
+  return {
+    rmsStrain: Math.sqrt(square / weight),
+    meanStrain: signed / weight,
+    // The RMS is dominated by a thin fringe of badly distorted cells along
+    // ridges and faults. The median says what the crust away from them is
+    // actually asked to do, which is the number worth judging the model by.
+    medianStrain: quantile(0.5),
+    p90Strain: quantile(0.9),
+  }
+}
+
+/** Area-weighted average of the surrounding triangles' strain, per vertex. */
 function perVertexStrain(
-  pos: Float64Array, edges: Uint32Array, edgeAge: Float64Array,
-  rest: Float64Array, edgeCount: number, vertexCount: number, t: number,
+  strain: Float32Array, indices: Uint32Array, restArea: Float64Array,
+  faceCount: number, vertexCount: number,
 ) {
   const sum = new Float64Array(vertexCount)
-  const count = new Float64Array(vertexCount)
-  for (let e = 0; e < edgeCount; e++) {
-    if (edgeAge[e] < t) continue
-    const i = edges[e * 2]
-    const j = edges[e * 2 + 1]
-    const a = i * 3
-    const b = j * 3
-    const length = Math.hypot(pos[a] - pos[b], pos[a + 1] - pos[b + 1], pos[a + 2] - pos[b + 2])
-    const strain = length / rest[e] - 1
-    sum[i] += strain; count[i]++
-    sum[j] += strain; count[j]++
+  const weight = new Float64Array(vertexCount)
+  for (let f = 0; f < faceCount; f++) {
+    const w = restArea[f]
+    for (let k = 0; k < 3; k++) {
+      const v = indices[f * 3 + k]
+      sum[v] += strain[f] * w
+      weight[v] += w
+    }
   }
   // Quantised to a byte over +/-20% strain, well beyond what real crust
   // survives, so the interesting range keeps plenty of resolution.
   const out = new Uint8Array(vertexCount)
   for (let i = 0; i < vertexCount; i++) {
-    const strain = count[i] > 0 ? sum[i] / count[i] : 0
-    out[i] = Math.round(Math.min(255, Math.max(0, (strain / 0.2) * 127 + 128)))
+    const value = weight[i] > 0 ? sum[i] / weight[i] : 0
+    out[i] = Math.round(Math.min(255, Math.max(0, (value / 0.2) * 127 + 128)))
   }
   return out
 }
@@ -676,7 +715,7 @@ function coverage(
   return { gapFraction: unborn / total, overlapFraction: folded / total }
 }
 
-function solidAngle(pos: Float64Array, a: number, b: number, c: number) {
+function solidAngle(pos: ArrayLike<number>, a: number, b: number, c: number) {
   const n = (i: number) => {
     const length = Math.hypot(pos[i], pos[i + 1], pos[i + 2]) || 1
     return [pos[i] / length, pos[i + 1] / length, pos[i + 2] / length] as const

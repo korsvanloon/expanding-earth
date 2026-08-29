@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { fileURLToPath } from 'node:url'
@@ -11,4 +12,6 @@ export default defineConfig({
     },
   },
   server: { port: 3000 },
+  // legacy/ is the earlier prototype, kept for reference but not built or tested.
+  test: { include: ['test/**/*.test.ts'] },
 })
