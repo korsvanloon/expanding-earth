@@ -111,6 +111,14 @@ const CONFIG = {
    * craton has to carry the deformation rather than forget it.
    */
   breaksBelow: Number(process.env.BREAKS_BELOW ?? 0.65),
+  /**
+   * How closely two points have to agree, in kilometres per million years,
+   * before the same rotation is taken to explain both. The Earth's plates are
+   * rigid to about this.
+   */
+  plateTolerance: Number(process.env.PLATE_TOL ?? 4),
+  /** Fewer points than this and it is not a plate, it is a boundary. */
+  smallestPlate: Number(process.env.SMALLEST_PLATE ?? 60),
   /** How many rounds of redrawing slivers per step. */
   flipPasses: Number(process.env.FLIP_PASSES ?? 4),
   /** Smoothing passes over the age field before differentiating it. */
@@ -268,6 +276,10 @@ function main() {
 
   const frames: Int16Array[] = []
   const strains: Uint8Array[] = []
+  const plates: Uint8Array[] = []
+  /** Where everything was at the previous recorded frame, to read plates from. */
+  const atLastFrame = new Float64Array(pos)
+  let plateReport = { count: 0, biggest: [] as number[] }
   const diagnostics: FrameDiagnostics[] = []
 
   const regionVertices = new Map<string, number[]>()
@@ -346,6 +358,11 @@ function main() {
       separation.set(key, [...(separation.get(key) ?? []), closest(target.a, target.b)])
     }
 
+    const found = findPlates(pos, atLastFrame, mesh, Math.max(meta.frameStepMa, 1), vertexCount)
+    plates.push(found.ids)
+    plateReport = { count: found.count, biggest: found.biggest }
+    atLastFrame.set(pos)
+
     for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
     const strain = faceStrain(pos, mesh.faceVerts, restAreaNow, faceCount, mesh.faceAlive)
     frames.push(quantise(pos, vertexCount))
@@ -358,7 +375,7 @@ function main() {
       ...tiling(pos, mesh, faceCount, probes, probeCells, cellFaces),
       ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, mesh.faceAlive),
       reliefKm: relief(pos, vertexCount, radiusAt(t)),
-      blockCount: mesh.liveVertices,
+      blockCount: plateReport.count,
     })
   }
 
@@ -431,7 +448,9 @@ function main() {
           `points=${String(mesh.liveVertices).padStart(5)}  ` +
           `bare=${(100 * d.gapFraction).toFixed(2)}%  ` +
           `doubled=${(100 * d.overlapFraction).toFixed(2)}%  ` +
-          `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%`,
+          `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%  ` +
+          `plates=${String(plateReport.count).padStart(3)}` +
+          ` (biggest ${plateReport.biggest.slice(0, 3).map((x) => `${(100 * x).toFixed(0)}%`).join(' ')})`,
       )
     }
   }
@@ -455,8 +474,16 @@ function main() {
 
   const frameBuffer = Buffer.concat(frames.map((f) => Buffer.from(f.buffer)))
   const strainBuffer = Buffer.concat(strains.map((s) => Buffer.from(s.buffer)))
+  // The first frame has no interval behind it to read a velocity from, so it
+  // borrows the plates of the second rather than claiming there were none.
+  if (plates.length > 1) {
+    plates[0] = plates[1]
+    diagnostics[0].blockCount = diagnostics[1].blockCount
+  }
+  const plateBuffer = Buffer.concat(plates.map((p) => Buffer.from(p.buffer)))
   writeFileSync(resolve(OUT, 'frames.bin'), frameBuffer)
   writeFileSync(resolve(OUT, 'strain.bin'), strainBuffer)
+  writeFileSync(resolve(OUT, 'plates.bin'), plateBuffer)
   writeFileSync(
     resolve(OUT, 'meta.json'),
     JSON.stringify({
@@ -499,6 +526,210 @@ function main() {
     `[solve] wrote ${frames.length} frames ` +
       `(${(frameBuffer.byteLength / 1e6).toFixed(1)} MB + ${(strainBuffer.byteLength / 1e6).toFixed(1)} MB)`,
   )
+}
+
+/**
+ * Read the plates back out of the motion.
+ *
+ * This is the last thing in the model that used to be assumed and is now
+ * measured. A plate is not a region of a particular kind of crust, nor a piece
+ * of a mosaic drawn before the run started: it is a patch of the Earth whose
+ * points are all moving as one rigid body, and whether a patch is one of those
+ * is a question about the answer, not about the question.
+ *
+ * So: give every point its velocity over the last interval, pick an unclaimed
+ * one, fit the rotation that best explains it and its neighbours, and let the
+ * region grow outwards over every point the same rotation explains to within a
+ * few kilometres per million years -- which is about as rigidly as the Earth's
+ * plates actually behave. Where it stops is a plate boundary, found rather than
+ * drawn.
+ *
+ * They are found again at every frame, and they are free to differ. That is the
+ * point of doing it this way round: North America comes back as one plate for a
+ * long stretch and then as two when the Gulf of Mexico shuts against South
+ * America, and no fixed set of plates can say that.
+ */
+function findPlates(
+  pos: Float64Array,
+  before: Float64Array,
+  mesh: DynamicMesh,
+  dtMa: number,
+  vertexCount: number,
+) {
+  // Only the motion across the surface counts. Everything also moves outwards
+  // as the Earth grows -- eighty-odd kilometres between frames, more than the
+  // plates themselves travel -- and a rotation cannot explain a radial move at
+  // all, so leaving it in makes every point look like its own plate.
+  const velocity = new Float64Array(vertexCount * 3)
+  const here = new Float64Array(vertexCount * 3)
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    const now = Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
+    const then = Math.hypot(before[v * 3], before[v * 3 + 1], before[v * 3 + 2]) || 1
+    for (let c = 0; c < 3; c++) {
+      const u = pos[v * 3 + c] / now
+      here[v * 3 + c] = u * now
+      velocity[v * 3 + c] = ((u - before[v * 3 + c] / then) * now) / dtMa
+    }
+  }
+  void here
+
+  const claimed = new Int32Array(vertexCount).fill(-1)
+  const ring = new Set<number>()
+  const region: number[] = []
+  const queue: number[] = []
+  const sizes: number[] = []
+  const tolerance = CONFIG.plateTolerance
+
+  const fit = (members: number[]) => {
+    const m = new Float64Array(6)
+    const rhs = new Float64Array(3)
+    for (const v of members) {
+      const px = pos[v * 3], py = pos[v * 3 + 1], pz = pos[v * 3 + 2]
+      const vx = velocity[v * 3], vy = velocity[v * 3 + 1], vz = velocity[v * 3 + 2]
+      const p2 = px * px + py * py + pz * pz
+      m[0] += p2 - px * px; m[1] += p2 - py * py; m[2] += p2 - pz * pz
+      m[3] -= px * py; m[4] -= px * pz; m[5] -= py * pz
+      rhs[0] += py * vz - pz * vy
+      rhs[1] += pz * vx - px * vz
+      rhs[2] += px * vy - py * vx
+    }
+    return solve3(
+      [m[0], m[3], m[4], m[3], m[1], m[5], m[4], m[5], m[2]],
+      [rhs[0], rhs[1], rhs[2]],
+    )
+  }
+  const residual = (omega: [number, number, number], v: number) => {
+    const px = pos[v * 3], py = pos[v * 3 + 1], pz = pos[v * 3 + 2]
+    const rx = omega[1] * pz - omega[2] * py
+    const ry = omega[2] * px - omega[0] * pz
+    const rz = omega[0] * py - omega[1] * px
+    return Math.hypot(
+      velocity[v * 3] - rx, velocity[v * 3 + 1] - ry, velocity[v * 3 + 2] - rz,
+    )
+  }
+
+  /**
+   * Start from the calmest ground and work outwards.
+   *
+   * A region grown from a seed takes its rotation from wherever it began, so
+   * beginning on a plate boundary -- where two rotations meet and neither
+   * explains the neighbourhood -- splits a plate into the pieces the seeding
+   * happened to visit first. Points whose neighbours are all doing the same
+   * thing are plate interiors, and starting there finds a plate whole, and
+   * finds the same one again at the next frame.
+   */
+  const calm = new Float64Array(vertexCount).fill(Infinity)
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    mesh.ring(v, ring)
+    let spread = 0
+    let n = 0
+    for (const u of ring) {
+      if (!mesh.vertexAlive[u]) continue
+      spread += Math.hypot(
+        velocity[u * 3] - velocity[v * 3],
+        velocity[u * 3 + 1] - velocity[v * 3 + 1],
+        velocity[u * 3 + 2] - velocity[v * 3 + 2],
+      )
+      n++
+    }
+    calm[v] = n ? spread / n : Infinity
+  }
+  const order = Array.from({ length: vertexCount }, (_, v) => v)
+    .filter((v) => mesh.vertexAlive[v])
+    .sort((a, b) => calm[a] - calm[b])
+
+  let count = 0
+  for (const seed of order) {
+    if (claimed[seed] >= 0) continue
+    region.length = 0
+    queue.length = 0
+    region.push(seed)
+    claimed[seed] = count
+    // A single point cannot pin a rotation down; start from its neighbourhood.
+    mesh.ring(seed, ring)
+    for (const n of ring) {
+      if (!mesh.vertexAlive[n] || claimed[n] >= 0) continue
+      claimed[n] = count
+      region.push(n)
+    }
+    let omega = fit(region)
+    if (!omega) {
+      for (const v of region) claimed[v] = count
+      sizes.push(region.length)
+      count++
+      continue
+    }
+    queue.push(...region)
+    let sinceFit = 0
+    for (let head = 0; head < queue.length; head++) {
+      const u = queue[head]
+      mesh.ring(u, ring)
+      for (const n of ring) {
+        if (!mesh.vertexAlive[n] || claimed[n] >= 0) continue
+        if (residual(omega, n) > tolerance) continue
+        claimed[n] = count
+        region.push(n)
+        queue.push(n)
+        // Refit now and then, so a plate that turns out to be turning about a
+        // different pole than its first few points suggested can still be found
+        // whole rather than in pieces.
+        if (++sinceFit >= 250) {
+          sinceFit = 0
+          omega = fit(region) ?? omega
+        }
+      }
+    }
+    sizes.push(region.length)
+    count++
+  }
+
+  // Anything too small to be a plate takes the label most of its neighbours
+  // carry, so the map is plates and boundaries rather than confetti.
+  const smallest = CONFIG.smallestPlate
+  const label = new Int32Array(claimed)
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = 0
+    for (let v = 0; v < vertexCount; v++) {
+      if (!mesh.vertexAlive[v] || label[v] < 0 || sizes[label[v]] >= smallest) continue
+      const votes = new Map<number, number>()
+      mesh.ring(v, ring)
+      for (const n of ring) {
+        if (!mesh.vertexAlive[n] || label[n] < 0 || label[n] === label[v]) continue
+        votes.set(label[n], (votes.get(label[n]) ?? 0) + 1)
+      }
+      let best = -1
+      let bestVotes = 0
+      for (const [id, n] of votes) if (n > bestVotes) { bestVotes = n; best = id }
+      if (best >= 0) {
+        label[v] = best
+        moved++
+      }
+    }
+    if (!moved) break
+  }
+
+  // Renumber largest first, so the same colour means the same size of thing.
+  const finalSizes = new Map<number, number>()
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v] || label[v] < 0) continue
+    finalSizes.set(label[v], (finalSizes.get(label[v]) ?? 0) + 1)
+  }
+  const ranked = [...finalSizes].sort((a, b) => b[1] - a[1])
+  const renumber = new Map<number, number>()
+  ranked.forEach(([id], i) => renumber.set(id, Math.min(254, i) + 1))
+  const out = new Uint8Array(vertexCount)
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v] || label[v] < 0) continue
+    out[v] = renumber.get(label[v]) ?? 255
+  }
+  const live = mesh.liveVertices || 1
+  return {
+    ids: out,
+    count: ranked.filter(([, n]) => n >= smallest).length,
+    biggest: ranked.slice(0, 5).map(([, n]) => n / live),
+  }
 }
 
 /**

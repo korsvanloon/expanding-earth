@@ -1,10 +1,12 @@
 export const vertexShader = /* glsl */ `
 in vec3 aDir;
+in float aPlate;
 in float aAge;
 in float aStrain;
 in float aRigidity;
 
 out vec3 vDir;
+out float vPlate;
 out float vAge;
 out float vStrain;
 out float vRigidity;
@@ -12,6 +14,7 @@ out vec3 vNormal;
 
 void main() {
   vDir = aDir;
+  vPlate = aPlate;
   vAge = aAge;
   vStrain = aStrain;
   vRigidity = aRigidity;
@@ -34,6 +37,7 @@ uniform vec3 uLight;
 uniform float uOpacity;
 
 in vec3 vDir;
+in float vPlate;
 in float vAge;
 in float vStrain;
 in float vRigidity;
@@ -117,6 +121,18 @@ vec3 strainRamp(float strain) {
   return srgbToLinear(t < 0.0 ? mix(neutral, cold, -t) : mix(neutral, warm, t));
 }
 
+/**
+ * A repeating hue per plate. The ids are ordered largest first, so the same
+ * colour means about the same size of thing from one moment to the next; there
+ * are more plates than hues, and neighbours differ, which is what matters for
+ * seeing where a boundary runs.
+ */
+vec3 plateRamp(float id) {
+  float h = fract(id * 0.2469);
+  vec3 c = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+  return srgbToLinear(mix(vec3(0.55), c, 0.75));
+}
+
 /** Weak crust dark red through to rigid craton pale, so the necks stand out. */
 vec3 rigidityRamp(float r) {
   vec3 weak = vec3(0.62, 0.16, 0.20);
@@ -142,6 +158,8 @@ void main() {
     base = surface(vDir);
   } else if (uMode == 3) {
     base = rigidityRamp(vRigidity);
+  } else if (uMode == 4) {
+    base = vPlate < 0.5 ? srgbToLinear(vec3(0.18)) : plateRamp(vPlate);
   } else if (uMode == 1) {
     // Continental crust has no sea-floor age, so it gets a neutral tint --
     // shaded by the surface map's brightness so the landmasses stay legible

@@ -47,16 +47,22 @@ function main() {
   const mesh = readFileSync(resolve(DATA, 'mesh.bin'))
   const frames = new Int16Array(readFileSync(resolve(DATA, 'frames.bin')).buffer)
   const strain = readFileSync(resolve(DATA, 'strain.bin'))
+  const plates = readFileSync(resolve(DATA, 'plates.bin'))
 
   const kept: number[] = []
   for (let f = 0; f < meta.frameCount; f += FRAME_STRIDE) kept.push(f)
   const stride = meta.vertexCount * 3
   const thinnedFrames = new Int16Array(kept.length * stride)
   const thinnedStrain = new Uint8Array(kept.length * meta.vertexCount)
+  const thinnedPlates = new Uint8Array(kept.length * meta.vertexCount)
   kept.forEach((f, i) => {
     thinnedFrames.set(frames.subarray(f * stride, (f + 1) * stride), i * stride)
     thinnedStrain.set(
       strain.subarray(f * meta.vertexCount, (f + 1) * meta.vertexCount),
+      i * meta.vertexCount,
+    )
+    thinnedPlates.set(
+      plates.subarray(f * meta.vertexCount, (f + 1) * meta.vertexCount),
       i * meta.vertexCount,
     )
   })
@@ -76,6 +82,7 @@ function main() {
     mesh: gzipSync(mesh, { level: 9 }),
     frames: gzipSync(deltaSplit(thinnedFrames, stride, kept.length), { level: 9 }),
     strain: gzipSync(Buffer.from(thinnedStrain), { level: 9 }),
+    plates: gzipSync(Buffer.from(thinnedPlates), { level: 9 }),
   }
 
   const bundle = readdirSync(resolve(DIST, 'assets'))
@@ -110,8 +117,8 @@ window.__DATA__ = (async () => {
   };
   const P = ${JSON.stringify(Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, v.toString('base64')])))};
   const meta = JSON.parse(new TextDecoder().decode(await gunzip(P.meta)));
-  const [mesh, frames, strain] = await Promise.all(
-    [gunzip(P.mesh), gunzip(P.frames), gunzip(P.strain)]);
+  const [mesh, frames, strain, plates] = await Promise.all(
+    [gunzip(P.mesh), gunzip(P.frames), gunzip(P.strain), gunzip(P.plates)]);
 
   // Undo the byte-plane split, then the per-frame differencing. Int16Array
   // wraps on overflow exactly as the differencing did, so the running sum
@@ -124,7 +131,10 @@ window.__DATA__ = (async () => {
     const to = f * stride, from = to - stride;
     for (let i = 0; i < stride; i++) out[to + i] += out[from + i];
   }
-  return { meta, mesh: mesh.buffer, frames: out.buffer, strain: strain.buffer };
+  return {
+    meta, mesh: mesh.buffer, frames: out.buffer,
+    strain: strain.buffer, plates: plates.buffer,
+  };
 })();
 </script>
 <script type="module">

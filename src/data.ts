@@ -20,20 +20,27 @@ export interface Dataset {
   frames: Int16Array
   /** Per-vertex strain, one byte per vertex per frame. */
   strain: Uint8Array
+  /**
+   * Which plate each vertex belonged to, one byte per vertex per frame.
+   *
+   * Measured rather than assumed, and different at every frame: a plate here is
+   * a patch of the Earth whose points turned out to be moving as one rigid
+   * body, found by fitting rotations to the answer. Nothing was declared a
+   * plate before the run. See findPlates in tools/solve.ts.
+   */
+  plates: Uint8Array
   /** How strongly the crust at each vertex resists deformation. */
   rigidity: Float32Array
   /** Crustal thickness in km at each vertex, from ECM1. */
   thickness: Float32Array
   /** Crustal type index at each vertex; see shared/crust.ts CRUST_TYPES. */
   crustType: Uint8Array
-  /** Which fragment each vertex belongs to. */
-  plates: Uint16Array
   radiusKm: number[]
 }
 
 export async function loadDataset(): Promise<Dataset> {
   const inline = inlineData()
-  const { meta, mesh, frames, strain } = inline ? await inline : await fetchDataset()
+  const { meta, mesh, frames, strain, plates } = inline ? await inline : await fetchDataset()
 
   const [vertexCount, faceCount, , cutPairCount] = new Uint32Array(mesh, 0, 4)
   let offset = 16
@@ -49,9 +56,8 @@ export async function loadDataset(): Promise<Dataset> {
   offset += faceCount * 4
   offset += vertexCount * 4 // origin vertex, needed only by the solver
   offset += cutPairCount * 8 // fracture constraints, needed only by the solver
-  offset += faceCount * 2 // per-face fragment
-  const vertexFragment = new Uint16Array(mesh, offset, vertexCount)
-  offset += vertexCount * 2
+  offset += faceCount * 2 // per-face fragment, unused now that plates are measured
+  offset += vertexCount * 2 // per-vertex fragment, likewise
   const faceCrustType = new Uint8Array(mesh, offset, faceCount)
 
   // A vertex exists as long as any triangle around it does, so it takes the
@@ -93,22 +99,23 @@ export async function loadDataset(): Promise<Dataset> {
     vertexAge,
     frames: new Int16Array(frames),
     strain: new Uint8Array(strain),
+    plates: new Uint8Array(plates),
     rigidity: vertexRigidity,
     thickness: vertexThickness,
     crustType: vertexType,
-    plates: vertexFragment,
     radiusKm: meta.crustModels[0].radiusKm,
   }
 }
 
 async function fetchDataset(): Promise<InlineData> {
-  const [meta, mesh, frames, strain] = await Promise.all([
+  const [meta, mesh, frames, strain, plates] = await Promise.all([
     fetch(asset('data/meta.json')).then((r) => r.json() as Promise<Meta>),
     fetch(asset('data/mesh.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/frames.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/strain.bin')).then((r) => r.arrayBuffer()),
+    fetch(asset('data/plates.bin')).then((r) => r.arrayBuffer()),
   ])
-  return { meta, mesh, frames, strain }
+  return { meta, mesh, frames, strain, plates }
 }
 
 export const radiusAt = (data: Dataset, timeMa: number) =>
@@ -128,6 +135,8 @@ export function sampleFrame(
   timeMa: number,
   positions: Float32Array,
   strain: Float32Array,
+  /** Plate ids, taken from the nearer keyframe: an identity does not blend. */
+  plate: Float32Array,
   /** Per-frame 3x3 rotations that hold one continent still; see src/frames.ts. */
   reference?: Float32Array,
 ) {
@@ -172,5 +181,6 @@ export function sampleFrame(
     const s0 = data.strain[sa + i]
     const s1 = data.strain[sb + i]
     strain[i] = ((s0 + (s1 - s0) * f) / 127.5 - 1) * 0.2
+    plate[i] = data.plates[(f < 0.5 ? sa : sb) + i]
   }
 }
