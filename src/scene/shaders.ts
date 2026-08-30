@@ -3,13 +3,11 @@ in vec3 aDir;
 in float aAge;
 in float aStrain;
 in float aRigidity;
-in float aPlate;
 
 out vec3 vDir;
 out float vAge;
 out float vStrain;
 out float vRigidity;
-out float vPlate;
 out vec3 vNormal;
 
 void main() {
@@ -17,7 +15,6 @@ void main() {
   vAge = aAge;
   vStrain = aStrain;
   vRigidity = aRigidity;
-  vPlate = aPlate;
   // The mesh is always a sphere, so the outward normal is just the position.
   vNormal = normalize(mat3(modelMatrix) * normalize(position));
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -40,7 +37,6 @@ in vec3 vDir;
 in float vAge;
 in float vStrain;
 in float vRigidity;
-in float vPlate;
 in vec3 vNormal;
 
 out vec4 fragColor;
@@ -129,33 +125,23 @@ vec3 rigidityRamp(float r) {
   return srgbToLinear(r < 0.5 ? mix(weak, middle, r * 2.0) : mix(middle, rigid, (r - 0.5) * 2.0));
 }
 
-/** A repeating hue per plate; neighbours differ because the ids are adjacent. */
-vec3 plateRamp(float id) {
-  float h = fract(id * 0.2469);
-  vec3 c = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
-  return srgbToLinear(mix(vec3(0.55), c, 0.75));
-}
 
 void main() {
-  float sinceBirth = vAge - uTimeMa;
-  bool exists = sinceBirth >= 0.0;
   bool continental = vAge > PERMANENT;
 
   vec3 base;
-  float glow = 0.0;
 
-  if (!exists) {
-    // Crust that has not formed yet. Played forwards this is the moment it
-    // erupts at a ridge, so it starts incandescent and darkens as it cools.
-    float heat = exp(sinceBirth * 0.4);
-    base = srgbToLinear(mix(vec3(0.03, 0.03, 0.05), vec3(1.0, 0.42, 0.08), heat));
-    glow = heat;
-  } else if (uMode == 0) {
+  // Nothing is shaded as not-yet-formed any more. The solver closes crust away
+  // as it un-forms rather than crumpling it into a corner, so a triangle whose
+  // sea floor had not erupted yet has already been collapsed to nothing and
+  // takes up no pixels. Asking each vertex whether it exists was also the wrong
+  // question once vertices can absorb one another: a point that swallows its
+  // neighbour goes on carrying that neighbour's crust while remembering only
+  // its own age, and the globe grew dark patches over ground that was there.
+  if (uMode == 0) {
     base = surface(vDir);
   } else if (uMode == 3) {
     base = rigidityRamp(vRigidity);
-  } else if (uMode == 4) {
-    base = vPlate < 0.5 ? srgbToLinear(vec3(0.2)) : plateRamp(vPlate);
   } else if (uMode == 1) {
     // Continental crust has no sea-floor age, so it gets a neutral tint --
     // shaded by the surface map's brightness so the landmasses stay legible
@@ -174,7 +160,7 @@ void main() {
     base = strainRamp(vStrain);
   }
 
-  if (uGrid > 0.5 && exists) {
+  if (uGrid > 0.5) {
     vec2 uv = dirToUv(vDir) * vec2(360.0, 180.0);
     vec2 grid = abs(fract(uv / 15.0 - 0.5) - 0.5) / fwidth(uv / 15.0);
     float line = 1.0 - min(min(grid.x, grid.y), 1.0);
@@ -186,7 +172,7 @@ void main() {
   // is rather than leaving half the globe in shadow.
   vec3 normal = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
   float lambert = max(dot(normal, normalize(uLight)), 0.0);
-  vec3 lit = base * (0.30 + 0.85 * lambert) + glow * srgbToLinear(vec3(0.9, 0.32, 0.06));
+  vec3 lit = base * (0.30 + 0.85 * lambert);
   fragColor = vec4(linearToSrgb(min(lit, vec3(1.0))), uOpacity);
 }
 `

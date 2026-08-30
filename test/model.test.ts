@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildIcosphere, sphericalTriangleArea } from '../tools/lib/icosphere'
+import { DynamicMesh, collapseVanished, retriangulate } from '../tools/lib/dynamic-mesh'
 import { crustScale, sampleCurve, MIN_SCALE, TAU_MA } from '../shared/model'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
@@ -152,5 +153,92 @@ describe('the built dataset', () => {
     expect(meta.faceCount).toBe(faceCount)
     expect(statSync(resolve(data, 'frames.bin')).size).toBe(meta.frameCount * vertexCount * 3 * 2)
     expect(statSync(resolve(data, 'strain.bin')).size).toBe(meta.frameCount * vertexCount)
+  })
+})
+
+describe('the collapsing mesh', () => {
+  // Dynamic topology is the nasty kind of code: a collapse that pinches the
+  // surface leaves something that still looks like a mesh and quietly makes
+  // every area the diagnostics measure meaningless. These pin down the two
+  // things that must never stop being true.
+  const build = (subdivision: number) => {
+    const { positions, indices } = buildIcosphere(subdivision)
+    const mesh = new DynamicMesh(positions.length / 3, indices.length / 3, indices)
+    return { mesh, pos: Float64Array.from(positions) }
+  }
+
+  it('is a sphere before anything is collapsed', () => {
+    const { mesh } = build(3)
+    expect(mesh.eulerCharacteristic()).toBe(2)
+  })
+
+  it('stays a sphere however much is collapsed away', () => {
+    const { mesh, pos } = build(3)
+    const faceCount = mesh.faceCount
+    // Ages that make a band of the sphere vanish first, the way a ridge does.
+    const age = new Float32Array(faceCount)
+    for (let f = 0; f < faceCount; f++) {
+      let y = 0
+      for (let k = 0; k < 3; k++) y += pos[mesh.faceVerts[f * 3 + k] * 3 + 1]
+      age[f] = Math.abs(y / 3) * 200
+    }
+    for (const t of [20, 60, 100, 140, 180]) {
+      collapseVanished(mesh, age, pos, t)
+      expect(mesh.eulerCharacteristic()).toBe(2)
+      expect(mesh.liveFaces).toBe(2 * mesh.liveVertices - 4)
+    }
+    expect(mesh.liveVertices).toBeLessThan(mesh.vertexCount)
+  })
+
+  it('never loses crust that still exists', () => {
+    const { mesh, pos } = build(3)
+    const age = new Float32Array(mesh.faceCount)
+    for (let f = 0; f < mesh.faceCount; f++) age[f] = f % 3 === 0 ? 1e9 : 10
+    collapseVanished(mesh, age, pos, 100)
+    for (let f = 0; f < mesh.faceCount; f++) {
+      if (age[f] >= 1e9) expect(mesh.faceAlive[f]).toBe(1)
+    }
+  })
+
+  it('leads every collapsed vertex to a survivor', () => {
+    const { mesh, pos } = build(2)
+    const age = new Float32Array(mesh.faceCount).fill(10)
+    collapseVanished(mesh, age, pos, 100)
+    for (let v = 0; v < mesh.vertexCount; v++) {
+      expect(mesh.vertexAlive[mesh.survivor(v)]).toBe(1)
+    }
+  })
+})
+
+describe('redrawing edges', () => {
+  it('keeps the mesh a sphere and never loses a triangle', () => {
+    const { positions, indices } = buildIcosphere(3)
+    const mesh = new DynamicMesh(positions.length / 3, indices.length / 3, indices)
+    const pos = Float64Array.from(positions)
+    const faceCount = mesh.faceCount
+    const restEdge = new Float64Array(faceCount * 3)
+    for (let f = 0; f < faceCount; f++) {
+      for (let k = 0; k < 3; k++) {
+        const a = indices[f * 3 + k] * 3
+        const b = indices[f * 3 + ((k + 1) % 3)] * 3
+        restEdge[f * 3 + k] = Math.hypot(pos[a] - pos[b], pos[a + 1] - pos[b + 1], pos[a + 2] - pos[b + 2])
+      }
+    }
+    // Squash one hemisphere sideways, which is what leaves slivers behind.
+    for (let v = 0; v < mesh.vertexCount; v++) {
+      if (pos[v * 3 + 1] < 0) continue
+      pos[v * 3] *= 0.35
+      const length = Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
+      for (let c = 0; c < 3; c++) pos[v * 3 + c] /= length
+    }
+    const flipped = retriangulate(mesh, pos, restEdge, 6)
+    expect(flipped).toBeGreaterThan(0)
+    expect(mesh.eulerCharacteristic()).toBe(2)
+    expect(mesh.liveFaces).toBe(indices.length / 3)
+    // No triangle may be left with a repeated corner.
+    for (let f = 0; f < faceCount; f++) {
+      const [a, b, c] = [mesh.faceVerts[f * 3], mesh.faceVerts[f * 3 + 1], mesh.faceVerts[f * 3 + 2]]
+      expect(new Set([a, b, c]).size).toBe(3)
+    }
   })
 })

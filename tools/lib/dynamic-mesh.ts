@@ -1,0 +1,421 @@
+/**
+ * A triangulation of the sphere that is allowed to lose vertices.
+ *
+ * Every version of this model until now kept one fixed triangulation for all
+ * time, which is the wrong shape for the problem. Wind the clock back to 200 Ma
+ * and 61% of today's crust has not been made yet, but the mesh still carries
+ * 57% of its vertices for it -- points belonging to sea floor that does not
+ * exist, which have to be crumpled in somewhere. That crumpling is almost the
+ * whole of what the diagnostics report as unaccounted area and folded crust. It
+ * is not the physics failing. It is a mesh with no way to get rid of what is
+ * gone.
+ *
+ * So: when the crust under a triangle un-forms, the triangle goes. Collapsing
+ * an edge merges its two ends into one point and removes the two triangles
+ * along it, which run forwards is a ridge splitting a vertex in two and making
+ * new sea floor between them. That is what a ridge does.
+ *
+ * Nothing here decides which crust belongs to which plate, because nothing
+ * should: North America holds together as one piece for a long while and then
+ * the Gulf of Mexico shuts as South America comes up against it. A fixed set of
+ * plates cannot say that. A mesh that closes what has closed says it by itself,
+ * and the plates are read back out afterwards.
+ *
+ * Every vertex keeps a pointer to whichever surviving vertex swallowed it, so
+ * the present-day mesh can still be drawn: crust that has been collapsed away
+ * simply sits on top of the crust it merged into, and the ocean reads as
+ * zipped shut rather than as a hole.
+ */
+
+export interface CollapseResult {
+  /** Edges collapsed. */
+  collapsed: number
+  /** Edges that were dead but could not be collapsed without tearing. */
+  refused: number
+}
+
+export class DynamicMesh {
+  /** Three vertex indices per face; a removed face reads -1. */
+  readonly faceVerts: Int32Array
+  readonly faceAlive: Uint8Array
+  readonly vertexAlive: Uint8Array
+  /** Which surviving vertex each original vertex has been merged into. */
+  readonly mergedInto: Int32Array
+  private readonly incident: Set<number>[]
+
+  liveVertices: number
+  liveFaces: number
+
+  constructor(
+    readonly vertexCount: number,
+    readonly faceCount: number,
+    indices: Uint32Array,
+  ) {
+    this.faceVerts = Int32Array.from(indices)
+    this.faceAlive = new Uint8Array(faceCount).fill(1)
+    this.vertexAlive = new Uint8Array(vertexCount).fill(1)
+    this.mergedInto = new Int32Array(vertexCount)
+    for (let v = 0; v < vertexCount; v++) this.mergedInto[v] = v
+    this.incident = Array.from({ length: vertexCount }, () => new Set<number>())
+    for (let f = 0; f < faceCount; f++) {
+      for (let k = 0; k < 3; k++) this.incident[indices[f * 3 + k]].add(f)
+    }
+    this.liveVertices = vertexCount
+    this.liveFaces = faceCount
+  }
+
+  /** Where a vertex of the present-day mesh has ended up. */
+  survivor(v: number): number {
+    let root = v
+    while (this.mergedInto[root] !== root) root = this.mergedInto[root]
+    // Flatten, so this stays cheap over thousands of steps.
+    let walk = v
+    while (this.mergedInto[walk] !== root) {
+      const next = this.mergedInto[walk]
+      this.mergedInto[walk] = root
+      walk = next
+    }
+    return root
+  }
+
+  facesAt(v: number): Set<number> {
+    return this.incident[v]
+  }
+
+  /** The vertices one edge away from v. */
+  ring(v: number, into: Set<number>): Set<number> {
+    into.clear()
+    for (const f of this.incident[v]) {
+      for (let k = 0; k < 3; k++) {
+        const u = this.faceVerts[f * 3 + k]
+        if (u !== v) into.add(u)
+      }
+    }
+    return into
+  }
+
+  /** The faces along the edge ab, of which a closed surface has exactly two. */
+  facesAlong(a: number, b: number, into: number[]): number[] {
+    into.length = 0
+    for (const f of this.incident[a]) {
+      const i = f * 3
+      if (this.faceVerts[i] === b || this.faceVerts[i + 1] === b || this.faceVerts[i + 2] === b) {
+        into.push(f)
+      }
+    }
+    return into
+  }
+
+  /**
+   * Whether collapsing ab keeps this a surface.
+   *
+   * The link condition: the vertices reachable from both ends must be exactly
+   * the two opposite the edge. One more and the collapse would pinch the
+   * surface into itself at that vertex, which no amount of relaxation
+   * afterwards can undo -- the mesh would stop being a sphere and every area
+   * the diagnostics measure would quietly become nonsense.
+   */
+  canCollapse(
+    a: number, b: number, ringA: Set<number>, ringB: Set<number>,
+    /** Positions, to refuse a collapse that would turn a triangle inside out. */
+    pos?: Float64Array,
+  ): boolean {
+    if (a === b || !this.vertexAlive[a] || !this.vertexAlive[b]) return false
+    if (this.liveVertices <= 4) return false
+    const along = this.facesAlong(a, b, [])
+    if (along.length !== 2) return false
+    this.ring(a, ringA)
+    this.ring(b, ringB)
+    let shared = 0
+    for (const u of ringA) if (ringB.has(u)) shared++
+    if (shared !== 2) return false
+    // A triangle with all three corners on the ring of the other end would be
+    // turned inside out rather than removed.
+    for (const f of along) {
+      const i = f * 3
+      const opposite = this.faceVerts[i] !== a && this.faceVerts[i] !== b
+        ? this.faceVerts[i]
+        : this.faceVerts[i + 1] !== a && this.faceVerts[i + 1] !== b
+          ? this.faceVerts[i + 1]
+          : this.faceVerts[i + 2]
+      if (this.incident[opposite].size <= 3) return false
+    }
+    if (pos) {
+      // Where b is going to end up. A triangle that would be turned inside out
+      // by the move is a fold, and a fold is not something relaxation can undo
+      // afterwards -- it has to be refused now.
+      const mx = (pos[a * 3] + pos[b * 3]) * 0.5
+      const my = (pos[a * 3 + 1] + pos[b * 3 + 1]) * 0.5
+      const mz = (pos[a * 3 + 2] + pos[b * 3 + 2]) * 0.5
+      for (const end of [a, b]) {
+        for (const f of this.incident[end]) {
+          if (f === along[0] || f === along[1]) continue
+          const v = [this.faceVerts[f * 3], this.faceVerts[f * 3 + 1], this.faceVerts[f * 3 + 2]]
+          const p = v.map((u) =>
+            u === a || u === b ? [mx, my, mz] : [pos[u * 3], pos[u * 3 + 1], pos[u * 3 + 2]])
+          if (!outward(p[0], p[1], p[2])) return false
+        }
+      }
+    }
+    return true
+  }
+
+  /**
+   * Whether the edge ab can be redrawn as cd, where c and d are the corners
+   * opposite it.
+   *
+   * This is the one operation that lets the mesh take a large motion without
+   * the triangles being drawn out into needles: instead of stretching, the
+   * triangulation changes which piece of crust lies against which. Which is
+   * also what it means physically -- two pieces of rock that were not touching
+   * come into contact, and the one that used to be between them has gone. It is
+   * a fault, drawn where the mesh says one is needed.
+   */
+  canFlip(a: number, b: number, pos: Float64Array, along: number[], ring: Set<number>): number[] | null {
+    if (!this.vertexAlive[a] || !this.vertexAlive[b]) return null
+    this.facesAlong(a, b, along)
+    if (along.length !== 2) return null
+    const opposite = along.map((f) => {
+      for (let k = 0; k < 3; k++) {
+        const u = this.faceVerts[f * 3 + k]
+        if (u !== a && u !== b) return u
+      }
+      return -1
+    })
+    const [c, d] = opposite
+    if (c < 0 || d < 0 || c === d) return null
+    // Already joined: flipping would put two triangles on the same edge.
+    this.ring(c, ring)
+    if (ring.has(d)) return null
+    // A vertex needs at least three neighbours to stay part of a surface.
+    if (this.incident[a].size <= 3 || this.incident[b].size <= 3) return null
+
+    const p = (u: number) => [pos[u * 3], pos[u * 3 + 1], pos[u * 3 + 2]]
+    const pa = p(a), pb = p(b), pc = p(c), pd = p(d)
+    if (!outward(pc, pd, pa) || !outward(pd, pc, pb)) return null
+    // Only when it makes the pair of triangles rounder. The measure is the
+    // smallest angle in the pair, which is what goes to zero as a triangle
+    // turns into a needle.
+    const before = Math.min(smallestAngle(pa, pb, pc), smallestAngle(pb, pa, pd))
+    const after = Math.min(smallestAngle(pc, pd, pa), smallestAngle(pd, pc, pb))
+    if (after <= before * 1.05) return null
+    return [c, d, along[0], along[1]]
+  }
+
+  /**
+   * Redraw the edge ab as cd.
+   *
+   * The rest lengths travel with the crust they describe. Four of the six edges
+   * around the pair are the same rock as before and keep what they measured;
+   * the new one is a contact that did not exist, so it is born at the length it
+   * finds itself, which is the model saying that nothing was stretched to make
+   * it -- the crust that used to be in the way simply is not there any more.
+   */
+  flip(a: number, b: number, c: number, d: number, f: number, g: number, restEdge: Float64Array,
+    pos: Float64Array): void {
+    const lengthOf = (x: number, y: number) =>
+      Math.hypot(pos[x * 3] - pos[y * 3], pos[x * 3 + 1] - pos[y * 3 + 1],
+        pos[x * 3 + 2] - pos[y * 3 + 2])
+    const rest = new Map<number, number>()
+    const width = this.vertexCount
+    for (const face of [f, g]) {
+      for (let k = 0; k < 3; k++) {
+        const x = this.faceVerts[face * 3 + k]
+        const y = this.faceVerts[face * 3 + ((k + 1) % 3)]
+        rest.set(Math.min(x, y) * width + Math.max(x, y), restEdge[face * 3 + k])
+      }
+    }
+    rest.set(Math.min(c, d) * width + Math.max(c, d), lengthOf(c, d))
+
+    const write = (face: number, x: number, y: number, z: number) => {
+      const before = [this.faceVerts[face * 3], this.faceVerts[face * 3 + 1],
+        this.faceVerts[face * 3 + 2]]
+      for (const u of before) this.incident[u].delete(face)
+      const after = [x, y, z]
+      for (let k = 0; k < 3; k++) {
+        this.faceVerts[face * 3 + k] = after[k]
+        this.incident[after[k]].add(face)
+        const p = after[k]
+        const q = after[(k + 1) % 3]
+        restEdge[face * 3 + k] = rest.get(Math.min(p, q) * width + Math.max(p, q)) ?? lengthOf(p, q)
+      }
+    }
+    write(f, c, d, a)
+    write(g, d, c, b)
+  }
+
+  /** Merge b into a, dropping the two triangles along the edge. */
+  collapse(a: number, b: number): void {
+    const along = this.facesAlong(a, b, [])
+    for (const f of along) {
+      this.faceAlive[f] = 0
+      this.liveFaces--
+      for (let k = 0; k < 3; k++) {
+        const v = this.faceVerts[f * 3 + k]
+        this.incident[v].delete(f)
+        this.faceVerts[f * 3 + k] = -1
+      }
+    }
+    for (const f of this.incident[b]) {
+      for (let k = 0; k < 3; k++) {
+        if (this.faceVerts[f * 3 + k] === b) this.faceVerts[f * 3 + k] = a
+      }
+      this.incident[a].add(f)
+    }
+    this.incident[b].clear()
+    this.vertexAlive[b] = 0
+    this.mergedInto[b] = a
+    this.liveVertices--
+  }
+
+  /** V - E + F, which is 2 for anything that is still a sphere. */
+  eulerCharacteristic(): number {
+    const edges = new Set<number>()
+    for (let f = 0; f < this.faceCount; f++) {
+      if (!this.faceAlive[f]) continue
+      for (let k = 0; k < 3; k++) {
+        const x = this.faceVerts[f * 3 + k]
+        const y = this.faceVerts[f * 3 + ((k + 1) % 3)]
+        edges.add(Math.min(x, y) * this.vertexCount + Math.max(x, y))
+      }
+    }
+    return this.liveVertices - edges.size + this.liveFaces
+  }
+}
+
+/**
+ * Close up every triangle whose crust has not been made yet.
+ *
+ * Only an edge with dead triangles on both sides may go: collapsing one that
+ * still has live crust along it would delete rock that exists. That leaves a
+ * rim of dead triangles one wide against the surviving crust, which is the
+ * front the ocean is closing along and which disappears at the next step as its
+ * neighbours die in turn.
+ *
+ * Youngest first, so a ridge zips shut from its axis outwards the way it opened
+ * from its axis outwards.
+ */
+export function collapseVanished(
+  mesh: DynamicMesh,
+  faceAge: Float32Array,
+  pos: Float64Array,
+  timeMa: number,
+): CollapseResult {
+  const ringA = new Set<number>()
+  const ringB = new Set<number>()
+  const along: number[] = []
+  let collapsed = 0
+  let refused = 0
+
+  for (let pass = 0; pass < 12; pass++) {
+    // Every edge with dead crust on both sides, youngest crust first.
+    const candidates: { a: number; b: number; age: number }[] = []
+    const seen = new Set<number>()
+    for (let f = 0; f < mesh.faceCount; f++) {
+      if (!mesh.faceAlive[f] || faceAge[f] >= timeMa) continue
+      for (let k = 0; k < 3; k++) {
+        const x = mesh.faceVerts[f * 3 + k]
+        const y = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
+        const key = Math.min(x, y) * mesh.vertexCount + Math.max(x, y)
+        if (seen.has(key)) continue
+        seen.add(key)
+        mesh.facesAlong(x, y, along)
+        if (along.length !== 2) continue
+        if (faceAge[along[0]] >= timeMa || faceAge[along[1]] >= timeMa) continue
+        candidates.push({ a: x, b: y, age: Math.max(faceAge[along[0]], faceAge[along[1]]) })
+      }
+    }
+    if (!candidates.length) break
+    candidates.sort((p, q) => p.age - q.age)
+
+    let did = 0
+    for (const { a, b } of candidates) {
+      if (!mesh.vertexAlive[a] || !mesh.vertexAlive[b]) continue
+      // Deadness has to be asked again here, not just when the candidate was
+      // found: every collapse changes which triangles lie along the edges still
+      // waiting their turn, and one of them may by now be live crust.
+      mesh.facesAlong(a, b, along)
+      if (along.length !== 2) continue
+      if (faceAge[along[0]] >= timeMa || faceAge[along[1]] >= timeMa) continue
+      if (!mesh.canCollapse(a, b, ringA, ringB, pos)) {
+        refused++
+        continue
+      }
+      // The two sides meet in the middle, which is where the crust between them
+      // erupted.
+      for (let c = 0; c < 3; c++) pos[a * 3 + c] = (pos[a * 3 + c] + pos[b * 3 + c]) * 0.5
+      mesh.collapse(a, b)
+      collapsed++
+      did++
+    }
+    if (!did) break
+  }
+  return { collapsed, refused }
+}
+
+function outward(a: number[], b: number[], c: number[]): boolean {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]
+  const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+  return nx * a[0] + ny * a[1] + nz * a[2] > 0
+}
+
+function smallestAngle(a: number[], b: number[], c: number[]): number {
+  const at = (p: number[], q: number[], r: number[]) => {
+    const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2]
+    const vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2]
+    const nu = Math.hypot(ux, uy, uz) || 1
+    const nv = Math.hypot(vx, vy, vz) || 1
+    return Math.acos(Math.min(1, Math.max(-1, (ux * vx + uy * vy + uz * vz) / (nu * nv))))
+  }
+  return Math.min(at(a, b, c), at(b, c, a), at(c, a, b))
+}
+
+/**
+ * Redraw the edges the motion has ruined.
+ *
+ * Sliding a piece of crust a long way past its neighbours leaves triangles
+ * stretched into slivers, and a sliver is one nudge away from turning inside
+ * out. Where redrawing the diagonal of a pair makes them rounder, redraw it.
+ * The crust is unchanged; only which piece is recorded as touching which.
+ */
+export function retriangulate(
+  mesh: DynamicMesh,
+  pos: Float64Array,
+  restEdge: Float64Array,
+  passes: number,
+  /** Crustal strength per triangle, and the strength above which nothing gives. */
+  strength?: Float32Array,
+  breaksBelow = 1,
+): number {
+  const along: number[] = []
+  const ring = new Set<number>()
+  let flipped = 0
+  for (let pass = 0; pass < passes; pass++) {
+    let did = 0
+    for (let f = 0; f < mesh.faceCount; f++) {
+      if (!mesh.faceAlive[f]) continue
+      for (let k = 0; k < 3; k++) {
+        const a = mesh.faceVerts[f * 3 + k]
+        const b = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
+        if (a < 0 || b < 0) continue
+        const found = mesh.canFlip(a, b, pos, along, ring)
+        if (!found) continue
+        // A flip is a fault: two pieces of rock that were not touching come
+        // into contact and the edge between them is born at whatever length it
+        // finds, which forgets everything that was ever asked of it. Through
+        // the middle of a shield that is not a fault, it is the model quietly
+        // giving itself permission to deform a craton for free -- and it did,
+        // until this line: the continents stopped travelling because the mesh
+        // was absorbing the motion instead of passing it on.
+        if (strength && Math.max(strength[found[2]], strength[found[3]]) >= breaksBelow) continue
+        mesh.flip(a, b, found[0], found[1], found[2], found[3], restEdge, pos)
+        flipped++
+        did++
+        break
+      }
+    }
+    if (!did) break
+  }
+  return flipped
+}

@@ -8,7 +8,7 @@ import { buildReferenceRotations } from '@/frames'
 import { clock, useStore } from '@/store'
 import { fragmentShader, vertexShader } from './shaders'
 
-const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, plates: 4 } as const
+const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3 } as const
 
 /** How much of the crust survives in the mesh view. Enough to read, not to hide. */
 const GLASS_OPACITY = 0.55
@@ -42,9 +42,6 @@ export function Globe({ data }: { data: Dataset }) {
     }
   }, [maps])
 
-  // Plate ids arrive as bytes; the shader wants floats.
-  const plateAttribute = useMemo(() => Float32Array.from(data.plates), [data])
-
   const buffers = useMemo(() => {
     const count = data.vertexCount
     return {
@@ -65,13 +62,12 @@ export function Globe({ data }: { data: Dataset }) {
     g.setAttribute('aDir', new THREE.BufferAttribute(data.dirs, 3))
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
-    g.setAttribute('aPlate', new THREE.BufferAttribute(plateAttribute, 1))
     g.setIndex(new THREE.BufferAttribute(data.indices, 1))
     // The globe never leaves the unit sphere, and recomputing this every frame
     // over forty thousand moving vertices is work for nothing.
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1)
     return g
-  }, [data, buffers, plateAttribute])
+  }, [data, buffers])
 
   useEffect(() => () => geometry.dispose(), [geometry])
 

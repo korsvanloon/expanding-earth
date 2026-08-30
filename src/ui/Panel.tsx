@@ -19,11 +19,7 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
     label: 'Crustal strength',
     hint: "ECM1's crustal type, read as strength: shields and platforms pale, thinned margins and island arcs dark. This is what decides where a fragment ends",
   },
-  {
-    id: 'plates',
-    label: 'Plates',
-    hint: 'The fragments the crustal strength map cut the shell into, one colour each',
-  },
+
 ]
 
 export function Panel({ data }: { data: Dataset }) {
@@ -62,7 +58,11 @@ export function Panel({ data }: { data: Dataset }) {
       <div className="stats">
         <Stat label="Radius" value={`${radius.toFixed(0)} km`} note={`${((100 * radius) / R0_KM).toFixed(1)}% of today`} />
         <Stat label="Surface gravity" value={`${gravity.toFixed(1)} m/s²`} note="if mass were constant" />
-        <Stat label="Rigid blocks" value={blocks.toFixed(0)} note="found in the age data" />
+        <Stat
+          label="Points of crust"
+          value={blocks >= 1000 ? `${(blocks / 1000).toFixed(1)}k` : blocks.toFixed(0)}
+          note="the rest has closed up"
+        />
         <Stat label="Median strain" value={`${(100 * strain).toFixed(1)}%`} note="asked of the crust" />
       </div>
 

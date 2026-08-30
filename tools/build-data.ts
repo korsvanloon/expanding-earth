@@ -72,6 +72,8 @@ export const CONFIG = {
    * be recognised in. Where a fragment ends should follow from where the crust
    * is weak, and from nothing else.
    */
+  /** Kept for comparison; the solver closes the mesh up instead. */
+  cutIntoFragments: process.env.CUT_FRAGMENTS === '1',
   minCoreFraction: Number(process.env.CORE_FRAC ?? 0.00003),
   /** How steeply weak crust repels a fragment boundary; see splitIntoFragments. */
   breakBias: Number(process.env.BREAK_BIAS ?? 2),
@@ -175,7 +177,24 @@ function main() {
   console.log(`  mesh vs full-resolution radius curve: max deviation ${(100 * worst).toFixed(2)}%`)
 
   const crust = sampleCrust(mesh)
-  const split = splitIntoFragments(mesh, crust.type, crust.rigidity, solvedFaceAges, faceArea)
+  // The mesh is no longer cut into plates. It closes up instead: when the crust
+  // under a triangle has not been made yet the triangle goes, and what moves
+  // together is whatever the surviving crust holds together. A fixed set of
+  // plates cannot say that North America is one piece for a hundred and fifty
+  // million years and then two when the Gulf of Mexico shuts, and that is the
+  // sort of thing the reconstruction has to be free to find. See
+  // tools/lib/dynamic-mesh.ts.
+  const split = CONFIG.cutIntoFragments
+    ? splitIntoFragments(mesh, crust.type, crust.rigidity, solvedFaceAges, faceArea)
+    : {
+        positions: Float32Array.from(mesh.positions),
+        indices: Uint32Array.from(mesh.indices),
+        faceFragment: new Uint16Array(faceCount),
+        vertexFragment: new Uint16Array(vertexCount),
+        origin: Uint32Array.from({ length: vertexCount }, (_, v) => v),
+        cutPairs: new Uint32Array(0),
+        fragmentCount: 1,
+      }
 
   mkdirSync(OUT, { recursive: true })
   writeMesh(resolve(OUT, 'mesh.bin'), split, solvedFaceAges, crust)
