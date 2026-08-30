@@ -13,7 +13,6 @@ export interface InlineData {
   mesh: ArrayBuffer
   frames: ArrayBuffer
   strain: ArrayBuffer
-  plates: ArrayBuffer
 }
 
 declare global {

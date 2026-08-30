@@ -147,7 +147,46 @@ measurement is the case for expansion or the measure of subduction, depending on
 which you already believe. The model does not settle that, and does not pretend
 to.
 
+## Cutting the shell into fragments
+
+The shell is cut along its weak crust and each fragment held rigid, so pieces
+slide and ride over one another instead of deforming -- an orange peel put back
+on a smaller orange cracks, it does not stretch. Fractures stay closed while the
+crust across them still exists and release exactly where it has gone, which is
+when a rift opens.
+
+Weak crust alone leaves only ten fragments, and a rigid piece thousands of
+kilometres across cannot lie on a sphere of different curvature: the misfit
+grows with the square of its size. So oversized fragments are cut down further,
+following weak crust where there is any. How far to take that is a real trade,
+and the sweep is worth recording:
+
+| target size | fragments | unaccounted | folded | strain | S America - Africa at 180 Ma |
+|---|---|---|---|---|---|
+| weak crust only | 10 | 25.3% | 2.2% | 1.6% | 5126 km |
+| 2500 km | 30 | 20.9% | 1.1% | 0.8% | 2298 km |
+| 1800 km | 56 | 17.5% | 1.0% | 0.5% | 3434 km |
+| 1200 km | 119 | 14.9% | 3.3% | 0.2% | **1117 km** |
+| 800 km | 257 | 11.3% | 0.9% | 0.1% | 5858 km |
+| 500 km | 654 | 7.1% | 0.7% | 0.0% | 5741 km |
+
+Closure and strain both keep improving as the pieces get smaller, and both are
+misleading at the bottom of the table: a mosaic of 500 km tiles can take any
+shape at all, so its near-zero strain says nothing about whether continents are
+rigid. The fits to known geology are the honest guide, and they do not improve
+monotonically -- they are best in the middle. 1200 km is the default.
+
+At that setting South America sits 1117 km from Africa at 180 Ma, against 9276
+km today, which is much the best result this project has produced for the fit
+everything else is judged by.
+
 ## Known weaknesses
+
+- **The crust does not tile.** Roughly 15% of the sphere is left uncovered, and
+  it is spread between fragments rather than concentrated at ridges, so the
+  reconstruction reads as a cracked eggshell rather than continents on an ocean.
+  The gaps are drawn as fresh sea floor, which is what the model says was there,
+  but they are the model failing and the figure is reported rather than hidden.
 
 - **The northern hemisphere assembles badly.** Gondwana comes together
   reasonably -- Australia, Antarctica, South America and Africa all converge --

@@ -1,8 +1,10 @@
-import { Canvas, useThree } from '@react-three/fiber'
+import { Canvas, useFrame, useThree } from '@react-three/fiber'
 import { OrbitControls, Stars } from '@react-three/drei'
-import { Suspense, useEffect } from 'react'
-import { MathUtils, type PerspectiveCamera } from 'three'
-import type { Dataset } from '@/data'
+import { Suspense, useEffect, useRef } from 'react'
+import { MathUtils, type Mesh, type PerspectiveCamera } from 'three'
+import { R0_KM } from '@shared/model'
+import { radiusAt, type Dataset } from '@/data'
+import { clock } from '@/store'
 import { Globe } from './Globe'
 
 export function Scene({ data }: { data: Dataset }) {
@@ -10,6 +12,7 @@ export function Scene({ data }: { data: Dataset }) {
     <Canvas camera={{ position: [0.6, 1.2, 3.2], fov: 42, near: 0.01, far: 100 }} dpr={[1, 2]}>
       <color attach="background" args={['#05070c']} />
       <Stars radius={40} depth={30} count={3000} factor={3} fade speed={0} />
+      <YoungCrust data={data} />
       <Suspense fallback={null}>
         <Globe data={data} />
       </Suspense>
@@ -23,6 +26,32 @@ export function Scene({ data }: { data: Dataset }) {
         zoomSpeed={0.7}
       />
     </Canvas>
+  )
+}
+
+/**
+ * The surface of the Earth at time t, drawn just inside the crust.
+ *
+ * Where the reconstruction leaves a gap it is showing something real: crust
+ * that had not been made yet. Drawn against empty space those gaps read as
+ * holes in the planet, which is the wrong reading -- there was a surface there,
+ * it just was not this crust. Filling them with fresh sea floor says what the
+ * model actually claims, and the diagnostics still report the gap as a number
+ * rather than letting this hide it.
+ */
+function YoungCrust({ data }: { data: Dataset }) {
+  const mesh = useRef<Mesh>(null)
+  useFrame(() => {
+    if (!mesh.current) return
+    // A whisker inside the crust, so the two never fight over the same pixels.
+    const r = (radiusAt(data, clock.timeMa) / R0_KM) * 0.997
+    mesh.current.scale.setScalar(r)
+  })
+  return (
+    <mesh ref={mesh}>
+      <sphereGeometry args={[1, 96, 48]} />
+      <meshBasicMaterial color="#2a1408" toneMapped={false} />
+    </mesh>
   )
 }
 

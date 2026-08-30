@@ -19,17 +19,17 @@ export interface Dataset {
   thickness: Float32Array
   /** Crustal type index at each vertex; see shared/crust.ts CRUST_TYPES. */
   crustType: Uint8Array
-  /** Per-vertex plate, 1-based so 0 can mean unassigned. */
-  plates: Uint8Array
+  /** Which fragment each vertex belongs to. */
+  plates: Uint16Array
   radiusKm: number[]
 }
 
 export async function loadDataset(): Promise<Dataset> {
   const inline = inlineData()
-  const { meta, mesh, frames, strain, plates } = inline ? await inline : await fetchDataset()
+  const { meta, mesh, frames, strain } = inline ? await inline : await fetchDataset()
 
-  const [vertexCount, faceCount] = new Uint32Array(mesh, 0, 3)
-  let offset = 12
+  const [vertexCount, faceCount, , cutPairCount] = new Uint32Array(mesh, 0, 4)
+  let offset = 16
   const dirs = new Float32Array(mesh, offset, vertexCount * 3)
   offset += vertexCount * 3 * 4
   const indices = new Uint32Array(mesh, offset, faceCount * 3)
@@ -41,6 +41,10 @@ export async function loadDataset(): Promise<Dataset> {
   const faceThickness = new Float32Array(mesh, offset, faceCount)
   offset += faceCount * 4
   offset += vertexCount * 4 // origin vertex, needed only by the solver
+  offset += cutPairCount * 8 // fracture constraints, needed only by the solver
+  offset += faceCount * 2 // per-face fragment
+  const vertexFragment = new Uint16Array(mesh, offset, vertexCount)
+  offset += vertexCount * 2
   const faceCrustType = new Uint8Array(mesh, offset, faceCount)
 
   // A vertex exists as long as any triangle around it does, so it takes the
@@ -84,20 +88,19 @@ export async function loadDataset(): Promise<Dataset> {
     rigidity: vertexRigidity,
     thickness: vertexThickness,
     crustType: vertexType,
-    plates: new Uint8Array(plates),
+    plates: vertexFragment,
     radiusKm: meta.crustModels[0].radiusKm,
   }
 }
 
 async function fetchDataset(): Promise<InlineData> {
-  const [meta, mesh, frames, strain, plates] = await Promise.all([
+  const [meta, mesh, frames, strain] = await Promise.all([
     fetch(asset('data/meta.json')).then((r) => r.json() as Promise<Meta>),
     fetch(asset('data/mesh.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/frames.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/strain.bin')).then((r) => r.arrayBuffer()),
-    fetch(asset('data/plates.bin')).then((r) => r.arrayBuffer()),
   ])
-  return { meta, mesh, frames, strain, plates }
+  return { meta, mesh, frames, strain }
 }
 
 export const radiusAt = (data: Dataset, timeMa: number) =>

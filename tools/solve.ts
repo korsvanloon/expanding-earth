@@ -115,8 +115,9 @@ function main() {
   ) as Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'>
 
   const buffer = readFileSync(resolve(OUT, 'mesh.bin'))
-  const [vertexCount, faceCount, fragmentCount] = new Uint32Array(buffer.buffer, buffer.byteOffset, 3)
-  let offset = buffer.byteOffset + 12
+  const [vertexCount, faceCount, fragmentCount, cutPairCount] =
+    new Uint32Array(buffer.buffer, buffer.byteOffset, 4)
+  let offset = buffer.byteOffset + 16
   const dirs = new Float32Array(buffer.buffer, offset, vertexCount * 3)
   offset += vertexCount * 3 * 4
   const indices = new Uint32Array(buffer.buffer, offset, faceCount * 3)
@@ -128,9 +129,10 @@ function main() {
   offset += faceCount * 4 // thickness, used by the viewer
   const origin = new Uint32Array(buffer.buffer, offset, vertexCount)
   offset += vertexCount * 4
-  offset += faceCount // crustal type, used by the viewer
-  offset += faceCount // per-face fragment, used by the viewer
-  const vertexFragment = new Uint8Array(buffer.buffer, offset, vertexCount)
+  const cutPairs = new Uint32Array(buffer.buffer, offset, cutPairCount * 2)
+  offset += cutPairCount * 8
+  offset += faceCount * 2 // per-face fragment, used by the viewer
+  const vertexFragment = new Uint16Array(buffer.buffer, offset, vertexCount)
   console.log(`[solve] ${vertexCount} vertices, ${faceCount} faces, ${fragmentCount} fragments`)
 
   const radius = meta.crustModels.find((m) => m.id === meta.solvedModel)!.radiusKm
@@ -319,6 +321,7 @@ function main() {
         pos[j] += cx; pos[j + 1] += cy; pos[j + 2] += cz
       }
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
+      closeFractures(pos, cutPairs, cutPairCount, alive)
       closeSeams(pos, seams, vertexBlock, plates.count, vertexCount, CONFIG.seamGain)
       keepFragmentsRigid(pos, reference, plates.interior, alive, plates.count, vertexCount)
     }
@@ -359,9 +362,6 @@ function main() {
   const strainBuffer = Buffer.concat(strains.map((s) => Buffer.from(s.buffer)))
   writeFileSync(resolve(OUT, 'frames.bin'), frameBuffer)
   writeFileSync(resolve(OUT, 'strain.bin'), strainBuffer)
-  // Which plate each vertex belongs to, so the viewer can show the mosaic the
-  // solver actually used rather than a redrawing of it.
-  writeFileSync(resolve(OUT, 'plates.bin'), Buffer.from(Uint8Array.from(vertexBlock, (p) => p + 1)))
   writeFileSync(
     resolve(OUT, 'meta.json'),
     JSON.stringify({
@@ -452,6 +452,37 @@ function buildEdges(
     edgeFault: fault,
     edgeFaces: new Int32Array(faces),
     edgeCount: list.length / 2,
+  }
+}
+
+/**
+ * Hold the two sides of a fracture together wherever the crust there still
+ * exists.
+ *
+ * Cutting the shell into fragments is what lets them slide and ride over each
+ * other, but it also removes every constraint that used to hold neighbours in
+ * contact. Without this the pieces simply drift apart and the globe comes out
+ * as a scatter of shards. A fracture is closed until the crust across it is
+ * gone, at which point one side stops being alive and the join releases on its
+ * own -- which is exactly when a rift opens.
+ */
+function closeFractures(
+  pos: Float64Array,
+  pairs: Uint32Array,
+  pairCount: number,
+  alive: Uint8Array,
+) {
+  for (let p = 0; p < pairCount; p++) {
+    const a = pairs[p * 2]
+    const b = pairs[p * 2 + 1]
+    if (!alive[a] || !alive[b]) continue
+    const ax = a * 3
+    const bx = b * 3
+    const mx = (pos[ax] + pos[bx]) * 0.5
+    const my = (pos[ax + 1] + pos[bx + 1]) * 0.5
+    const mz = (pos[ax + 2] + pos[bx + 2]) * 0.5
+    pos[ax] = mx; pos[ax + 1] = my; pos[ax + 2] = mz
+    pos[bx] = mx; pos[bx + 1] = my; pos[bx + 2] = mz
   }
 }
 

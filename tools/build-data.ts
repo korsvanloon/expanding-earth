@@ -49,6 +49,18 @@ export const CONFIG = {
   landFraction: 0.292,
   /** Fraction of the globe underlain by continental crust including margins. */
   continentalFraction: 0.41,
+  /**
+   * Fragments larger than this across are cut down further.
+   *
+   * A rigid piece cannot lie on a sphere of different curvature, and the misfit
+   * grows with the square of its size: at 200 Ma a 1500 km piece is out by
+   * 1.4%, a 2500 km piece by 3.9%, a 5000 km piece by 15.6%. Cutting the shell
+   * only along its weak crust leaves pieces far bigger than that, so the extra
+   * cuts here are a discretisation of deformation the crust would otherwise
+   * have to take up continuously -- the gores a globe maker cuts, not faults
+   * anyone has mapped. They follow weak crust wherever there is any.
+   */
+  targetFragmentKm: Number(process.env.FRAGMENT_KM ?? 1800),
   endTimeMa: 200,
   radiusStepMa: 1,
   frameStepMa: 5,
@@ -509,7 +521,9 @@ function splitIntoFragments(
     if (area >= MIN_CORE_AREA) fragmentId.set(root, fragmentId.size)
   }
 
-  // Everything else joins the nearest core across the mesh.
+  // Everything else joins the nearest core across the mesh. Distance is
+  // divided by strength, so a front runs cheaply through a craton and stalls in
+  // weak crust, which puts the boundaries where the shell would actually break.
   const faceFragment = new Int32Array(faceCount).fill(-1)
   const distance = new Float64Array(faceCount).fill(Infinity)
   const centre = (f: number) => {
@@ -527,6 +541,7 @@ function splitIntoFragments(
       Math.min(1, Math.max(-1,
         centres[a][0] * centres[b][0] + centres[a][1] * centres[b][1] + centres[a][2] * centres[b][2])),
     )
+  const cost = (a: number, b: number) => arc(a, b) / Math.max(rigidity[b], 0.05)
   const frontier: [number, number][] = []
   for (let f = 0; f < faceCount; f++) {
     const id = isCore[f] ? fragmentId.get(find(f)) : undefined
@@ -539,7 +554,7 @@ function splitIntoFragments(
     const [d, f] = frontier.shift()!
     if (d > distance[f]) continue
     for (const n of neighbours[f]) {
-      const next = d + arc(f, n)
+      const next = d + cost(f, n)
       if (next >= distance[n]) continue
       distance[n] = next
       faceFragment[n] = faceFragment[f]
@@ -549,6 +564,10 @@ function splitIntoFragments(
     }
   }
 
+  const count = subdivideLargeFragments(
+    faceFragment, fragmentId.size, faceArea, neighbours, arc, faceCount,
+  )
+
   // Duplicate every vertex that more than one fragment uses.
   const copyOf = new Map<number, number>()
   const origin: number[] = []
@@ -556,7 +575,7 @@ function splitIntoFragments(
   for (let f = 0; f < faceCount; f++) {
     for (let k = 0; k < 3; k++) {
       const v = mesh.indices[f * 3 + k]
-      const key = v * 256 + faceFragment[f]
+      const key = v * 4096 + faceFragment[f]
       let copy = copyOf.get(key)
       if (copy === undefined) {
         copy = origin.length
@@ -567,8 +586,24 @@ function splitIntoFragments(
     }
   }
 
+  // Every fracture is closed until it opens. Cutting the mesh removed the
+  // shared vertices that held neighbouring fragments together, and nothing
+  // replaced them, so the shell fell apart into loose shards; these pairs put
+  // the join back as a constraint the solver can release exactly where the
+  // crust between the two sides no longer exists.
+  const copiesOf = new Map<number, number[]>()
+  origin.forEach((v, copy) => {
+    const list = copiesOf.get(v)
+    if (list) list.push(copy)
+    else copiesOf.set(v, [copy])
+  })
+  const cutPairs: number[] = []
+  for (const copies of copiesOf.values()) {
+    for (let i = 1; i < copies.length; i++) cutPairs.push(copies[i - 1], copies[i])
+  }
+
   const positions = new Float32Array(origin.length * 3)
-  const vertexFragment = new Uint8Array(origin.length)
+  const vertexFragment = new Uint16Array(origin.length)
   for (let i = 0; i < origin.length; i++) {
     positions[i * 3] = mesh.positions[origin[i] * 3]
     positions[i * 3 + 1] = mesh.positions[origin[i] * 3 + 1]
@@ -578,24 +613,116 @@ function splitIntoFragments(
     for (let k = 0; k < 3; k++) vertexFragment[indices[f * 3 + k]] = faceFragment[f]
   }
 
-  void rigidity
   void faceAges
   console.log(
-    `  ${fragmentId.size} fragments; mesh cut from ${vertexCount} to ${origin.length} vertices ` +
-      `(${(((origin.length - vertexCount) / vertexCount) * 100).toFixed(1)}% duplicated along fractures)`,
+    `  ${fragmentId.size} natural fragments cut to ${count} of at most ` +
+      `${CONFIG.targetFragmentKm} km; mesh grew from ${vertexCount} to ${origin.length} vertices, ` +
+      `joined by ${cutPairs.length / 2} fracture constraints`,
   )
   return {
     positions,
     indices,
-    faceFragment: Uint8Array.from(faceFragment),
+    faceFragment: Uint16Array.from(faceFragment),
     vertexFragment,
     // Which vertex of the uncut mesh each copy came from. Cutting disconnects
     // the two sides of every ocean, so anything that needs to know what used to
     // lie against what -- finding conjugate margins, above all -- has to work
     // through the original connectivity rather than the cut one.
     origin: Uint32Array.from(origin),
-    fragmentCount: fragmentId.size,
+    cutPairs: Uint32Array.from(cutPairs),
+    fragmentCount: count,
   }
+}
+
+/**
+ * Cut any fragment that is too big across into several, by scattering seeds
+ * through it and giving every triangle to the nearest one.
+ *
+ * Seeds are placed farthest-first, which spreads them evenly without needing to
+ * iterate, and the fronts run outward on the same strength-weighted cost as the
+ * main assignment, so a cut prefers weak crust and only falls back to cutting
+ * through a craton when there is nothing weaker to follow.
+ */
+function subdivideLargeFragments(
+  faceFragment: Int32Array,
+  fragmentCount: number,
+  faceArea: Float64Array,
+  neighbours: number[][],
+  arc: (a: number, b: number) => number,
+  faceCount: number,
+) {
+  const targetAngle = CONFIG.targetFragmentKm / R0_KM
+  const targetArea = 2 * Math.PI * (1 - Math.cos(targetAngle))
+  const members: number[][] = Array.from({ length: fragmentCount }, () => [])
+  const area = new Float64Array(fragmentCount)
+  for (let f = 0; f < faceCount; f++) {
+    const id = faceFragment[f]
+    if (id < 0) continue
+    members[id].push(f)
+    area[id] += faceArea[f]
+  }
+
+  let next = fragmentCount
+  for (let id = 0; id < fragmentCount; id++) {
+    const pieces = Math.ceil(area[id] / targetArea)
+    if (pieces <= 1 || members[id].length < pieces * 4) continue
+
+    const inside = new Set(members[id])
+    const seeds: number[] = [members[id][0]]
+    const distance = new Map<number, number>()
+    for (let s = 1; s < pieces; s++) {
+      // Farthest point from everything chosen so far becomes the next seed.
+      distance.clear()
+      const queue: [number, number][] = seeds.map((f) => [0, f])
+      for (const f of seeds) distance.set(f, 0)
+      let far = seeds[0]
+      let farthest = -1
+      while (queue.length) {
+        const [d, f] = queue.shift()!
+        if (d > (distance.get(f) ?? Infinity)) continue
+        if (d > farthest) {
+          farthest = d
+          far = f
+        }
+        for (const n of neighbours[f]) {
+          if (!inside.has(n)) continue
+          const step = d + arc(f, n)
+          if (step >= (distance.get(n) ?? Infinity)) continue
+          distance.set(n, step)
+          let i = queue.length
+          while (i > 0 && queue[i - 1][0] > step) i--
+          queue.splice(i, 0, [step, n])
+        }
+      }
+      seeds.push(far)
+    }
+
+    const owner = new Map<number, number>()
+    const best = new Map<number, number>()
+    const queue: [number, number][] = []
+    seeds.forEach((f, i) => {
+      owner.set(f, i === 0 ? id : next + i - 1)
+      best.set(f, 0)
+      queue.push([0, f])
+    })
+    while (queue.length) {
+      const [d, f] = queue.shift()!
+      if (d > (best.get(f) ?? Infinity)) continue
+      for (const n of neighbours[f]) {
+        if (!inside.has(n)) continue
+        const step = d + arc(f, n)
+        if (step >= (best.get(n) ?? Infinity)) continue
+        best.set(n, step)
+        owner.set(n, owner.get(f)!)
+        let i = queue.length
+        while (i > 0 && queue[i - 1][0] > step) i--
+        queue.splice(i, 0, [step, n])
+      }
+    }
+    for (const [f, id2] of owner) faceFragment[f] = id2
+    next += pieces - 1
+  }
+  return next
 }
 
 function buildFaceAdjacency(indices: Uint32Array, faceCount: number): number[][] {
@@ -666,6 +793,7 @@ function writeMesh(
     split.positions.length / 3,
     split.indices.length / 3,
     split.fragmentCount,
+    split.cutPairs.length / 2,
   ])
   writeFileSync(
     path,
@@ -679,9 +807,10 @@ function writeMesh(
       // Four-byte arrays first: a Uint32Array cannot start on an odd offset,
       // and the byte-wide sections below would push it off alignment.
       Buffer.from(split.origin.buffer),
-      Buffer.from(crust.type.buffer),
+      Buffer.from(split.cutPairs.buffer),
       Buffer.from(split.faceFragment.buffer),
       Buffer.from(split.vertexFragment.buffer),
+      Buffer.from(crust.type.buffer),
     ]),
   )
 }

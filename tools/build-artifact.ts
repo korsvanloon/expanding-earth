@@ -36,14 +36,12 @@ function main() {
   const mesh = readFileSync(resolve(DATA, 'mesh.bin'))
   const frames = new Int16Array(readFileSync(resolve(DATA, 'frames.bin')).buffer)
   const strain = readFileSync(resolve(DATA, 'strain.bin'))
-  const plates = readFileSync(resolve(DATA, 'plates.bin'))
 
   const payload = {
     meta: gzipSync(Buffer.from(JSON.stringify(meta)), { level: 9 }),
     mesh: gzipSync(mesh, { level: 9 }),
     frames: gzipSync(deltaSplit(frames, meta.vertexCount * 3, meta.frameCount), { level: 9 }),
     strain: gzipSync(strain, { level: 9 }),
-    plates: gzipSync(plates, { level: 9 }),
   }
 
   const bundle = readdirSync(resolve(DIST, 'assets'))
@@ -78,8 +76,8 @@ window.__DATA__ = (async () => {
   };
   const P = ${JSON.stringify(Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, v.toString('base64')])))};
   const meta = JSON.parse(new TextDecoder().decode(await gunzip(P.meta)));
-  const [mesh, frames, strain, plates] = await Promise.all(
-    [gunzip(P.mesh), gunzip(P.frames), gunzip(P.strain), gunzip(P.plates)]);
+  const [mesh, frames, strain] = await Promise.all(
+    [gunzip(P.mesh), gunzip(P.frames), gunzip(P.strain)]);
 
   // Undo the byte-plane split, then the per-frame differencing. Int16Array
   // wraps on overflow exactly as the differencing did, so the running sum
@@ -92,7 +90,7 @@ window.__DATA__ = (async () => {
     const to = f * stride, from = to - stride;
     for (let i = 0; i < stride; i++) out[to + i] += out[from + i];
   }
-  return { meta, mesh: mesh.buffer, frames: out.buffer, strain: strain.buffer, plates: plates.buffer };
+  return { meta, mesh: mesh.buffer, frames: out.buffer, strain: strain.buffer };
 })();
 </script>
 <script type="module">
