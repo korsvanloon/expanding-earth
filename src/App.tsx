@@ -1,0 +1,60 @@
+import { useEffect, useState } from 'react'
+import { loadDataset, type Dataset } from '@/data'
+import { Scene } from '@/scene/Scene'
+import { Panel } from '@/ui/Panel'
+import { Timeline } from '@/ui/Timeline'
+import { clock, useStore } from '@/store'
+
+export default function App() {
+  const [data, setData] = useState<Dataset>()
+  const [error, setError] = useState<string>()
+  // On a narrow screen the globe is the whole point, so the readouts start out
+  // of the way and the reader opens them.
+  const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 760)
+
+  useEffect(() => {
+    loadDataset().then(setData, (e: unknown) => setError(String(e)))
+  }, [])
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'Space' || !data) return
+      e.preventDefault()
+      const { playing, setPlaying } = useStore.getState()
+      if (!playing && clock.timeMa <= 0.5) clock.timeMa = data.meta.endTimeMa
+      setPlaying(!playing)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [data])
+
+  if (error) {
+    return (
+      <div className="splash">
+        <h1>No data</h1>
+        <p>
+          Run <code>npm run data</code> to generate the reconstruction from{' '}
+          <code>public/textures/age-map.png</code>.
+        </p>
+        <pre>{error}</pre>
+      </div>
+    )
+  }
+
+  if (!data) return <div className="splash">Loading the reconstruction…</div>
+
+  return (
+    <div className="app">
+      <Scene data={data} />
+      <button
+        className="panel-toggle"
+        onClick={() => setPanelOpen(!panelOpen)}
+        aria-expanded={panelOpen}
+      >
+        {panelOpen ? 'Hide' : 'Details'}
+      </button>
+      {panelOpen && <Panel data={data} />}
+      <Timeline endMa={data.meta.endTimeMa} />
+    </div>
+  )
+}

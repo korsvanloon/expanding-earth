@@ -1,46 +1,78 @@
-# Getting Started with Create React App
+# Expanding Earth
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+An interactive reconstruction of the Expanding Earth hypothesis, driven by the
+sea-floor age grid rather than by hand-placed continents. Drag the timeline back
+and the planet shrinks while the continents close up; press play and it grows
+again with the oceans opening out of their ridges.
 
-## Available Scripts
+```bash
+pnpm install
+pnpm dev         # generates the reconstruction on first run, then serves it
+```
 
-In the project directory, you can run:
+The first `pnpm dev` spends about three minutes building the data from
+`public/textures/age-map.png`, then caches it. `pnpm data` rebuilds it.
 
-### `yarn start`
+## What it does
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in the browser.
+Everything rests on a single assumption: **no crust is ever destroyed**. The
+Earth at time *t* is exactly the crust that already existed then. That makes the
+planet's past size a measurement rather than a parameter:
 
-The page will reload if you make edits.\
-You will also see any lint errors in the console.
+```
+A(t) = area of all crust already present at t      (from the age grid)
+R(t) = sqrt( A(t) / 4pi )
+```
 
-### `yarn test`
+which gives R(200 Ma) = 4006 km, 63% of today.
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+Nothing tells the model what a plate is. Take away the crust younger than *t*
+and the shell falls apart on its own along the mid-ocean ridges; sharp steps in
+the age field cut it further along fracture zones. The blocks that move as units
+are simply whatever stays connected, so the plate boundaries come out of the
+magnetic anomaly pattern.
 
-### `yarn build`
+Five surface maps are selectable, all of which ride along with the crust. The
+last of them paints the sea-floor age grid the model is built from, which makes
+a useful check: the coloured bands are the data, and the black gaps are where
+the reconstruction says no crust existed yet.
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+The reconstruction is then integrated backwards a million years at a time.
+Surviving crust keeps its present-day size because rock does not stretch;
+vanished crust pulls its two margins together but can never push them apart. See
+[MODEL.md](MODEL.md) for the method and for what to distrust in it.
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+## Layout
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```
+tools/build-data.ts   age grid -> triangulated shell + radius curve
+tools/solve.ts        backward integration -> keyframes + diagnostics
+shared/model.ts       the assumptions, shared by pipeline and app
+src/                  React + three.js viewer
+legacy/               the earlier hand-keyframed prototype, kept for reference
+```
 
-### `yarn eject`
+Generated data lands in `public/data/` and is not committed: it is reproducible
+from the textures in this repository.
 
-**Note: this is a one-way operation. Once you `eject`, you can’t go back!**
+The package manager is pnpm, pinned in `package.json` so corepack picks up the
+right version. `pnpm-workspace.yaml` approves esbuild's install script, which
+pnpm blocks by default and vite needs to build.
 
-If you aren’t satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Scripts
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you’re on your own.
+| | |
+|---|---|
+| `pnpm dev` | generate data if stale, then serve |
+| `pnpm data` | rebuild the reconstruction |
+| `pnpm build` | production build |
+| `pnpm artifact` | build a single self-contained HTML file |
+| `pnpm test` | unit tests |
+| `pnpm typecheck` | app and pipeline |
 
-You don’t have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn’t feel obligated to use this feature. However we understand that this tool wouldn’t be useful if you couldn’t customize it when you are ready for it.
+## A necessary disclaimer
 
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
+Expanding Earth is not accepted geology. Geodesy limits any change in the
+Earth's radius to well under a millimetre per year, and no mechanism supplies
+the required mass or energy. This is a model of the idea, built so that its
+failures are visible and measurable, not an argument that it is true.

@@ -1,0 +1,5 @@
+# pnpm does not run dependency install scripts unless they are approved here.
+# esbuild needs its one to unpack the platform binary that vite builds through,
+# so it is allowed explicitly rather than by switching the protection off.
+allowBuilds:
+  esbuild: true
