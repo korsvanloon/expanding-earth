@@ -28,6 +28,17 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
 const DIST = resolve(ROOT, 'dist')
 
+/**
+ * Keep every Nth keyframe.
+ *
+ * Independently moving fragments make the keyframes far less predictable than a
+ * single deforming shell did, so they compress worse and the full set no longer
+ * fits the 16 MB an artifact is allowed. Continental motion is slow and smooth,
+ * so halving the time resolution costs little: the viewer interpolates, and
+ * over ten million years there is not much to miss.
+ */
+const FRAME_STRIDE = 2
+
 const TEXTURE_WIDTH = 1024
 const TEXTURE_QUALITY = 82
 
@@ -37,11 +48,34 @@ function main() {
   const frames = new Int16Array(readFileSync(resolve(DATA, 'frames.bin')).buffer)
   const strain = readFileSync(resolve(DATA, 'strain.bin'))
 
+  const kept: number[] = []
+  for (let f = 0; f < meta.frameCount; f += FRAME_STRIDE) kept.push(f)
+  const stride = meta.vertexCount * 3
+  const thinnedFrames = new Int16Array(kept.length * stride)
+  const thinnedStrain = new Uint8Array(kept.length * meta.vertexCount)
+  kept.forEach((f, i) => {
+    thinnedFrames.set(frames.subarray(f * stride, (f + 1) * stride), i * stride)
+    thinnedStrain.set(
+      strain.subarray(f * meta.vertexCount, (f + 1) * meta.vertexCount),
+      i * meta.vertexCount,
+    )
+  })
+  const thinnedMeta = {
+    ...meta,
+    frameCount: kept.length,
+    frameStepMa: meta.frameStepMa * FRAME_STRIDE,
+    scorecard: meta.scorecard.map((fit) => ({
+      ...fit,
+      separationKm: kept.map((f) => fit.separationKm[f]),
+    })),
+  }
+  console.log(`[artifact] keeping ${kept.length} of ${meta.frameCount} keyframes`)
+
   const payload = {
-    meta: gzipSync(Buffer.from(JSON.stringify(meta)), { level: 9 }),
+    meta: gzipSync(Buffer.from(JSON.stringify(thinnedMeta)), { level: 9 }),
     mesh: gzipSync(mesh, { level: 9 }),
-    frames: gzipSync(deltaSplit(frames, meta.vertexCount * 3, meta.frameCount), { level: 9 }),
-    strain: gzipSync(strain, { level: 9 }),
+    frames: gzipSync(deltaSplit(thinnedFrames, stride, kept.length), { level: 9 }),
+    strain: gzipSync(Buffer.from(thinnedStrain), { level: 9 }),
   }
 
   const bundle = readdirSync(resolve(DIST, 'assets'))
