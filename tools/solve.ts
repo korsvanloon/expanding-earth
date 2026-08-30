@@ -48,6 +48,12 @@ import { directionToUv } from '../shared/sphere.js'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(ROOT, 'public/data')
 
+/**
+ * Resolution of the bucket queue that orders the seam fronts by age. One bucket
+ * per third of a million years is finer than the age grid can resolve.
+ */
+const AGE_BUCKETS = 1024
+
 const CONFIG = {
   /** Integration step, Myr. Small enough that each step is a small nudge. */
   stepMa: 1,
@@ -69,18 +75,14 @@ const CONFIG = {
   /** How hard conjugate margins are pulled back together, per sweep. */
   seamGain: Number(process.env.SEAM_GAIN ?? 0.35),
   /**
-   * How far a front may travel into vanished crust before it stops looking for
-   * a partner, in mesh steps of about 110 km.
+   * How many partners one margin point may be paired with in a step.
    *
-   * Spreading has to be reversed a strip at a time. Let the fronts run without
-   * limit and at 200 Ma they cross the entire Pacific in one go, where the line
-   * on which they collide is no longer a ridge but an artefact of the shape of
-   * the hole -- which had North America and Eurasia pulling each other to
-   * opposite sides of the planet. Keeping the reach local pairs each margin
-   * with the crust that was actually against it, and the closure accumulates
-   * over the steps instead of being guessed in one leap.
+   * Not unlimited: across a wide ocean every point on one flank can see a great
+   * many on the other, and taking them all buries the one crossing that matters
+   * under a cloud of near-duplicates. A small budget lets a margin hold on to
+   * more than the single best partner without that.
    */
-  seamReach: Number(process.env.SEAM_REACH ?? 6),
+  seamPairsPerPoint: Number(process.env.SEAM_PAIRS ?? 1),
   /** Smoothing passes that settle not-yet-created crust into the leftover gap. */
   unbornSmoothing: Number(process.env.SMOOTH ?? 30),
   /**
@@ -105,6 +107,15 @@ const CONFIG = {
    */
   faultThresholdMa: Number(process.env.FAULT_MA ?? 20),
   faultStiffness: Number(process.env.FAULT_K ?? 0.05),
+  /**
+   * The least a fragment holds on to any of its crust, however weak.
+   *
+   * Rigidity alone runs down to 0.05 for ridge basalt, and crust held that
+   * loosely does not merely crumple, it folds back over itself: a seventh of
+   * the shell ended up on top of another part of it. A floor keeps the weakest
+   * crust deformable without letting it stop being a surface.
+   */
+  holdFloor: Number(process.env.HOLD_FLOOR ?? 0.3),
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,
 }
@@ -190,11 +201,40 @@ function main() {
   const originalIndices = Uint32Array.from(indices, (v) => origin[v])
   const originalCount = origin.reduce((m, v) => Math.max(m, v), 0) + 1
   const uncut = buildVertexAdjacency(originalIndices, originalCount)
+  // The age each vertex of the uncut mesh carries, which is what orders the
+  // seam fronts. The oldest triangle touching it, to match how `alive` is
+  // decided: a vertex survives as long as any of its crust does.
+  const uncutAge = new Float32Array(originalCount)
+  for (let f = 0; f < faceCount; f++) {
+    for (let k = 0; k < 3; k++) {
+      const o = origin[indices[f * 3 + k]]
+      if (faceAges[f] > uncutAge[o]) uncutAge[o] = faceAges[f]
+    }
+  }
   // The mesh arrives already cut along its weak crust, so every vertex belongs
   // to exactly one fragment and a whole fragment can be snapped rigid without
   // tearing anything -- the flaw that sank two earlier attempts at this.
   const plates = { count: fragmentCount, interior: new Int32Array(vertexFragment) }
   const vertexBlock = new Int32Array(vertexFragment)
+
+  // Per-vertex crustal strength, averaged from the triangles around it. A
+  // vertex is a point on a continuum, not a triangle, so the mean is the honest
+  // reading; taking the weakest would make every shield edge floppy.
+  const vertexRigidity = new Float64Array(vertexCount)
+  {
+    const share = new Float64Array(vertexCount)
+    for (let f = 0; f < faceCount; f++) {
+      for (let k = 0; k < 3; k++) {
+        const v = indices[f * 3 + k]
+        vertexRigidity[v] += rigidity[f]
+        share[v]++
+      }
+    }
+    for (let v = 0; v < vertexCount; v++) {
+      if (share[v]) vertexRigidity[v] /= share[v]
+      vertexRigidity[v] = CONFIG.holdFloor + (1 - CONFIG.holdFloor) * vertexRigidity[v]
+    }
+  }
 
   const vertexAge = new Float32Array(vertexCount)
   for (let f = 0; f < faceCount; f++) {
@@ -203,6 +243,7 @@ function main() {
       if (faceAges[f] > vertexAge[v]) vertexAge[v] = faceAges[f]
     }
   }
+  let seamReport = { count: 0, meanKm: 0 }
   const frames: Int16Array[] = []
   const strains: Uint8Array[] = []
   const diagnostics: FrameDiagnostics[] = []
@@ -225,21 +266,34 @@ function main() {
   const separation = new Map<string, number[]>()
 
   const record = (t: number) => {
-    const centre = (id: string) => {
-      let x = 0, y = 0, z = 0
-      for (const v of regionVertices.get(id) ?? []) {
-        const length = Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
-        x += pos[v * 3] / length; y += pos[v * 3 + 1] / length; z += pos[v * 3 + 2] / length
+    // Closest approach, not centre to centre. Two continents that have just met
+    // still have their centres thousands of kilometres apart -- more than half
+    // the radius of the globe they are sitting on -- so a centre distance
+    // falling towards zero does not mean they have joined, it means one has
+    // been driven over the other. That is what the earlier runs were rewarded
+    // for, and what South America was doing to Africa.
+    const closest = (a: string, b: string) => {
+      const one = regionVertices.get(a) ?? []
+      const two = regionVertices.get(b) ?? []
+      let best = -1
+      // Every fourth vertex: the regions are thousands of points across and
+      // the answer moves by metres, not kilometres, for the ones left out.
+      for (let i = 0; i < one.length; i += 4) {
+        const p = one[i] * 3
+        const pl = Math.hypot(pos[p], pos[p + 1], pos[p + 2]) || 1
+        const px = pos[p] / pl, py = pos[p + 1] / pl, pz = pos[p + 2] / pl
+        for (let j = 0; j < two.length; j += 4) {
+          const q = two[j] * 3
+          const ql = Math.hypot(pos[q], pos[q + 1], pos[q + 2]) || 1
+          const dot = px * (pos[q] / ql) + py * (pos[q + 1] / ql) + pz * (pos[q + 2] / ql)
+          if (dot > best) best = dot
+        }
       }
-      const length = Math.hypot(x, y, z) || 1
-      return [x / length, y / length, z / length] as const
+      return Math.acos(Math.min(1, Math.max(-1, best))) * radiusAt(t)
     }
     for (const target of FIT_TARGETS) {
-      const a = centre(target.a)
-      const b = centre(target.b)
-      const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
       const key = `${target.a}|${target.b}`
-      separation.set(key, [...(separation.get(key) ?? []), Math.acos(dot) * radiusAt(t)])
+      separation.set(key, [...(separation.get(key) ?? []), closest(target.a, target.b)])
     }
 
     frames.push(quantise(pos, vertexCount))
@@ -284,7 +338,9 @@ function main() {
 
     const seams = findSeams(
       indices, origin, originalCount, faceCount, vertexCount, faceAges, t, vertexBlock, uncut,
+      uncutAge, meta.maxAgeMa,
     )
+    seamReport = { count: seams.length / 2, meanKm: meanSeamGap(pos, seams) }
     dilateBlocks(pos, vertexBlock, plates.count, rPrev, rNext, vertexCount, alive)
     // The craton interiors are rigid, so remember the shape they are allowed to
     // keep; everything the relaxation does to them afterwards is undone except
@@ -323,7 +379,9 @@ function main() {
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
       closeFractures(pos, cutPairs, cutPairCount, alive)
       closeSeams(pos, seams, vertexBlock, plates.count, vertexCount, CONFIG.seamGain)
-      keepFragmentsRigid(pos, reference, plates.interior, alive, plates.count, vertexCount)
+      keepFragmentsRigid(
+        pos, reference, plates.interior, alive, plates.count, vertexCount, vertexRigidity,
+      )
     }
     // The frame is recorded on the sphere, so finish there.
     relaxToSphere(pos, vertexCount, rNext, 1)
@@ -339,8 +397,8 @@ function main() {
           `blocks=${String(d.blockCount).padStart(3)}  ` +
           `unclosed=${(100 * d.gapFraction).toFixed(2)}%  ` +
           `folded=${(100 * d.overlapFraction).toFixed(2)}%  ` +
-          `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%` +
-            ` all=${(100 * d.medianStrain).toFixed(1)}%`,
+          `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%  ` +
+          `seams=${String(seamReport.count).padStart(5)} at ${seamReport.meanKm.toFixed(0).padStart(4)} km`,
       )
     }
   }
@@ -375,7 +433,7 @@ function main() {
       })),
     } satisfies Meta),
   )
-  console.log('[solve] fit scorecard, centre to centre:')
+  console.log('[solve] fit scorecard, closest approach:')
   for (const target of FIT_TARGETS) {
     const km = separation.get(`${target.a}|${target.b}`) ?? []
     const step = meta.frameStepMa
@@ -493,10 +551,31 @@ function closeFractures(
  * This is the reverse of sea-floor spreading, and it is what actually moves
  * continents. Crust of a given age on one flank of a ridge was made at the same
  * instant, in the same place, as crust of that age on the other flank; remove
- * everything younger and the two margins must meet again. The pairing falls out
- * of a race: fronts start from every margin that borders vanished crust and
- * spread into it, and where two fronts collide is the extinct ridge, with the
- * two margins they set out from being the pair that has to come back together.
+ * everything younger and the two margins must meet again.
+ *
+ * The pairing follows the isochrons. Fronts start from every margin that
+ * borders vanished crust and eat their way in, but they are ordered by the age
+ * of the crust they are eating rather than by how many triangles they have
+ * crossed: the whole world's fronts advance through the age-100 crust, then the
+ * age-99, and so on down. Two fronts therefore collide on the youngest crust
+ * between them, which is the extinct ridge itself, and the margins they set out
+ * from are the pair that has to come back together.
+ *
+ * The version before this raced the fronts by triangle count and had to cap
+ * their reach, because over a wide ocean the line where equal-distance fronts
+ * meet is the middle of the hole rather than the ridge -- shaped by the coast,
+ * not by the spreading. That cap is what stopped the Pacific from ever closing.
+ * The mesh never changes, so the number of triangles between two conjugate
+ * margins keeps growing as more crust between them vanishes, however close
+ * together the reconstruction has actually pulled them; past about thirty
+ * million years no front could still reach its partner and the largest ocean on
+ * the planet was left to open into a hole. Racing by age needs no cap: the age
+ * field says where the ridge is regardless of how much of it has gone.
+ *
+ * Each front carries the youngest crust it has had to pass through, and takes
+ * the route that stays in the oldest crust it can -- the bottleneck path. That
+ * is the walk straight down the flank, since going round the end of a ridge
+ * means dipping through the young crust at its tip.
  *
  * The earlier solver tried to do this by letting the vanished crust contract as
  * a spring mesh. That cannot work at this scale -- closing the Atlantic means
@@ -516,6 +595,9 @@ function findSeams(
   t: number,
   vertexPlate: Int32Array,
   adjacency: { offsets: Uint32Array; neighbours: Uint32Array },
+  /** Age of the oldest crust touching each vertex of the uncut mesh. */
+  uncutAge: Float32Array,
+  maxAgeMa: number,
 ) {
   // Fronts travel over the uncut mesh but remember which cut copy they set out
   // from, so the pairs they find name the vertices the solver actually moves.
@@ -535,45 +617,101 @@ function findSeams(
     }
   }
 
+  // A bucket queue over age. Ages are bounded and we only ever need them in
+  // order, so this is a priority queue that costs nothing per operation.
+  const buckets: number[][] = Array.from({ length: AGE_BUCKETS }, () => [])
+  const bucketOf = (age: number) =>
+    Math.min(AGE_BUCKETS - 1, Math.max(0, Math.round((age / maxAgeMa) * (AGE_BUCKETS - 1))))
+
+  /** The youngest crust the front reaching this vertex has had to pass through. */
+  const key = new Float32Array(originalCount).fill(-1)
   const source = new Int32Array(originalCount).fill(-1)
   const plate = new Int32Array(originalCount).fill(-1)
-  const depth = new Int32Array(originalCount)
-  const queue: number[] = []
+  const steps = new Int32Array(originalCount)
+  const settled = new Uint8Array(originalCount)
+
   for (let o = 0; o < originalCount; o++) {
     if (!alive[o] || !touchesGone[o] || copyOf[o] < 0) continue
+    key[o] = t
     source[o] = copyOf[o]
     plate[o] = vertexPlate[copyOf[o]]
-    queue.push(o)
+    buckets[bucketOf(t)].push(o)
   }
 
   const { offsets, neighbours } = adjacency
-  const pairs: number[] = []
-  // One pairing per margin point. Without this the fronts across a wide ocean
-  // meet along a whole front rather than at a line, and the set of pairs grows
-  // until it exhausts memory.
-  const paired = new Uint8Array(vertexCount)
-  for (let head = 0; head < queue.length; head++) {
-    const v = queue[head]
-    for (let k = offsets[v]; k < offsets[v + 1]; k++) {
-      const n = neighbours[k]
-      if (source[n] === -1) {
-        // Only crust that no longer exists conducts a front, and only so far.
-        if (alive[n] || depth[v] >= CONFIG.seamReach) continue
-        source[n] = source[v]
-        plate[n] = plate[v]
-        depth[n] = depth[v] + 1
-        queue.push(n)
-      } else if (plate[n] !== plate[v] && plate[n] >= 0 && plate[v] >= 0) {
-        const a = source[v]
-        const b = source[n]
-        if (paired[a] || paired[b]) continue
-        paired[a] = 1
-        paired[b] = 1
-        pairs.push(a, b)
+  // Every collision, to be sorted afterwards. A margin point may only be paired
+  // once -- without that the fronts across a wide ocean meet along a whole
+  // front rather than at a line -- and the nearest crossing is the one it
+  // should get, so the choice cannot be made in the order collisions happen.
+  const hitA: number[] = []
+  const hitB: number[] = []
+  const hitSteps: number[] = []
+  const hitAge: number[] = []
+
+  for (let b = AGE_BUCKETS - 1; b >= 0; b--) {
+    const bucket = buckets[b]
+    for (let h = 0; h < bucket.length; h++) {
+      const v = bucket[h]
+      if (settled[v]) continue
+      settled[v] = 1
+      for (let k = offsets[v]; k < offsets[v + 1]; k++) {
+        const n = neighbours[k]
+        // Only crust that no longer exists conducts a front.
+        if (alive[n]) continue
+        if (source[n] >= 0 && source[n] !== source[v] && plate[n] !== plate[v] && plate[n] >= 0) {
+          hitA.push(source[v])
+          hitB.push(source[n])
+          hitSteps.push(steps[v] + steps[n])
+          hitAge.push(Math.min(key[v], key[n]))
+        }
+        const candidate = Math.min(key[v], uncutAge[n])
+        if (candidate > key[n]) {
+          key[n] = candidate
+          source[n] = source[v]
+          plate[n] = plate[v]
+          steps[n] = steps[v] + 1
+          buckets[Math.min(b, bucketOf(candidate))].push(n)
+        }
       }
     }
+    bucket.length = 0
+  }
+
+  // Deepest crossing first. How far the two fronts had to descend before they
+  // met is what tells a ridge from a crack: a real conjugate pair is separated
+  // by everything that ever erupted between them, so its fronts run all the way
+  // down to the ridge axis, while two fragments that happen to sit either side
+  // of a sliver of vanished crust meet almost at once, barely below the age
+  // they set out from. Taking the nearest crossing first instead spends the
+  // margin points of a wide ocean on those cracks -- each point may be paired
+  // only once -- and the Atlantic stops closing.
+  const order = hitAge
+    .map((_, i) => i)
+    .sort((x, y) => hitAge[x] - hitAge[y] || hitSteps[x] - hitSteps[y])
+  const budget = CONFIG.seamPairsPerPoint
+  const used = new Uint8Array(vertexCount)
+  const pairs: number[] = []
+  for (const i of order) {
+    const a = hitA[i]
+    const b = hitB[i]
+    if (used[a] >= budget || used[b] >= budget) continue
+    used[a]++
+    used[b]++
+    pairs.push(a, b)
   }
   return new Uint32Array(pairs)
+}
+
+/** How far apart the paired margins still are, averaged, as a progress report. */
+function meanSeamGap(pos: Float64Array, seams: Uint32Array) {
+  if (!seams.length) return 0
+  let total = 0
+  for (let i = 0; i < seams.length; i += 2) {
+    const a = seams[i] * 3
+    const b = seams[i + 1] * 3
+    total += Math.hypot(pos[a] - pos[b], pos[a + 1] - pos[b + 1], pos[a + 2] - pos[b + 2])
+  }
+  return total / (seams.length / 2)
 }
 
 /**
@@ -668,6 +806,8 @@ function keepFragmentsRigid(
   alive: Uint8Array,
   count: number,
   vertexCount: number,
+  /** How rigidly each vertex holds its place in the fragment, 0 to 1. */
+  strength: Float64Array,
 ) {
   if (count === 0) return
   const rotation = new Float64Array(count * 9)
@@ -683,6 +823,10 @@ function keepFragmentsRigid(
     for (let i = 0; i < vertexCount; i++) {
       const c = interior[i]
       if (c < 0 || !alive[i]) continue
+      // The craton decides where the fragment points. A stretched margin that
+      // has been dragged out of place should not be allowed to swing the whole
+      // block round after it.
+      const w = strength[i]
       const r = c * 9
       const rx = reference[i * 3], ry = reference[i * 3 + 1], rz = reference[i * 3 + 2]
       const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
@@ -691,11 +835,11 @@ function keepFragmentsRigid(
       const dx = pos[i * 3] - qx, dy = pos[i * 3 + 1] - qy, dz = pos[i * 3 + 2] - qz
       const q2 = qx * qx + qy * qy + qz * qz
       const o = c * 6
-      m[o] += q2 - qx * qx; m[o + 1] += q2 - qy * qy; m[o + 2] += q2 - qz * qz
-      m[o + 3] -= qx * qy; m[o + 4] -= qx * qz; m[o + 5] -= qy * qz
-      v[c * 3] += qy * dz - qz * dy
-      v[c * 3 + 1] += qz * dx - qx * dz
-      v[c * 3 + 2] += qx * dy - qy * dx
+      m[o] += w * (q2 - qx * qx); m[o + 1] += w * (q2 - qy * qy); m[o + 2] += w * (q2 - qz * qz)
+      m[o + 3] -= w * qx * qy; m[o + 4] -= w * qx * qz; m[o + 5] -= w * qy * qz
+      v[c * 3] += w * (qy * dz - qz * dy)
+      v[c * 3 + 1] += w * (qz * dx - qx * dz)
+      v[c * 3 + 2] += w * (qx * dy - qy * dx)
     }
     for (let c = 0; c < count; c++) {
       const o = c * 6
@@ -716,11 +860,27 @@ function keepFragmentsRigid(
     // gap and is placed by smoothing, so a fragment is never asked to carry
     // sea floor that had not been made.
     if (c < 0 || !alive[i]) continue
+    // Pulled back towards where the block says it should be, by as much as the
+    // crust there is stiff enough to insist on. A shield goes all the way; a
+    // stretched margin or an island arc hardly moves and keeps whatever the
+    // relaxation did to it.
+    //
+    // This is what lets a fragment be the size of Africa. A rigid cap of the
+    // present-day sphere cannot be laid on a sphere two thirds the size --
+    // Gauss says so, and the misfit grows as the square of the piece -- so
+    // holding a five-thousand-kilometre block perfectly rigid tore a fifth of
+    // the planet open. Letting the mismatch go into the weak crust is not a
+    // fudge but the claim the model is making: as the Earth grows, a big slab
+    // has to flex, and it flexes where it is thin.
+    const w = strength[i]
     const r = c * 9
     const rx = reference[i * 3], ry = reference[i * 3 + 1], rz = reference[i * 3 + 2]
-    pos[i * 3] = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
-    pos[i * 3 + 1] = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
-    pos[i * 3 + 2] = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
+    const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
+    const qy = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
+    const qz = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
+    pos[i * 3] += w * (qx - pos[i * 3])
+    pos[i * 3 + 1] += w * (qy - pos[i * 3 + 1])
+    pos[i * 3 + 2] += w * (qz - pos[i * 3 + 2])
   }
 }
 
@@ -1092,10 +1252,19 @@ function coverage(
     const c = indices[f * 3 + 2] * 3
     const area = solidAngle(pos, a, b, c)
     total += area
-    if (faceAges[f] < t) unborn += area
+    const exists = faceAges[f] >= t
+    if (!exists) {
+      unborn += area
+      continue
+    }
     const ux = pos[b] - pos[a], uy = pos[b + 1] - pos[a + 1], uz = pos[b + 2] - pos[a + 2]
     const vx = pos[c] - pos[a], vy = pos[c + 1] - pos[a + 1], vz = pos[c + 2] - pos[a + 2]
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+    // Only crust that exists can be folded over crust that exists. A triangle
+    // of vanished sea floor turning inside out as it crumples into the gap is
+    // not the model laying rock on top of rock -- it is the gap closing, and
+    // counting it as overlap said the reconstruction was failing at exactly the
+    // moments it was succeeding.
     if (nx * pos[a] + ny * pos[a + 1] + nz * pos[a + 2] < 0) folded += area
   }
   return { gapFraction: unborn / total, overlapFraction: folded / total }

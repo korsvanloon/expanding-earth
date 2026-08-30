@@ -60,7 +60,19 @@ export const CONFIG = {
    * have to take up continuously -- the gores a globe maker cuts, not faults
    * anyone has mapped. They follow weak crust wherever there is any.
    */
-  targetFragmentKm: Number(process.env.FRAGMENT_KM ?? 1800),
+  /**
+   * The smallest patch of strong crust that gets to be a fragment of its own,
+   * as a fraction of the sphere. About a hundred thousand square kilometres --
+   * low enough to admit Madagascar, Cuba, Iceland and the Canadian islands.
+   *
+   * Nothing sets an upper size. Real blocks are wildly unequal: Africa and
+   * North America are single slabs thousands of kilometres across, and what
+   * comes off them are chips. An earlier version cut every fragment down to a
+   * uniform 1200 km, which made a mosaic of same-sized tiles no continent could
+   * be recognised in. Where a fragment ends should follow from where the crust
+   * is weak, and from nothing else.
+   */
+  minCoreFraction: Number(process.env.CORE_FRAC ?? 0.00003),
   endTimeMa: 200,
   radiusStepMa: 1,
   frameStepMa: 5,
@@ -516,8 +528,11 @@ function splitIntoFragments(
     }
   }
 
-  // A continent is worth being a fragment; a stray triangle is not.
-  const MIN_CORE_AREA = 0.0015 * 4 * Math.PI
+  // A continent is worth being a fragment; a stray triangle is not. Set low
+  // enough to admit the chips -- Madagascar, Cuba, Iceland, the Canadian
+  // islands -- because those are exactly the pieces that break off a big block
+  // and have to travel on their own.
+  const MIN_CORE_AREA = CONFIG.minCoreFraction * 4 * Math.PI
   const coreArea = new Map<number, number>()
   for (let f = 0; f < faceCount; f++) {
     if (isCore[f]) coreArea.set(find(f), (coreArea.get(find(f)) ?? 0) + faceArea[f])
@@ -570,9 +585,7 @@ function splitIntoFragments(
     }
   }
 
-  const count = subdivideLargeFragments(
-    faceFragment, fragmentId.size, faceArea, neighbours, arc, faceCount,
-  )
+  const count = fragmentId.size
 
   // Duplicate every vertex that more than one fragment uses.
   const copyOf = new Map<number, number>()
@@ -620,9 +633,19 @@ function splitIntoFragments(
   }
 
   void faceAges
+  // What the pieces actually came out as, largest first: a reconstruction made
+  // of one-size blocks is a reconstruction of nothing in particular.
+  const areaOf = new Float64Array(count)
+  for (let f = 0; f < faceCount; f++) if (faceFragment[f] >= 0) areaOf[faceFragment[f]] += faceArea[f]
+  const across = [...areaOf]
+    .sort((a, b) => b - a)
+    .map((a) => Math.round(2 * R0_KM * Math.asin(Math.sqrt(a / (4 * Math.PI)))))
   console.log(
-    `  ${fragmentId.size} natural fragments cut to ${count} of at most ` +
-      `${CONFIG.targetFragmentKm} km; mesh grew from ${vertexCount} to ${origin.length} vertices, ` +
+    `  fragment size across, km: ${across.slice(0, 12).join(' ')}` +
+      `${across.length > 12 ? ` ... ${across[across.length - 1]}` : ''}`,
+  )
+  console.log(
+    `  ${count} fragments; mesh grew from ${vertexCount} to ${origin.length} vertices, ` +
       `joined by ${cutPairs.length / 2} fracture constraints`,
   )
   return {
@@ -640,96 +663,6 @@ function splitIntoFragments(
   }
 }
 
-/**
- * Cut any fragment that is too big across into several, by scattering seeds
- * through it and giving every triangle to the nearest one.
- *
- * Seeds are placed farthest-first, which spreads them evenly without needing to
- * iterate, and the fronts run outward on the same strength-weighted cost as the
- * main assignment, so a cut prefers weak crust and only falls back to cutting
- * through a craton when there is nothing weaker to follow.
- */
-function subdivideLargeFragments(
-  faceFragment: Int32Array,
-  fragmentCount: number,
-  faceArea: Float64Array,
-  neighbours: number[][],
-  arc: (a: number, b: number) => number,
-  faceCount: number,
-) {
-  const targetAngle = CONFIG.targetFragmentKm / R0_KM
-  const targetArea = 2 * Math.PI * (1 - Math.cos(targetAngle))
-  const members: number[][] = Array.from({ length: fragmentCount }, () => [])
-  const area = new Float64Array(fragmentCount)
-  for (let f = 0; f < faceCount; f++) {
-    const id = faceFragment[f]
-    if (id < 0) continue
-    members[id].push(f)
-    area[id] += faceArea[f]
-  }
-
-  let next = fragmentCount
-  for (let id = 0; id < fragmentCount; id++) {
-    const pieces = Math.ceil(area[id] / targetArea)
-    if (pieces <= 1 || members[id].length < pieces * 4) continue
-
-    const inside = new Set(members[id])
-    const seeds: number[] = [members[id][0]]
-    const distance = new Map<number, number>()
-    for (let s = 1; s < pieces; s++) {
-      // Farthest point from everything chosen so far becomes the next seed.
-      distance.clear()
-      const queue: [number, number][] = seeds.map((f) => [0, f])
-      for (const f of seeds) distance.set(f, 0)
-      let far = seeds[0]
-      let farthest = -1
-      while (queue.length) {
-        const [d, f] = queue.shift()!
-        if (d > (distance.get(f) ?? Infinity)) continue
-        if (d > farthest) {
-          farthest = d
-          far = f
-        }
-        for (const n of neighbours[f]) {
-          if (!inside.has(n)) continue
-          const step = d + arc(f, n)
-          if (step >= (distance.get(n) ?? Infinity)) continue
-          distance.set(n, step)
-          let i = queue.length
-          while (i > 0 && queue[i - 1][0] > step) i--
-          queue.splice(i, 0, [step, n])
-        }
-      }
-      seeds.push(far)
-    }
-
-    const owner = new Map<number, number>()
-    const best = new Map<number, number>()
-    const queue: [number, number][] = []
-    seeds.forEach((f, i) => {
-      owner.set(f, i === 0 ? id : next + i - 1)
-      best.set(f, 0)
-      queue.push([0, f])
-    })
-    while (queue.length) {
-      const [d, f] = queue.shift()!
-      if (d > (best.get(f) ?? Infinity)) continue
-      for (const n of neighbours[f]) {
-        if (!inside.has(n)) continue
-        const step = d + arc(f, n)
-        if (step >= (best.get(n) ?? Infinity)) continue
-        best.set(n, step)
-        owner.set(n, owner.get(f)!)
-        let i = queue.length
-        while (i > 0 && queue[i - 1][0] > step) i--
-        queue.splice(i, 0, [step, n])
-      }
-    }
-    for (const [f, id2] of owner) faceFragment[f] = id2
-    next += pieces - 1
-  }
-  return next
-}
 
 function buildFaceAdjacency(indices: Uint32Array, faceCount: number): number[][] {
   const edges = new Map<number, number[]>()

@@ -149,10 +149,10 @@ export function Panel({ data }: { data: Dataset }) {
         />
         <p className="caption">
           At {timeMa.toFixed(0)} Ma the reconstruction leaves{' '}
-          <strong>{(100 * unclosed).toFixed(1)}%</strong> of the sphere unaccounted for and folds{' '}
-          <strong>{(100 * folded).toFixed(1)}%</strong> of the crust through itself. These are the
-          model failing, reported rather than tuned away. It closes well for the last 30 Myr and
-          gets steadily worse further back.
+          <strong>{(100 * unclosed).toFixed(1)}%</strong> of the sphere covered by crust that did
+          not exist yet, and folds <strong>{(100 * folded).toFixed(1)}%</strong> of the crust that
+          did exist back through itself. These are the model failing, reported rather than tuned
+          away.
         </p>
       </section>
 
@@ -173,7 +173,7 @@ export function Panel({ data }: { data: Dataset }) {
                     {label(fit.a)} – {label(fit.b)}
                   </th>
                   <td>{fit.joinedByMa} Ma</td>
-                  <td className={km < 1500 ? 'good' : km < 3000 ? 'fair' : 'poor'}>
+                  <td className={km < 300 ? 'good' : km < 1000 ? 'fair' : 'poor'}>
                     {Math.round(km)} km
                   </td>
                   <td className="was">was {Math.round(now)}</td>
@@ -183,8 +183,10 @@ export function Panel({ data }: { data: Dataset }) {
           </tbody>
         </table>
         <p className="caption">
-          Pairs whose former adjacency is independently supported, and the distance still between
-          them at the time they should be touching. Reconstructions puzzled together by hand are
+          Pairs whose former adjacency is independently supported, and the closest approach still
+          between them at the time they should be touching -- the gap between their nearest
+          coasts, not between their centres, which stay thousands of kilometres apart even when two
+          continents are pressed against each other. Reconstructions puzzled together by hand are
           left out on purpose: where Australia and Antarctica end up relative to South America is
           something this model should be allowed to answer, not something to steer it towards.
         </p>
