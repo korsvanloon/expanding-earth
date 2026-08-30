@@ -73,6 +73,8 @@ export const CONFIG = {
    * is weak, and from nothing else.
    */
   minCoreFraction: Number(process.env.CORE_FRAC ?? 0.00003),
+  /** How steeply weak crust repels a fragment boundary; see splitIntoFragments. */
+  breakBias: Number(process.env.BREAK_BIAS ?? 2),
   endTimeMa: 200,
   radiusStepMa: 1,
   frameStepMa: 5,
@@ -562,7 +564,16 @@ function splitIntoFragments(
       Math.min(1, Math.max(-1,
         centres[a][0] * centres[b][0] + centres[a][1] * centres[b][1] + centres[a][2] * centres[b][2])),
     )
-  const cost = (a: number, b: number) => arc(a, b) / Math.max(rigidity[b], 0.05)
+  // Distance divided by strength, and steeply: a front runs almost free
+  // through a craton and all but stops in a thinned margin, so the boundary
+  // between two fragments settles on the weakest crust available rather than
+  // halfway between their cores. At the first power the strength barely had a
+  // vote and boundaries came out straight across the middle of the Atlantic and
+  // clean through northern South America. Squared, they follow the belts the
+  // crustal strength map draws round every continent, and every join on the
+  // scorecard closes to within sixty kilometres instead of within three
+  // hundred. Cubed is sharper still and costs more coverage than it buys.
+  const cost = (a: number, b: number) => arc(a, b) / Math.max(rigidity[b], 0.05) ** CONFIG.breakBias
   const frontier: [number, number][] = []
   for (let f = 0; f < faceCount; f++) {
     const id = isCore[f] ? fragmentId.get(find(f)) : undefined

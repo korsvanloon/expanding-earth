@@ -17,9 +17,13 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
   {
     id: 'rigidity',
     label: 'Crustal strength',
-    hint: 'Derived from distance to the nearest margin: craton interiors pale, thin necks and shelves dark',
+    hint: "ECM1's crustal type, read as strength: shields and platforms pale, thinned margins and island arcs dark. This is what decides where a fragment ends",
   },
-  { id: 'plates', label: 'Plates', hint: 'The plates the solver found, one colour each' },
+  {
+    id: 'plates',
+    label: 'Plates',
+    hint: 'The fragments the crustal strength map cut the shell into, one colour each',
+  },
 ]
 
 export function Panel({ data }: { data: Dataset }) {

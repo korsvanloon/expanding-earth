@@ -116,6 +116,10 @@ const CONFIG = {
    * crust deformable without letting it stop being a surface.
    */
   holdFloor: Number(process.env.HOLD_FLOOR ?? 0.3),
+  /** How long sea floor takes to cool into something a plate can carry, Myr. */
+  coolMa: Number(process.env.COOL_MA ?? 25),
+  /** The most a piece of continental crust is believed to have been stretched. */
+  maxStretch: Number(process.env.MAX_STRETCH ?? 2.5),
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,
 }
@@ -137,7 +141,8 @@ function main() {
   offset += faceCount * 4
   const rigidity = new Float32Array(buffer.buffer, offset, faceCount)
   offset += faceCount * 4
-  offset += faceCount * 4 // thickness, used by the viewer
+  const thickness = new Float32Array(buffer.buffer, offset, faceCount)
+  offset += faceCount * 4
   const origin = new Uint32Array(buffer.buffer, offset, vertexCount)
   offset += vertexCount * 4
   const cutPairs = new Uint32Array(buffer.buffer, offset, cutPairCount * 2)
@@ -195,6 +200,14 @@ function main() {
       solidAngle(dirs, indices[f * 3] * 3, indices[f * 3 + 1] * 3, indices[f * 3 + 2] * 3) * r0 * r0
   }
 
+  const { stretch, riftMa } = unstretching(
+    thickness, faceAges, rigidity, faceCount, edges, edgeFaces, edgeCount,
+  )
+  /** Rest area at the moment being solved, shrunk where the crust was stretched. */
+  const restAreaNow = new Float64Array(faceCount)
+  const stretchAt = (f: number, t: number) =>
+    1 + (stretch[f] - 1) * Math.min(1, riftMa[f] > 0 ? t / riftMa[f] : 1)
+
   const adjacency = buildVertexAdjacency(indices, vertexCount)
   // A second adjacency over the uncut mesh, so conjugate margins can still be
   // found across a fracture that the cut has separated.
@@ -230,10 +243,7 @@ function main() {
         share[v]++
       }
     }
-    for (let v = 0; v < vertexCount; v++) {
-      if (share[v]) vertexRigidity[v] /= share[v]
-      vertexRigidity[v] = CONFIG.holdFloor + (1 - CONFIG.holdFloor) * vertexRigidity[v]
-    }
+    for (let v = 0; v < vertexCount; v++) if (share[v]) vertexRigidity[v] /= share[v]
   }
 
   const vertexAge = new Float32Array(vertexCount)
@@ -243,6 +253,20 @@ function main() {
       if (faceAges[f] > vertexAge[v]) vertexAge[v] = faceAges[f]
     }
   }
+  /**
+   * How firmly each vertex is held to its fragment at the moment being solved.
+   *
+   * Strength of the crust, and how long it has had to cool. Sea floor that
+   * erupted at a ridge a million years ago is hot and thin and is not something
+   * a craton carries about rigidly; give it a few tens of millions of years and
+   * it is plate. Without this a continent-sized fragment was welded to the
+   * whole apron of ocean floor around it, so an eight-thousand-kilometre sheet
+   * had to stay rigid across a sphere two thirds the size, and a fifth of the
+   * planet was left unaccounted for. What has to hold its shape is the crust
+   * that is old and strong; the rest is free to be pushed around, which is what
+   * it does.
+   */
+  const hold = new Float64Array(vertexCount)
   let seamReport = { count: 0, meanKm: 0 }
   const frames: Int16Array[] = []
   const strains: Uint8Array[] = []
@@ -299,7 +323,8 @@ function main() {
     frames.push(quantise(pos, vertexCount))
     strains.push(
       perVertexStrain(
-        faceStrain(pos, indices, restArea, faceCount), indices, restArea, faceCount, vertexCount,
+        faceStrain(pos, indices, restAreaNow, faceCount), indices, restAreaNow, faceCount,
+        vertexCount,
       ),
     )
     diagnostics.push({
@@ -307,7 +332,8 @@ function main() {
       radiusKm: radiusAt(t),
       ...coverage(pos, indices, faceAges, faceCount, t),
       ...strainStats(
-        faceStrain(pos, indices, restArea, faceCount), faceAges, restArea, faceCount, t, rigidity,
+        faceStrain(pos, indices, restAreaNow, faceCount), faceAges, restAreaNow, faceCount, t,
+        rigidity,
       ),
       reliefKm: relief(pos, vertexCount, radiusAt(t)),
       blockCount: plates.count,
@@ -336,6 +362,13 @@ function main() {
       alive[indices[f * 3 + 2]] = 1
     }
 
+    for (let i = 0; i < vertexCount; i++) {
+      const cooled = Math.min(1, Math.max(0, (vertexAge[i] - t) / CONFIG.coolMa))
+      hold[i] = CONFIG.holdFloor + (1 - CONFIG.holdFloor) * vertexRigidity[i] * cooled
+    }
+
+    for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
+
     const seams = findSeams(
       indices, origin, originalCount, faceCount, vertexCount, faceAges, t, vertexBlock, uncut,
       uncutAge, meta.maxAgeMa,
@@ -358,7 +391,14 @@ function main() {
             ? edgeRigidity[e]
             : CONFIG.unbornStiffness
         if (stiffness === 0) continue
-        const target = rest[e] * crustScale(edgeAge[e], t)
+        // Thinned crust is thinned because it was pulled out, so run backwards
+        // it has to come back in. A margin at 20 km of crust that was 40 km
+        // before it rifted covered half the ground it does now, and the model
+        // says so by shrinking what it is asking the crust to measure up to.
+        const a0 = edgeFaces[e * 2]
+        const b0 = edgeFaces[e * 2 + 1]
+        const pull = b0 < 0 ? stretchAt(a0, t) : 0.5 * (stretchAt(a0, t) + stretchAt(b0, t))
+        const target = (rest[e] * crustScale(edgeAge[e], t)) / Math.sqrt(pull)
         const i = edges[e * 2] * 3
         const j = edges[e * 2 + 1] * 3
         const dx = pos[i] - pos[j]
@@ -380,7 +420,7 @@ function main() {
       closeFractures(pos, cutPairs, cutPairCount, alive)
       closeSeams(pos, seams, vertexBlock, plates.count, vertexCount, CONFIG.seamGain)
       keepFragmentsRigid(
-        pos, reference, plates.interior, alive, plates.count, vertexCount, vertexRigidity,
+        pos, reference, plates.interior, alive, plates.count, vertexCount, hold,
       )
     }
     // The frame is recorded on the sphere, so finish there.
@@ -700,6 +740,97 @@ function findSeams(
     pairs.push(a, b)
   }
   return new Uint32Array(pairs)
+}
+
+/**
+ * How much each piece of continental crust was stretched to reach its present
+ * thickness, and when that happened.
+ *
+ * Continental crust is about forty kilometres thick where nothing has happened
+ * to it. The places ECM1 reads as thin -- the passive margins, the extended
+ * crust behind them -- are thin because they were pulled out during rifting,
+ * and crust conserves its volume: a margin now twenty kilometres thick covered
+ * half the ground before it was stretched. Run backwards, it has to gather
+ * itself back up.
+ *
+ * Which is also why those places show as weak on the strength map. They are not
+ * weak by accident and then stretched; they are thin because they were
+ * stretched, and thin is what weak means here. The reconstruction was treating
+ * them as rigid pieces of their present size, so the crust it had to fit onto
+ * the smaller Earth was several percent larger than the crust that actually
+ * existed.
+ *
+ * When it happened is set by the ocean next door: a margin was pulled apart as
+ * the sea floor beside it began to open, so the age of the nearest sea floor is
+ * when to have finished putting it back.
+ */
+function unstretching(
+  thickness: Float32Array,
+  faceAges: Float32Array,
+  rigidity: Float32Array,
+  faceCount: number,
+  edges: Uint32Array,
+  edgeFaces: Int32Array,
+  edgeCount: number,
+) {
+  // Unextended continental crust, read off the model rather than assumed: the
+  // median thickness of the shields and platforms, which are the crust nothing
+  // has pulled on.
+  const intact: number[] = []
+  for (let f = 0; f < faceCount; f++) if (rigidity[f] >= 0.9) intact.push(thickness[f])
+  intact.sort((a, b) => a - b)
+  const reference = intact.length ? intact[Math.floor(intact.length / 2)] : 40
+
+  const stretch = new Float32Array(faceCount).fill(1)
+  for (let f = 0; f < faceCount; f++) {
+    if (faceAges[f] < PERMANENT_MA || thickness[f] <= 0) continue
+    // Capped: past about two and a half the crust is no longer a stretched
+    // continent but the start of an ocean, and ECM1's thinnest cells are as
+    // likely to be the grid being a degree across as they are to be real.
+    stretch[f] = Math.min(CONFIG.maxStretch, Math.max(1, reference / thickness[f]))
+  }
+
+  // When the sea floor beside it opened, spread inland over the face graph.
+  const riftMa = new Float32Array(faceCount).fill(-1)
+  const queue: number[] = []
+  for (let f = 0; f < faceCount; f++) {
+    if (faceAges[f] >= PERMANENT_MA) continue
+    riftMa[f] = faceAges[f]
+    queue.push(f)
+  }
+  // Oldest sea floor first, so an inland margin takes the age of the ocean it
+  // actually rifted from rather than of whatever water is nearest.
+  queue.sort((a, b) => faceAges[b] - faceAges[a])
+
+  // The face graph, taken from the edge list, which already knows which two
+  // triangles each edge separates.
+  const neighbourOf: number[][] = Array.from({ length: faceCount }, () => [])
+  for (let e = 0; e < edgeCount; e++) {
+    const a = edgeFaces[e * 2]
+    const b = edgeFaces[e * 2 + 1]
+    if (a >= 0 && b >= 0) {
+      neighbourOf[a].push(b)
+      neighbourOf[b].push(a)
+    }
+  }
+  void edges
+  for (let head = 0; head < queue.length; head++) {
+    const f = queue[head]
+    for (const n of neighbourOf[f]) {
+      if (riftMa[n] >= 0) continue
+      riftMa[n] = riftMa[f]
+      queue.push(n)
+    }
+  }
+  for (let f = 0; f < faceCount; f++) if (riftMa[f] < 0) riftMa[f] = 0
+
+  let thinned = 0
+  for (let f = 0; f < faceCount; f++) if (stretch[f] > 1.05) thinned++
+  console.log(
+    `[solve] unextended continental crust ${reference.toFixed(0)} km; ` +
+      `${((100 * thinned) / faceCount).toFixed(1)}% of the shell reads as stretched`,
+  )
+  return { stretch, riftMa }
 }
 
 /** How far apart the paired margins still are, averaged, as a progress report. */
