@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { DEFAULT_SURFACE_MAP } from '@shared/maps'
 
-export type ViewMode = 'surface' | 'age' | 'strain'
+export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'plates'
 
 /**
  * Playback time lives here rather than in React state on purpose: it changes
@@ -18,12 +18,15 @@ interface State {
   mode: ViewMode
   /** Which surface map is painted on the crust; see shared/maps.ts. */
   surfaceMap: string
+  /** Region held still while the rest of the world moves; '' for no-net-rotation. */
+  referenceFrame: string
   showGrid: boolean
   endTimeMa: number
   setPlaying: (playing: boolean) => void
   setSpeed: (speed: number) => void
   setMode: (mode: ViewMode) => void
   setSurfaceMap: (surfaceMap: string) => void
+  setReferenceFrame: (referenceFrame: string) => void
   setShowGrid: (showGrid: boolean) => void
   setEndTime: (endTimeMa: number) => void
   seek: (timeMa: number) => void
@@ -34,12 +37,14 @@ export const useStore = create<State>((set) => ({
   speed: 25,
   mode: 'surface',
   surfaceMap: DEFAULT_SURFACE_MAP,
+  referenceFrame: 'africa',
   showGrid: false,
   endTimeMa: 200,
   setPlaying: (playing) => set({ playing }),
   setSpeed: (speed) => set({ speed }),
   setMode: (mode) => set({ mode }),
   setSurfaceMap: (surfaceMap) => set({ surfaceMap }),
+  setReferenceFrame: (referenceFrame) => set({ referenceFrame }),
   setShowGrid: (showGrid) => set({ showGrid }),
   setEndTime: (endTimeMa) => set({ endTimeMa }),
   seek: (timeMa) => {

@@ -47,6 +47,10 @@ export interface FrameDiagnostics {
   medianStrain: number
   /** 90th percentile |strain|. */
   p90Strain: number
+  /** Median |strain| inside rigid craton cores -- this is what must stay small. */
+  cratonStrain: number
+  /** Median |strain| in weak crust: thin necks, shelves, island arcs. */
+  weakStrain: number
   /** RMS departure from the sphere of radius R(t), km: where crust must buckle. */
   reliefKm: number
   /** Number of rigid blocks the age data splits the crust into at this time. */
@@ -81,6 +85,9 @@ export interface Meta {
   frameCount: number
   endTimeMa: number
 
+  /** Distance in km between each scored pair, per recorded frame. */
+  scorecard: { a: string; b: string; joinedByMa: number; note: string; separationKm: number[] }[]
+
   diagnostics: FrameDiagnostics[]
   /** Same, for a control run with the radius held at R0 (plate tectonics null model). */
   fixedRadiusDiagnostics: FrameDiagnostics[]
@@ -108,6 +115,35 @@ export function crustScale(ageMa: number, t: number): number {
   return Math.max(MIN_SCALE, 1 - (t - ageMa) / TAU_MA)
 }
 
+/**
+ * How the crust's resistance to deformation is derived.
+ *
+ * Crust is not uniformly strong, and pretending it is was the single mistake
+ * behind almost everything wrong with the first solver. Made uniform, the
+ * continents stay welded to each other through Panama, the Bering Strait, the
+ * Sinai and the Indonesian arcs, and 88% of the surface ends up as one rigid
+ * body that cannot rearrange -- so nothing drifts, the oceans never close, and
+ * a block that size is forced into 15% of unavoidable strain.
+ *
+ * The signal that separates a craton from an isthmus is distance to the nearest
+ * continental margin. A craton interior is thousands of kilometres from any
+ * edge; an isthmus or an island arc is narrow, so every part of it is close to
+ * one. Deformation then goes where geology actually puts it -- thinned margins,
+ * island chains, narrow necks -- instead of into the middle of thick slabs.
+ */
+export const RIGIDITY = {
+  /** Distance from a margin at which continental crust reaches full strength. */
+  cratonKm: 700,
+  /** Continental crust under water is stretched and thinned, and weaker for it. */
+  submergedFactor: 0.25,
+  /** Oceanic lithosphere: rigid, but thin compared with a craton. */
+  oceanic: 0.6,
+  /** Nothing is ever perfectly free, or the mesh comes apart. */
+  floor: 0.02,
+  /** Crust at or above this is treated as a rigid craton core by the solver. */
+  cratonThreshold: 0.9,
+}
+
 /** Surface gravity in m/s^2 for a given radius, holding mass constant. */
 export const surfaceGravity = (radiusKm: number) =>
   (GRAVITATIONAL_CONSTANT * EARTH_MASS_KG) / (radiusKm * 1000) ** 2
@@ -119,6 +155,56 @@ export function sampleCurve(curve: number[], timeMa: number, stepMa: number): nu
   const f = x - i
   return f === 0 ? curve[i] : curve[i] * (1 - f) + curve[i + 1] * f
 }
+
+/**
+ * Regions used both as reference frames and as scorecard landmarks, given as
+ * present-day latitude and longitude bounds over continental crust.
+ */
+export interface Region {
+  id: string
+  label: string
+  latMin: number
+  latMax: number
+  lonMin: number
+  lonMax: number
+}
+
+export const REGIONS: Region[] = [
+  { id: 'africa', label: 'Africa', latMin: -35, latMax: 35, lonMin: -18, lonMax: 50 },
+  { id: 'south-america', label: 'South America', latMin: -55, latMax: 12, lonMin: -82, lonMax: -34 },
+  { id: 'north-america', label: 'North America', latMin: 25, latMax: 70, lonMin: -168, lonMax: -52 },
+  { id: 'eurasia', label: 'Eurasia', latMin: 40, latMax: 75, lonMin: 10, lonMax: 130 },
+  { id: 'antarctica', label: 'Antarctica', latMin: -90, latMax: -63, lonMin: -180, lonMax: 180 },
+  { id: 'australia', label: 'Australia', latMin: -44, latMax: -10, lonMin: 112, lonMax: 154 },
+  { id: 'india', label: 'India', latMin: 6, latMax: 30, lonMin: 68, lonMax: 90 },
+  { id: 'greenland', label: 'Greenland', latMin: 60, latMax: 84, lonMin: -73, lonMax: -12 },
+]
+
+/**
+ * Fits the reconstruction is scored against.
+ *
+ * Only pairs whose former adjacency is independently supported -- by matching
+ * geology across the join, by magnetic isochrons, or by both -- and which plate
+ * tectonics and Expanding Earth agree on. Reconstructions that were puzzled
+ * together by hand are deliberately excluded: whether Australia or Antarctica
+ * ends up against the west coast of South America is something this model
+ * should be allowed to answer, not something to steer it towards.
+ */
+export interface FitTarget {
+  a: string
+  b: string
+  /** They should be in contact at and before this time. */
+  joinedByMa: number
+  note: string
+}
+
+export const FIT_TARGETS: FitTarget[] = [
+  { a: 'south-america', b: 'africa', joinedByMa: 180, note: 'The South Atlantic had not opened' },
+  { a: 'australia', b: 'antarctica', joinedByMa: 100, note: 'Australia had not yet left Antarctica' },
+  { a: 'india', b: 'africa', joinedByMa: 120, note: 'India still sat against Madagascar and Africa' },
+  { a: 'greenland', b: 'north-america', joinedByMa: 60, note: 'The Labrador Sea had not opened' },
+  { a: 'north-america', b: 'africa', joinedByMa: 190, note: 'North-west Africa against eastern North America' },
+]
 
 /** Geological periods, for the timeline ruler. Ages in Ma. */
 export const PERIODS: { name: string; startMa: number; endMa: number; color: string }[] = [

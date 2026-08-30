@@ -13,14 +13,16 @@ export interface Dataset {
   frames: Int16Array
   /** Per-vertex strain, one byte per vertex per frame. */
   strain: Uint8Array
+  /** How strongly the crust at each vertex resists deformation; see RIGIDITY. */
+  rigidity: Float32Array
+  /** Per-vertex plate, 1-based so 0 can mean unassigned. */
+  plates: Uint8Array
   radiusKm: number[]
 }
 
 export async function loadDataset(): Promise<Dataset> {
   const inline = inlineData()
-  const { meta, mesh, frames, strain } = inline
-    ? await inline
-    : await fetchDataset()
+  const { meta, mesh, frames, strain, plates } = inline ? await inline : await fetchDataset()
 
   const [vertexCount, faceCount] = new Uint32Array(mesh, 0, 2)
   let offset = 8
@@ -29,18 +31,25 @@ export async function loadDataset(): Promise<Dataset> {
   const indices = new Uint32Array(mesh, offset, faceCount * 3)
   offset += faceCount * 3 * 4
   const faceAges = new Float32Array(mesh, offset, faceCount)
+  offset += faceCount * 4
+  const rigidity = new Float32Array(mesh, offset, faceCount)
 
   // A vertex exists as long as any triangle around it does, so it takes the
   // oldest age of its neighbours. Interpolating this across a triangle gives a
   // soft edge where new crust appears, which reads better than a hard sawtooth.
   const vertexAge = new Float32Array(vertexCount)
+  const vertexRigidity = new Float32Array(vertexCount)
+  const share = new Float32Array(vertexCount)
   for (let f = 0; f < faceCount; f++) {
     const age = faceAges[f]
     for (let k = 0; k < 3; k++) {
       const v = indices[f * 3 + k]
       if (age > vertexAge[v]) vertexAge[v] = age
+      vertexRigidity[v] += rigidity[f]
+      share[v]++
     }
   }
+  for (let v = 0; v < vertexCount; v++) if (share[v]) vertexRigidity[v] /= share[v]
 
   return {
     meta,
@@ -49,18 +58,21 @@ export async function loadDataset(): Promise<Dataset> {
     vertexAge,
     frames: new Int16Array(frames),
     strain: new Uint8Array(strain),
+    rigidity: vertexRigidity,
+    plates: new Uint8Array(plates),
     radiusKm: meta.crustModels[0].radiusKm,
   }
 }
 
 async function fetchDataset(): Promise<InlineData> {
-  const [meta, mesh, frames, strain] = await Promise.all([
+  const [meta, mesh, frames, strain, plates] = await Promise.all([
     fetch(asset('data/meta.json')).then((r) => r.json() as Promise<Meta>),
     fetch(asset('data/mesh.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/frames.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/strain.bin')).then((r) => r.arrayBuffer()),
+    fetch(asset('data/plates.bin')).then((r) => r.arrayBuffer()),
   ])
-  return { meta, mesh, frames, strain }
+  return { meta, mesh, frames, strain, plates }
 }
 
 export const radiusAt = (data: Dataset, timeMa: number) =>
@@ -80,6 +92,8 @@ export function sampleFrame(
   timeMa: number,
   positions: Float32Array,
   strain: Float32Array,
+  /** Per-frame 3x3 rotations that hold one continent still; see src/frames.ts. */
+  reference?: Float32Array,
 ) {
   const { meta, frames } = data
   const vertexCount = meta.vertexCount
@@ -99,9 +113,22 @@ export function sampleFrame(
     const j = i * 3
     const ax = frames[a + j] * k, ay = frames[a + j + 1] * k, az = frames[a + j + 2] * k
     const bx = frames[b + j] * k, by = frames[b + j + 1] * k, bz = frames[b + j + 2] * k
-    let vx = ax + (bx - ax) * f
-    let vy = ay + (by - ay) * f
-    let vz = az + (bz - az) * f
+    // Each keyframe is rotated into the reference frame before they are mixed;
+    // rotating the blend instead would swing the globe on the way through.
+    let pax = ax, pay = ay, paz = az, pbx = bx, pby = by, pbz = bz
+    if (reference) {
+      const ra = i0 * 9
+      const rb = i1 * 9
+      pax = reference[ra] * ax + reference[ra + 1] * ay + reference[ra + 2] * az
+      pay = reference[ra + 3] * ax + reference[ra + 4] * ay + reference[ra + 5] * az
+      paz = reference[ra + 6] * ax + reference[ra + 7] * ay + reference[ra + 8] * az
+      pbx = reference[rb] * bx + reference[rb + 1] * by + reference[rb + 2] * bz
+      pby = reference[rb + 3] * bx + reference[rb + 4] * by + reference[rb + 5] * bz
+      pbz = reference[rb + 6] * bx + reference[rb + 7] * by + reference[rb + 8] * bz
+    }
+    const vx = pax + (pbx - pax) * f
+    const vy = pay + (pby - pay) * f
+    const vz = paz + (pbz - paz) * f
     const length = Math.hypot(vx, vy, vz) || 1
     const s = radius / length
     positions[j] = vx * s

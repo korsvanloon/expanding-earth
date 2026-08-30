@@ -2,16 +2,22 @@ export const vertexShader = /* glsl */ `
 in vec3 aDir;
 in float aAge;
 in float aStrain;
+in float aRigidity;
+in float aPlate;
 
 out vec3 vDir;
 out float vAge;
 out float vStrain;
+out float vRigidity;
+out float vPlate;
 out vec3 vNormal;
 
 void main() {
   vDir = aDir;
   vAge = aAge;
   vStrain = aStrain;
+  vRigidity = aRigidity;
+  vPlate = aPlate;
   // The mesh is always a sphere, so the outward normal is just the position.
   vNormal = normalize(mat3(modelMatrix) * normalize(position));
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -31,6 +37,8 @@ uniform vec3 uLight;
 in vec3 vDir;
 in float vAge;
 in float vStrain;
+in float vRigidity;
+in float vPlate;
 in vec3 vNormal;
 
 out vec4 fragColor;
@@ -111,6 +119,21 @@ vec3 strainRamp(float strain) {
   return srgbToLinear(t < 0.0 ? mix(neutral, cold, -t) : mix(neutral, warm, t));
 }
 
+/** Weak crust dark red through to rigid craton pale, so the necks stand out. */
+vec3 rigidityRamp(float r) {
+  vec3 weak = vec3(0.62, 0.16, 0.20);
+  vec3 middle = vec3(0.86, 0.68, 0.35);
+  vec3 rigid = vec3(0.93, 0.93, 0.90);
+  return srgbToLinear(r < 0.5 ? mix(weak, middle, r * 2.0) : mix(middle, rigid, (r - 0.5) * 2.0));
+}
+
+/** A repeating hue per plate; neighbours differ because the ids are adjacent. */
+vec3 plateRamp(float id) {
+  float h = fract(id * 0.2469);
+  vec3 c = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
+  return srgbToLinear(mix(vec3(0.55), c, 0.75));
+}
+
 void main() {
   float sinceBirth = vAge - uTimeMa;
   bool exists = sinceBirth >= 0.0;
@@ -127,6 +150,10 @@ void main() {
     glow = heat;
   } else if (uMode == 0) {
     base = surface(vDir);
+  } else if (uMode == 3) {
+    base = rigidityRamp(vRigidity);
+  } else if (uMode == 4) {
+    base = vPlate < 0.5 ? srgbToLinear(vec3(0.2)) : plateRamp(vPlate);
   } else if (uMode == 1) {
     // Continental crust has no sea-floor age, so it gets a neutral tint --
     // shaded by the surface map's brightness so the landmasses stay legible

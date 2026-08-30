@@ -17,10 +17,18 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
+import { Raster, SEA, areaQuantile, downsample, loadRaster, loadSeaMask } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
-import { PERMANENT_MA, R0_KM, crustScale, type CrustModel, type CrustModelId, type Meta } from '../shared/model.js'
+import {
+  PERMANENT_MA,
+  R0_KM,
+  RIGIDITY,
+  crustScale,
+  type CrustModel,
+  type CrustModelId,
+  type Meta,
+} from '../shared/model.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const TEXTURES = resolve(ROOT, 'public/textures')
@@ -140,10 +148,17 @@ function main() {
   }
   console.log(`  mesh vs full-resolution radius curve: max deviation ${(100 * worst).toFixed(2)}%`)
 
-  mkdirSync(OUT, { recursive: true })
-  writeMesh(resolve(OUT, 'mesh.bin'), mesh.positions, mesh.indices, solvedFaceAges)
+  // Land or sea comes off the colour map, not the height map: see loadSeaMask.
+  const sea = downsample(
+    loadSeaMask(resolve(TEXTURES, 'blue-marble-map.jpg')),
+    CONFIG.gridWidth, CONFIG.gridHeight, -1,
+  )
+  const rigidity = computeRigidity(mesh, solvedFaceAges, sea)
 
-  const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount'> = {
+  mkdirSync(OUT, { recursive: true })
+  writeMesh(resolve(OUT, 'mesh.bin'), mesh.positions, mesh.indices, solvedFaceAges, rigidity)
+
+  const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'> = {
     version: 1,
     generatedAt: new Date().toISOString(),
     sources: [
@@ -360,6 +375,122 @@ function sampleFaceAges(
   return out
 }
 
+/**
+ * Strength of each triangle of crust, from its distance to the nearest
+ * continental margin and whether it stands above sea level.
+ *
+ * The distance is measured across the mesh itself rather than on the raster, so
+ * it is a real geodesic distance in kilometres and does not stretch towards the
+ * poles the way an equirectangular grid does.
+ *
+ * Continental crust that is under water is weakened on top of that. Broad
+ * shallow platforms -- the Bering, Sunda, Barents and North Sea shelves -- are
+ * stretched continental crust, and they are exactly the bridges that would
+ * otherwise weld whole continents together.
+ */
+function computeRigidity(
+  mesh: { positions: Float64Array; indices: Uint32Array },
+  faceAges: Float32Array,
+  sea: Raster,
+): Float32Array {
+  const faceCount = mesh.indices.length / 3
+  const centroids = new Float64Array(faceCount * 3)
+  for (let f = 0; f < faceCount; f++) {
+    let x = 0, y = 0, z = 0
+    for (let k = 0; k < 3; k++) {
+      const v = mesh.indices[f * 3 + k] * 3
+      x += mesh.positions[v]; y += mesh.positions[v + 1]; z += mesh.positions[v + 2]
+    }
+    const length = Math.hypot(x, y, z) || 1
+    centroids[f * 3] = x / length
+    centroids[f * 3 + 1] = y / length
+    centroids[f * 3 + 2] = z / length
+  }
+
+  const neighbours = buildFaceAdjacency(mesh.indices, faceCount)
+  const continental = (f: number) => faceAges[f] >= PERMANENT_MA
+
+  // Multi-source Dijkstra outward from every triangle that touches the
+  // continent-ocean boundary, on both sides of it.
+  const distance = new Float64Array(faceCount).fill(Infinity)
+  const heap: [number, number][] = []
+  for (let f = 0; f < faceCount; f++) {
+    for (const n of neighbours[f]) {
+      if (continental(f) !== continental(n)) {
+        distance[f] = 0
+        heap.push([0, f])
+        break
+      }
+    }
+  }
+  const arcKm = (a: number, b: number) => {
+    const dot =
+      centroids[a * 3] * centroids[b * 3] +
+      centroids[a * 3 + 1] * centroids[b * 3 + 1] +
+      centroids[a * 3 + 2] * centroids[b * 3 + 2]
+    return R0_KM * Math.acos(Math.min(1, Math.max(-1, dot)))
+  }
+  heap.sort((p, q) => p[0] - q[0])
+  while (heap.length) {
+    const [d, f] = heap.shift()!
+    if (d > distance[f]) continue
+    for (const n of neighbours[f]) {
+      const next = d + arcKm(f, n)
+      if (next < distance[n]) {
+        distance[n] = next
+        // Insertion into a nearly sorted list; the frontier stays small.
+        let i = heap.length
+        while (i > 0 && heap[i - 1][0] > next) i--
+        heap.splice(i, 0, [next, n])
+      }
+    }
+  }
+
+  const rigidity = new Float32Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    if (!continental(f)) {
+      rigidity[f] = RIGIDITY.oceanic
+      continue
+    }
+    const t = Math.min(1, distance[f] / RIGIDITY.cratonKm)
+    let value = t * t * (3 - 2 * t) // smoothstep: soft near the margin
+    const submerged =
+      sea.atDirection(centroids[f * 3], centroids[f * 3 + 1], centroids[f * 3 + 2]) === SEA
+    if (submerged) value *= RIGIDITY.submergedFactor
+    rigidity[f] = Math.max(RIGIDITY.floor, value)
+  }
+
+  const cratonFaces = rigidity.reduce((n, r) => n + (r >= RIGIDITY.cratonThreshold ? 1 : 0), 0)
+  const weakFaces = rigidity.reduce((n, r) => n + (r < 0.2 ? 1 : 0), 0)
+  console.log(
+    `  rigidity: ${((100 * cratonFaces) / faceCount).toFixed(1)}% craton core, ` +
+      `${((100 * weakFaces) / faceCount).toFixed(1)}% weak crust`,
+  )
+  return rigidity
+}
+
+function buildFaceAdjacency(indices: Uint32Array, faceCount: number): number[][] {
+  const edges = new Map<number, number[]>()
+  const vertexCount = indices.reduce((m, v) => Math.max(m, v), 0) + 1
+  for (let f = 0; f < faceCount; f++) {
+    for (let k = 0; k < 3; k++) {
+      const a = indices[f * 3 + k]
+      const b = indices[f * 3 + ((k + 1) % 3)]
+      const key = Math.min(a, b) * vertexCount + Math.max(a, b)
+      const found = edges.get(key)
+      if (found) found.push(f)
+      else edges.set(key, [f])
+    }
+  }
+  const out: number[][] = Array.from({ length: faceCount }, () => [])
+  for (const faces of edges.values()) {
+    if (faces.length !== 2) continue
+    out[faces[0]].push(faces[1])
+    out[faces[1]].push(faces[0])
+  }
+  return out
+}
+
 function computeFaceAreas(positions: Float64Array, indices: Uint32Array): Float64Array {
   const out = new Float64Array(indices.length / 3)
   for (let f = 0; f < out.length; f++) {
@@ -401,6 +532,7 @@ function writeMesh(
   positions: Float64Array,
   indices: Uint32Array,
   faceAges: Float32Array,
+  rigidity: Float32Array,
 ) {
   const dirs = Float32Array.from(positions)
   const header = new Uint32Array([positions.length / 3, indices.length / 3])
@@ -411,6 +543,7 @@ function writeMesh(
       Buffer.from(dirs.buffer),
       Buffer.from(indices.buffer),
       Buffer.from(faceAges.buffer),
+      Buffer.from(rigidity.buffer),
     ]),
   )
 }

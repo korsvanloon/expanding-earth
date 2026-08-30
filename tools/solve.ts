@@ -34,12 +34,16 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import {
+  FIT_TARGETS,
   PERMANENT_MA,
+  REGIONS,
+  RIGIDITY,
   crustScale,
   sampleCurve,
   type FrameDiagnostics,
   type Meta,
 } from '../shared/model.js'
+import { directionToUv } from '../shared/sphere.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(ROOT, 'public/data')
@@ -62,6 +66,21 @@ const CONFIG = {
    * transmitting rigidity.
    */
   unbornStiffness: Number(process.env.UNBORN_K ?? 0.6),
+  /** How hard conjugate margins are pulled back together, per sweep. */
+  seamGain: Number(process.env.SEAM_GAIN ?? 0.35),
+  /**
+   * How far a front may travel into vanished crust before it stops looking for
+   * a partner, in mesh steps of about 110 km.
+   *
+   * Spreading has to be reversed a strip at a time. Let the fronts run without
+   * limit and at 200 Ma they cross the entire Pacific in one go, where the line
+   * on which they collide is no longer a ridge but an artefact of the shape of
+   * the hole -- which had North America and Eurasia pulling each other to
+   * opposite sides of the planet. Keeping the reach local pairs each margin
+   * with the crust that was actually against it, and the closure accumulates
+   * over the steps instead of being guessed in one leap.
+   */
+  seamReach: Number(process.env.SEAM_REACH ?? 6),
   /** Smoothing passes that settle not-yet-created crust into the leftover gap. */
   unbornSmoothing: Number(process.env.SMOOTH ?? 30),
   /**
@@ -93,7 +112,7 @@ const CONFIG = {
 function main() {
   const meta = JSON.parse(
     readFileSync(resolve(OUT, 'meta.partial.json'), 'utf8'),
-  ) as Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount'>
+  ) as Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'>
 
   const buffer = readFileSync(resolve(OUT, 'mesh.bin'))
   const [vertexCount, faceCount] = new Uint32Array(buffer.buffer, buffer.byteOffset, 2)
@@ -103,6 +122,8 @@ function main() {
   const indices = new Uint32Array(buffer.buffer, offset, faceCount * 3)
   offset += faceCount * 3 * 4
   const faceAges = new Float32Array(buffer.buffer, offset, faceCount)
+  offset += faceCount * 4
+  const rigidity = new Float32Array(buffer.buffer, offset, faceCount)
   console.log(`[solve] ${vertexCount} vertices, ${faceCount} faces`)
 
   const radius = meta.crustModels.find((m) => m.id === meta.solvedModel)!.radiusKm
@@ -119,6 +140,18 @@ function main() {
       `(>${CONFIG.faultThresholdMa} Ma)`,
   )
 
+  /**
+   * How hard each edge resists being changed, taken as the weaker of the two
+   * triangles it separates. Weakest-wins on purpose: a thin neck between two
+   * cratons should give way rather than drag them along with it.
+   */
+  const edgeRigidity = new Float64Array(edgeCount)
+  for (let e = 0; e < edgeCount; e++) {
+    const a = edgeFaces[e * 2]
+    const b = edgeFaces[e * 2 + 1]
+    edgeRigidity[e] = b < 0 ? rigidity[a] : Math.min(rigidity[a], rigidity[b])
+  }
+
   /** The size each piece of crust has today, which is the size it keeps. */
   const rest = new Float64Array(edgeCount)
   for (let e = 0; e < edgeCount; e++) {
@@ -131,6 +164,7 @@ function main() {
   const pos = new Float64Array(vertexCount * 3)
   for (let i = 0; i < vertexCount * 3; i++) pos[i] = dirs[i] * r0
   const previous = new Float64Array(pos)
+  const reference = new Float64Array(pos)
 
   // Present-day area of every triangle: the area that piece of crust has, and
   // therefore keeps.
@@ -141,12 +175,60 @@ function main() {
   }
 
   const adjacency = buildVertexAdjacency(indices, vertexCount)
-  const vertexBlock = new Int32Array(vertexCount)
+  const plates = buildPlates(indices, faceCount, vertexCount, rigidity, dirs, edges, edgeFaces, edgeCount, r0)
+  console.log(
+    `[solve] ${plates.count} plates around ${plates.count} craton cores; ` +
+      `${((100 * plates.interior.reduce((n, v) => n + (v >= 0 ? 1 : 0), 0)) / vertexCount).toFixed(0)}% ` +
+      `of vertices are rigid craton interior`,
+  )
+  const vertexBlock = plates.vertexPlate
+
+  const vertexAge = new Float32Array(vertexCount)
+  for (let f = 0; f < faceCount; f++) {
+    for (let k = 0; k < 3; k++) {
+      const v = indices[f * 3 + k]
+      if (faceAges[f] > vertexAge[v]) vertexAge[v] = faceAges[f]
+    }
+  }
   const frames: Int16Array[] = []
   const strains: Uint8Array[] = []
   const diagnostics: FrameDiagnostics[] = []
 
+  // Which vertices make up each named region, for the scorecard.
+  const regionVertices = new Map<string, number[]>()
+  for (const region of REGIONS) {
+    const list: number[] = []
+    for (let v = 0; v < vertexCount; v++) {
+      if (vertexAge[v] < PERMANENT_MA) continue
+      const [u, w] = directionToUv(dirs[v * 3], dirs[v * 3 + 1], dirs[v * 3 + 2])
+      const lon = (u - 0.5) * 360
+      const lat = (w - 0.5) * 180
+      if (lat >= region.latMin && lat <= region.latMax && lon >= region.lonMin && lon <= region.lonMax) {
+        list.push(v)
+      }
+    }
+    regionVertices.set(region.id, list)
+  }
+  const separation = new Map<string, number[]>()
+
   const record = (t: number) => {
+    const centre = (id: string) => {
+      let x = 0, y = 0, z = 0
+      for (const v of regionVertices.get(id) ?? []) {
+        const length = Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
+        x += pos[v * 3] / length; y += pos[v * 3 + 1] / length; z += pos[v * 3 + 2] / length
+      }
+      const length = Math.hypot(x, y, z) || 1
+      return [x / length, y / length, z / length] as const
+    }
+    for (const target of FIT_TARGETS) {
+      const a = centre(target.a)
+      const b = centre(target.b)
+      const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
+      const key = `${target.a}|${target.b}`
+      separation.set(key, [...(separation.get(key) ?? []), Math.acos(dot) * radiusAt(t)])
+    }
+
     frames.push(quantise(pos, vertexCount))
     strains.push(
       perVertexStrain(
@@ -157,12 +239,11 @@ function main() {
       timeMa: t,
       radiusKm: radiusAt(t),
       ...coverage(pos, indices, faceAges, faceCount, t),
-      ...strainStats(faceStrain(pos, indices, restArea, faceCount), faceAges, restArea, faceCount, t),
-      reliefKm: relief(pos, vertexCount, radiusAt(t)),
-      blockCount: labelBlocks(
-        indices, faceAges, faceCount, vertexCount,
-        edges, edgeFault, edgeFaces, edgeCount, t, vertexBlock,
+      ...strainStats(
+        faceStrain(pos, indices, restArea, faceCount), faceAges, restArea, faceCount, t, rigidity,
       ),
+      reliefKm: relief(pos, vertexCount, radiusAt(t)),
+      blockCount: plates.count,
     })
   }
 
@@ -179,11 +260,14 @@ function main() {
     // size on the smaller sphere. Relaxation cleans up what is left.
     const shrink = rNext / rPrev
     for (let i = 0; i < vertexCount * 3; i++) pos[i] *= shrink
-    const blocks = labelBlocks(
-      indices, faceAges, faceCount, vertexCount,
-      edges, edgeFault, edgeFaces, edgeCount, t, vertexBlock,
+    const seams = findSeams(
+      indices, faceCount, vertexCount, faceAges, t, vertexBlock, adjacency,
     )
-    dilateBlocks(pos, vertexBlock, blocks, rPrev, rNext, vertexCount)
+    dilateBlocks(pos, vertexBlock, plates.count, rPrev, rNext, vertexCount)
+    // The craton interiors are rigid, so remember the shape they are allowed to
+    // keep; everything the relaxation does to them afterwards is undone except
+    // the part a rotation could have produced.
+    reference.set(pos)
 
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
       const forward = sweep % 2 === 0
@@ -193,7 +277,7 @@ function main() {
         const stiffness = edgeFault[e]
           ? CONFIG.faultStiffness
           : existing
-            ? 1
+            ? edgeRigidity[e]
             : CONFIG.unbornStiffness
         if (stiffness === 0) continue
         const target = rest[e] * crustScale(edgeAge[e], t)
@@ -215,6 +299,8 @@ function main() {
         pos[j] += cx; pos[j + 1] += cy; pos[j + 2] += cz
       }
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
+      closeSeams(pos, seams, vertexBlock, plates.count, vertexCount, CONFIG.seamGain)
+      keepCratonsRigid(pos, reference, plates.interior, plates.count, vertexCount)
     }
     // The frame is recorded on the sphere, so finish there.
     relaxToSphere(pos, vertexCount, rNext, 1)
@@ -230,7 +316,8 @@ function main() {
           `blocks=${String(d.blockCount).padStart(3)}  ` +
           `unclosed=${(100 * d.gapFraction).toFixed(2)}%  ` +
           `folded=${(100 * d.overlapFraction).toFixed(2)}%  ` +
-          `strain med=${(100 * d.medianStrain).toFixed(1)}% p90=${(100 * d.p90Strain).toFixed(1)}%`,
+          `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%` +
+            ` all=${(100 * d.medianStrain).toFixed(1)}%`,
       )
     }
   }
@@ -252,10 +339,34 @@ function main() {
   const strainBuffer = Buffer.concat(strains.map((s) => Buffer.from(s.buffer)))
   writeFileSync(resolve(OUT, 'frames.bin'), frameBuffer)
   writeFileSync(resolve(OUT, 'strain.bin'), strainBuffer)
+  // Which plate each vertex belongs to, so the viewer can show the mosaic the
+  // solver actually used rather than a redrawing of it.
+  writeFileSync(resolve(OUT, 'plates.bin'), Buffer.from(Uint8Array.from(vertexBlock, (p) => p + 1)))
   writeFileSync(
     resolve(OUT, 'meta.json'),
-    JSON.stringify({ ...meta, frameCount: frames.length, diagnostics, fixedRadiusDiagnostics } satisfies Meta),
+    JSON.stringify({
+      ...meta,
+      frameCount: frames.length,
+      diagnostics,
+      fixedRadiusDiagnostics,
+      scorecard: FIT_TARGETS.map((target) => ({
+        ...target,
+        separationKm: separation.get(`${target.a}|${target.b}`) ?? [],
+      })),
+    } satisfies Meta),
   )
+  console.log('[solve] fit scorecard, centre to centre:')
+  for (const target of FIT_TARGETS) {
+    const km = separation.get(`${target.a}|${target.b}`) ?? []
+    const step = meta.frameStepMa
+    const atJoin = km[Math.min(km.length - 1, Math.round(target.joinedByMa / step))]
+    console.log(
+      `  ${(target.a + ' - ' + target.b).padEnd(30)} ` +
+        `now ${km[0].toFixed(0).padStart(6)} km   ` +
+        `at ${String(target.joinedByMa).padStart(3)} Ma ${atJoin.toFixed(0).padStart(6)} km` +
+        `   (should be touching)`,
+    )
+  }
   console.log(
     `[solve] wrote ${frames.length} frames ` +
       `(${(frameBuffer.byteLength / 1e6).toFixed(1)} MB + ${(strainBuffer.byteLength / 1e6).toFixed(1)} MB)`,
@@ -325,26 +436,41 @@ function buildEdges(
 }
 
 /**
- * Split the surviving crust into the blocks that move as units.
+ * Work out the plates, and which crust inside them is rigid.
  *
- * Two neighbouring triangles belong to the same block when both still exist and
- * the edge between them is not a fault. Nothing here is told what a plate is:
- * ridges disconnect blocks because the crust between them has not been created
- * yet, and fracture zones disconnect them because the age field steps across
- * them. The plate boundaries are read off the magnetic anomaly pattern.
+ * A craton core is a patch of crust strong enough to be treated as unbendable:
+ * continental interior, far from any margin. Those cores are found first, and
+ * then every other triangle -- shelf, island arc, ocean floor -- is assigned to
+ * whichever core is nearest across the mesh. A plate is therefore a continent
+ * plus the crust trailing behind it, which is what a plate physically is.
+ *
+ * This replaces an earlier attempt to read plates off the connectivity of
+ * surviving crust, which does not work and is worth recording. Removing the
+ * young crust does not cut the shell: taking an open strip out of a sphere
+ * leaves it in one piece, and the continents stay laced together through
+ * Panama, the Bering Strait, the Sinai and the Indonesian arcs. Measured at
+ * 200 Ma, that put seven of the eight continents into a single rigid body
+ * covering 88% of the surface -- which is why nothing drifted, why the oceans
+ * never closed, and why the strain was enormous: a block that size cannot lie
+ * on a smaller sphere without about 15% of deformation.
  */
-function labelBlocks(
+function buildPlates(
   indices: Uint32Array,
-  faceAges: Float32Array,
   faceCount: number,
   vertexCount: number,
+  rigidity: Float32Array,
+  dirs: Float32Array,
   edges: Uint32Array,
-  edgeFault: Uint8Array,
   edgeFaces: Int32Array,
   edgeCount: number,
-  t: number,
-  vertexBlock: Int32Array,
+  r0: number,
 ) {
+  const isCraton = new Uint8Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    isCraton[f] = rigidity[f] >= RIGIDITY.cratonThreshold ? 1 : 0
+  }
+
+  // Connected components of craton crust.
   const parent = new Int32Array(faceCount)
   for (let f = 0; f < faceCount; f++) parent[f] = f
   const find = (x: number): number => {
@@ -352,31 +478,334 @@ function labelBlocks(
     return x
   }
   for (let e = 0; e < edgeCount; e++) {
-    if (edgeFault[e]) continue
-    const fa = edgeFaces[e * 2]
-    const fb = edgeFaces[e * 2 + 1]
-    if (fb < 0 || faceAges[fa] < t || faceAges[fb] < t) continue
-    const ra = find(fa)
-    const rb = find(fb)
+    const a = edgeFaces[e * 2]
+    const b = edgeFaces[e * 2 + 1]
+    if (b < 0 || !isCraton[a] || !isCraton[b]) continue
+    const ra = find(a)
+    const rb = find(b)
     if (ra !== rb) parent[ra] = rb
   }
-  const ids = new Map<number, number>()
-  vertexBlock.fill(-1)
+
+  const size = new Map<number, number>()
+  for (let f = 0; f < faceCount; f++) if (isCraton[f]) size.set(find(f), (size.get(find(f)) ?? 0) + 1)
+  // A handful of triangles is not a craton, it is noise in the rigidity field.
+  const MIN_CORE_FACES = 30
+  const coreId = new Map<number, number>()
+  for (const [root, n] of size) if (n >= MIN_CORE_FACES) coreId.set(root, coreId.size)
   for (let f = 0; f < faceCount; f++) {
-    if (faceAges[f] < t) continue
-    const root = find(f)
-    let id = ids.get(root)
-    if (id === undefined) {
-      id = ids.size
-      ids.set(root, id)
-    }
+    if (isCraton[f] && !coreId.has(find(f))) isCraton[f] = 0
+  }
+  const count = coreId.size
+
+  // Every other triangle joins the nearest core, measured across the mesh.
+  const centroid = (f: number) => {
+    let x = 0, y = 0, z = 0
     for (let k = 0; k < 3; k++) {
-      const v = indices[f * 3 + k]
-      if (vertexBlock[v] < 0) vertexBlock[v] = id
+      const v = indices[f * 3 + k] * 3
+      x += dirs[v]; y += dirs[v + 1]; z += dirs[v + 2]
+    }
+    const length = Math.hypot(x, y, z) || 1
+    return [x / length, y / length, z / length] as const
+  }
+  const centres = Array.from({ length: faceCount }, (_, f) => centroid(f))
+  const arcKm = (a: number, b: number) => {
+    const d = centres[a][0] * centres[b][0] + centres[a][1] * centres[b][1] + centres[a][2] * centres[b][2]
+    return r0 * Math.acos(Math.min(1, Math.max(-1, d)))
+  }
+
+  const facePlate = new Int32Array(faceCount).fill(-1)
+  const distance = new Float64Array(faceCount).fill(Infinity)
+  const frontier: [number, number][] = []
+  for (let f = 0; f < faceCount; f++) {
+    if (!isCraton[f]) continue
+    facePlate[f] = coreId.get(find(f))!
+    distance[f] = 0
+    frontier.push([0, f])
+  }
+  const neighbours: number[][] = Array.from({ length: faceCount }, () => [])
+  for (let e = 0; e < edgeCount; e++) {
+    const a = edgeFaces[e * 2]
+    const b = edgeFaces[e * 2 + 1]
+    if (b < 0) continue
+    neighbours[a].push(b)
+    neighbours[b].push(a)
+  }
+  while (frontier.length) {
+    const [d, f] = frontier.shift()!
+    if (d > distance[f]) continue
+    for (const n of neighbours[f]) {
+      const next = d + arcKm(f, n)
+      if (next >= distance[n]) continue
+      distance[n] = next
+      facePlate[n] = facePlate[f]
+      let i = frontier.length
+      while (i > 0 && frontier[i - 1][0] > next) i--
+      frontier.splice(i, 0, [next, n])
     }
   }
+
+  // A vertex counts as rigid craton only when every triangle around it belongs
+  // to the same core. Vertices on the rim are shared with weaker crust and are
+  // left free to deform, which is where the transition belongs -- and it avoids
+  // the tearing that sank an earlier attempt to snap whole blocks rigid.
+  const vertexPlate = new Int32Array(vertexCount).fill(-1)
+  const interior = new Int32Array(vertexCount).fill(-1)
+  const conflicted = new Uint8Array(vertexCount)
+  for (let f = 0; f < faceCount; f++) {
+    for (let k = 0; k < 3; k++) {
+      const v = indices[f * 3 + k]
+      if (vertexPlate[v] < 0) vertexPlate[v] = facePlate[f]
+      const core = isCraton[f] ? facePlate[f] : -1
+      if (interior[v] === -1 && !conflicted[v]) interior[v] = core
+      else if (interior[v] !== core) conflicted[v] = 1
+    }
+  }
+  for (let v = 0; v < vertexCount; v++) if (conflicted[v]) interior[v] = -1
   void edges
-  return ids.size
+
+  return { count, facePlate, vertexPlate, interior, isCraton }
+}
+
+/**
+ * Find conjugate margins: pairs of points on two different plates that were in
+ * contact before the ocean between them existed.
+ *
+ * This is the reverse of sea-floor spreading, and it is what actually moves
+ * continents. Crust of a given age on one flank of a ridge was made at the same
+ * instant, in the same place, as crust of that age on the other flank; remove
+ * everything younger and the two margins must meet again. The pairing falls out
+ * of a race: fronts start from every margin that borders vanished crust and
+ * spread into it, and where two fronts collide is the extinct ridge, with the
+ * two margins they set out from being the pair that has to come back together.
+ *
+ * The earlier solver tried to do this by letting the vanished crust contract as
+ * a spring mesh. That cannot work at this scale -- closing the Atlantic means
+ * collapsing a third of the planet's surface through a fixed triangulation, so
+ * the triangles invert and jam long before the job is done, and the pull stalls
+ * at about half the distance. Here the vanished crust is used only as a graph
+ * to find who belongs against whom, never as something that has to physically
+ * shrink.
+ */
+function findSeams(
+  indices: Uint32Array,
+  faceCount: number,
+  vertexCount: number,
+  faceAges: Float32Array,
+  t: number,
+  vertexPlate: Int32Array,
+  adjacency: { offsets: Uint32Array; neighbours: Uint32Array },
+) {
+  const alive = new Uint8Array(vertexCount)
+  const touchesGone = new Uint8Array(vertexCount)
+  for (let f = 0; f < faceCount; f++) {
+    const gone = faceAges[f] < t
+    for (let k = 0; k < 3; k++) {
+      const v = indices[f * 3 + k]
+      if (gone) touchesGone[v] = 1
+      else alive[v] = 1
+    }
+  }
+
+  // Fronts set out from every margin that borders crust which has gone.
+  const source = new Int32Array(vertexCount).fill(-1)
+  const plate = new Int32Array(vertexCount).fill(-1)
+  const depth = new Int32Array(vertexCount)
+  const queue: number[] = []
+  for (let v = 0; v < vertexCount; v++) {
+    if (!alive[v] || !touchesGone[v]) continue
+    source[v] = v
+    plate[v] = vertexPlate[v]
+    queue.push(v)
+  }
+
+  const { offsets, neighbours } = adjacency
+  const pairs: number[] = []
+  const seen = new Set<number>()
+  for (let head = 0; head < queue.length; head++) {
+    const v = queue[head]
+    for (let k = offsets[v]; k < offsets[v + 1]; k++) {
+      const n = neighbours[k]
+      if (source[n] === -1) {
+        // Only crust that no longer exists conducts a front, and only so far.
+        if (alive[n] || depth[v] >= CONFIG.seamReach) continue
+        source[n] = source[v]
+        plate[n] = plate[v]
+        depth[n] = depth[v] + 1
+        queue.push(n)
+      } else if (plate[n] !== plate[v] && plate[n] >= 0 && plate[v] >= 0) {
+        const a = Math.min(source[v], source[n])
+        const b = Math.max(source[v], source[n])
+        const key = a * vertexCount + b
+        if (seen.has(key)) continue
+        seen.add(key)
+        pairs.push(a, b)
+      }
+    }
+  }
+  return new Uint32Array(pairs)
+}
+
+/**
+ * Draw conjugate margins back together, moving whole plates rather than
+ * stretching them. Each pair asks its two points to meet in the middle; those
+ * requests are collapsed into the single rotation per plate that best satisfies
+ * them, so a continent is dragged across an ocean without being pulled out of
+ * shape on the way.
+ */
+function closeSeams(
+  pos: Float64Array,
+  seams: Uint32Array,
+  vertexPlate: Int32Array,
+  plateCount: number,
+  vertexCount: number,
+  gain: number,
+) {
+  if (!seams.length || plateCount === 0) return
+  const m = new Float64Array(plateCount * 6)
+  const v = new Float64Array(plateCount * 3)
+  const trace = new Float64Array(plateCount)
+  const size = new Float64Array(plateCount)
+
+  const add = (i: number, dx: number, dy: number, dz: number) => {
+    const p = vertexPlate[i]
+    if (p < 0) return
+    const qx = pos[i * 3], qy = pos[i * 3 + 1], qz = pos[i * 3 + 2]
+    const q2 = qx * qx + qy * qy + qz * qz
+    const o = p * 6
+    m[o] += q2 - qx * qx; m[o + 1] += q2 - qy * qy; m[o + 2] += q2 - qz * qz
+    m[o + 3] -= qx * qy; m[o + 4] -= qx * qz; m[o + 5] -= qy * qz
+    v[p * 3] += qy * dz - qz * dy
+    v[p * 3 + 1] += qz * dx - qx * dz
+    v[p * 3 + 2] += qx * dy - qy * dx
+    trace[p] += q2
+    size[p]++
+  }
+
+  for (let s = 0; s < seams.length; s += 2) {
+    const a = seams[s], b = seams[s + 1]
+    const dx = (pos[b * 3] - pos[a * 3]) * 0.5
+    const dy = (pos[b * 3 + 1] - pos[a * 3 + 1]) * 0.5
+    const dz = (pos[b * 3 + 2] - pos[a * 3 + 2]) * 0.5
+    add(a, dx, dy, dz)
+    add(b, -dx, -dy, -dz)
+  }
+
+  for (let p = 0; p < plateCount; p++) {
+    if (size[p] === 0) continue
+    const ridge = 1e-3 * (trace[p] / size[p])
+    const o = p * 6
+    const omega = solve3(
+      [m[o] + ridge, m[o + 3], m[o + 4], m[o + 3], m[o + 1] + ridge, m[o + 5],
+       m[o + 4], m[o + 5], m[o + 2] + ridge],
+      [v[p * 3], v[p * 3 + 1], v[p * 3 + 2]],
+    )
+    if (!omega) continue
+    const angle = Math.hypot(...omega)
+    // Cap the step so one badly conditioned plate cannot fling itself away.
+    const scale = (angle > 0.03 ? 0.03 / angle : 1) * gain
+    v[p * 3] = omega[0] * scale
+    v[p * 3 + 1] = omega[1] * scale
+    v[p * 3 + 2] = omega[2] * scale
+  }
+
+  for (let i = 0; i < vertexCount; i++) {
+    const p = vertexPlate[i]
+    if (p < 0 || size[p] === 0) continue
+    const wx = v[p * 3], wy = v[p * 3 + 1], wz = v[p * 3 + 2]
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
+    pos[i * 3] = x + wy * z - wz * y
+    pos[i * 3 + 1] = y + wz * x - wx * z
+    pos[i * 3 + 2] = z + wx * y - wy * x
+  }
+}
+
+/**
+ * Undo whatever the relaxation did to a craton interior, keeping only the part
+ * a rigid rotation could have done. Continents move; they do not stretch.
+ *
+ * Only interior vertices take part, so cores never share one and the snap
+ * cannot tear the mesh. The rotation is found by a few small-angle
+ * least-squares steps, which is plenty: the motion in one step is far under a
+ * degree.
+ */
+function keepCratonsRigid(
+  pos: Float64Array,
+  reference: Float64Array,
+  interior: Int32Array,
+  count: number,
+  vertexCount: number,
+) {
+  if (count === 0) return
+  const rotation = new Float64Array(count * 9)
+  for (let c = 0; c < count; c++) {
+    rotation[c * 9] = 1
+    rotation[c * 9 + 4] = 1
+    rotation[c * 9 + 8] = 1
+  }
+
+  for (let pass = 0; pass < 3; pass++) {
+    const m = new Float64Array(count * 6)
+    const v = new Float64Array(count * 3)
+    for (let i = 0; i < vertexCount; i++) {
+      const c = interior[i]
+      if (c < 0) continue
+      const r = c * 9
+      const rx = reference[i * 3], ry = reference[i * 3 + 1], rz = reference[i * 3 + 2]
+      const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
+      const qy = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
+      const qz = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
+      const dx = pos[i * 3] - qx, dy = pos[i * 3 + 1] - qy, dz = pos[i * 3 + 2] - qz
+      const q2 = qx * qx + qy * qy + qz * qz
+      const o = c * 6
+      m[o] += q2 - qx * qx; m[o + 1] += q2 - qy * qy; m[o + 2] += q2 - qz * qz
+      m[o + 3] -= qx * qy; m[o + 4] -= qx * qz; m[o + 5] -= qy * qz
+      v[c * 3] += qy * dz - qz * dy
+      v[c * 3 + 1] += qz * dx - qx * dz
+      v[c * 3 + 2] += qx * dy - qy * dx
+    }
+    for (let c = 0; c < count; c++) {
+      const o = c * 6
+      const omega = solve3(
+        [m[o], m[o + 3], m[o + 4], m[o + 3], m[o + 1], m[o + 5], m[o + 4], m[o + 5], m[o + 2]],
+        [v[c * 3], v[c * 3 + 1], v[c * 3 + 2]],
+      )
+      if (!omega) continue
+      const angle = Math.hypot(...omega)
+      if (angle < 1e-12 || angle > 0.5) continue
+      compose(rotation, c * 9, omega[0] / angle, omega[1] / angle, omega[2] / angle, angle)
+    }
+  }
+
+  for (let i = 0; i < vertexCount; i++) {
+    const c = interior[i]
+    if (c < 0) continue
+    const r = c * 9
+    const rx = reference[i * 3], ry = reference[i * 3 + 1], rz = reference[i * 3 + 2]
+    pos[i * 3] = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
+    pos[i * 3 + 1] = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
+    pos[i * 3 + 2] = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
+  }
+}
+
+/** Pre-multiply the 3x3 rotation at `offset` by a Rodrigues rotation. */
+function compose(
+  out: Float64Array, offset: number,
+  ax: number, ay: number, az: number, angle: number,
+) {
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  const k = 1 - c
+  const r = [
+    c + ax * ax * k, ax * ay * k - az * s, ax * az * k + ay * s,
+    ay * ax * k + az * s, c + ay * ay * k, ay * az * k - ax * s,
+    az * ax * k - ay * s, az * ay * k + ax * s, c + az * az * k,
+  ]
+  const m = out.slice(offset, offset + 9)
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      out[offset + i * 3 + j] = r[i * 3] * m[j] + r[i * 3 + 1] * m[3 + j] + r[i * 3 + 2] * m[6 + j]
+    }
+  }
 }
 
 /**
@@ -622,7 +1051,8 @@ function faceStrain(
 }
 
 function strainStats(
-  strain: Float32Array, faceAges: Float32Array, restArea: Float64Array, faceCount: number, t: number,
+  strain: Float32Array, faceAges: Float32Array, restArea: Float64Array, faceCount: number,
+  t: number, rigidity: Float32Array,
 ) {
   let square = 0
   let signed = 0
@@ -636,7 +1066,9 @@ function strainStats(
     weight += w
     magnitudes.push({ value: Math.abs(strain[f]), weight: w })
   }
-  if (weight === 0) return { rmsStrain: 0, meanStrain: 0, medianStrain: 0, p90Strain: 0 }
+  if (weight === 0) {
+    return { rmsStrain: 0, meanStrain: 0, medianStrain: 0, p90Strain: 0, cratonStrain: 0, weakStrain: 0 }
+  }
   magnitudes.sort((a, b) => a.value - b.value)
   const quantile = (q: number) => {
     let seen = 0
@@ -654,6 +1086,22 @@ function strainStats(
     // actually asked to do, which is the number worth judging the model by.
     medianStrain: quantile(0.5),
     p90Strain: quantile(0.9),
+    // Split by strength, because where the deformation goes matters as much as
+    // how much there is. Thick cratons must stay near zero; thin necks, shelves
+    // and island arcs are where it belongs.
+    cratonStrain: median(byClass(f => rigidity[f] >= RIGIDITY.cratonThreshold)),
+    weakStrain: median(byClass(f => rigidity[f] < 0.2)),
+  }
+
+  function byClass(test: (f: number) => boolean) {
+    const out: number[] = []
+    for (let f = 0; f < faceCount; f++) if (faceAges[f] >= t && test(f)) out.push(Math.abs(strain[f]))
+    return out
+  }
+  function median(values: number[]) {
+    if (!values.length) return 0
+    values.sort((a, b) => a - b)
+    return values[values.length >> 1]
   }
 }
 

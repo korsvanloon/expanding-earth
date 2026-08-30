@@ -83,6 +83,14 @@ code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px;
 
 .chart { display: block; width: 100%; height: 76px; overflow: visible; }
 
+.scorecard { width: 100%; border-collapse: collapse; font-size: 11.5px; }
+.scorecard th { text-align: left; font-weight: 400; color: var(--text); padding: 3px 0; }
+.scorecard td { text-align: right; padding: 3px 0 3px 8px; font-variant-numeric: tabular-nums; }
+.scorecard td.good { color: #6fbf9f; }
+.scorecard td.fair { color: #e0a355; }
+.scorecard td.poor { color: #d3685f; }
+.scorecard td.was { color: var(--muted); font-size: 10.5px; }
+
 .method-toggle {
   width: 100%; margin-top: 10px; padding: 7px; font: inherit; font-size: 11.5px;
   color: var(--muted); background: transparent; border: 1px solid var(--line);

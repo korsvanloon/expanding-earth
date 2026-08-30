@@ -4,10 +4,11 @@ import * as THREE from 'three'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
 import { sampleFrame, type Dataset } from '@/data'
+import { buildReferenceRotations } from '@/frames'
 import { clock, useStore } from '@/store'
 import { fragmentShader, vertexShader } from './shaders'
 
-const MODES = { surface: 0, age: 1, strain: 2 } as const
+const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, plates: 4 } as const
 
 export function Globe({ data }: { data: Dataset }) {
   const geometry = useRef<THREE.BufferGeometry>(null)
@@ -22,6 +23,12 @@ export function Globe({ data }: { data: Dataset }) {
   const mode = useStore((s) => s.mode)
   const showGrid = useStore((s) => s.showGrid)
   const surfaceMap = useStore((s) => s.surfaceMap)
+  const referenceFrame = useStore((s) => s.referenceFrame)
+  // Fitting the rotations walks every frame once; cache them per continent.
+  const rotations = useMemo(
+    () => (referenceFrame ? buildReferenceRotations(data, referenceFrame) : undefined),
+    [data, referenceFrame],
+  )
   const map = maps[Math.max(0, SURFACE_MAPS.findIndex((m) => m.id === surfaceMap))]
 
   useEffect(() => {
@@ -31,6 +38,9 @@ export function Globe({ data }: { data: Dataset }) {
       texture.anisotropy = 8
     }
   }, [maps])
+
+  // Plate ids arrive as bytes; the shader wants floats.
+  const plateAttribute = useMemo(() => Float32Array.from(data.plates), [data])
 
   const buffers = useMemo(() => {
     const count = data.meta.vertexCount
@@ -54,7 +64,10 @@ export function Globe({ data }: { data: Dataset }) {
   )
 
   // Fill the buffers before the first render, so nothing is drawn at the origin.
-  useMemo(() => sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain), [data, buffers])
+  useMemo(
+    () => sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations),
+    [data, buffers, rotations],
+  )
 
   useFrame(({ camera }, delta) => {
     const { playing, speed } = useStore.getState()
@@ -67,7 +80,7 @@ export function Globe({ data }: { data: Dataset }) {
       }
     }
 
-    sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain)
+    sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations)
     const g = geometry.current
     if (g) {
       g.attributes.position.needsUpdate = true
@@ -98,6 +111,8 @@ export function Globe({ data }: { data: Dataset }) {
         />
         <bufferAttribute attach="attributes-aDir" args={[data.dirs, 3]} />
         <bufferAttribute attach="attributes-aAge" args={[data.vertexAge, 1]} />
+        <bufferAttribute attach="attributes-aRigidity" args={[data.rigidity, 1]} />
+        <bufferAttribute attach="attributes-aPlate" args={[plateAttribute, 1]} />
         <bufferAttribute
           attach="attributes-aStrain"
           args={[buffers.strain, 1]}

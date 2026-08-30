@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { SURFACE_MAPS } from '@shared/maps'
-import { R0_KM, surfaceGravity } from '@shared/model'
+import { R0_KM, REGIONS, surfaceGravity } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
 import { useStore, type ViewMode } from '@/store'
 import { Chart, valueAt } from './Chart'
@@ -10,11 +10,18 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
   { id: 'surface', label: 'Surface', hint: "Today's surface, carried along with the crust" },
   { id: 'age', label: 'Crustal age', hint: 'How old each piece of crust was at that moment' },
   { id: 'strain', label: 'Strain', hint: 'Deformation the reconstruction demands of the crust' },
+  {
+    id: 'rigidity',
+    label: 'Crustal strength',
+    hint: 'Derived from distance to the nearest margin: craton interiors pale, thin necks and shelves dark',
+  },
+  { id: 'plates', label: 'Plates', hint: 'The plates the solver found, one colour each' },
 ]
 
 export function Panel({ data }: { data: Dataset }) {
   const timeMa = useClockTime(8)
-  const { mode, setMode, showGrid, setShowGrid, surfaceMap, setSurfaceMap } = useStore()
+  const { mode, setMode, showGrid, setShowGrid, surfaceMap, setSurfaceMap,
+    referenceFrame, setReferenceFrame } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
   const { meta } = data
@@ -51,18 +58,33 @@ export function Panel({ data }: { data: Dataset }) {
         <Stat label="Median strain" value={`${(100 * strain).toFixed(1)}%`} note="asked of the crust" />
       </div>
 
-      <div className="modes">
-        {MODES.map((m) => (
-          <button
-            key={m.id}
-            className={mode === m.id ? 'active' : ''}
-            onClick={() => setMode(m.id)}
-            title={m.hint}
-          >
-            {m.label}
-          </button>
-        ))}
-      </div>
+      <label className="field">
+        <span>Colour by</span>
+        <select value={mode} onChange={(e) => setMode(e.target.value as ViewMode)}>
+          {MODES.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="caption">{MODES.find((m) => m.id === mode)?.hint}</p>
+
+      <label className="field">
+        <span>Hold still</span>
+        <select value={referenceFrame} onChange={(e) => setReferenceFrame(e.target.value)}>
+          <option value="">Nothing (no net rotation)</option>
+          {REGIONS.map((r) => (
+            <option key={r.id} value={r.id}>
+              {r.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="caption">
+        A viewpoint, not a change to the model. Spread the motion evenly over every plate and a
+        continent that travelled thousands of kilometres looks like it hardly moved.
+      </p>
       <label className="field">
         <span>Surface map</span>
         <select value={surfaceMap} onChange={(e) => setSurfaceMap(e.target.value)}>
@@ -123,6 +145,40 @@ export function Panel({ data }: { data: Dataset }) {
       </section>
 
       <section>
+        <h2>Does it land where it should?</h2>
+        <table className="scorecard">
+          <tbody>
+            {meta.scorecard.map((fit) => {
+              const index = Math.min(
+                fit.separationKm.length - 1,
+                Math.round(fit.joinedByMa / meta.frameStepMa),
+              )
+              const km = fit.separationKm[index] ?? 0
+              const now = fit.separationKm[0] ?? 0
+              return (
+                <tr key={`${fit.a}-${fit.b}`} title={fit.note}>
+                  <th>
+                    {label(fit.a)} – {label(fit.b)}
+                  </th>
+                  <td>{fit.joinedByMa} Ma</td>
+                  <td className={km < 1500 ? 'good' : km < 3000 ? 'fair' : 'poor'}>
+                    {Math.round(km)} km
+                  </td>
+                  <td className="was">was {Math.round(now)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+        <p className="caption">
+          Pairs whose former adjacency is independently supported, and the distance still between
+          them at the time they should be touching. Reconstructions puzzled together by hand are
+          left out on purpose: where Australia and Antarctica end up relative to South America is
+          something this model should be allowed to answer, not something to steer it towards.
+        </p>
+      </section>
+
+      <section>
         <h2>The other reading</h2>
         <p className="caption">
           Hold the radius at today's and the same crust budget cannot cover the sphere: at{' '}
@@ -140,6 +196,8 @@ export function Panel({ data }: { data: Dataset }) {
     </aside>
   )
 }
+
+const label = (id: string) => REGIONS.find((r) => r.id === id)?.label ?? id
 
 function Stat({ label, value, note }: { label: string; value: string; note: string }) {
   return (

@@ -104,17 +104,39 @@ Three numbers per frame, none of them tuned:
 - **strain** — how much the model has to deform the crust, from the area change
   of each triangle against its present-day area.
 
-| time | radius | unaccounted | folded | median strain |
-|---|---|---|---|---|
-| 5 Ma | 6285 km | 2.4% | 0.0% | 1.1% |
-| 30 Ma | 5770 km | 7.0% | 1.1% | 3.4% |
-| 60 Ma | 5257 km | 8.9% | 4.6% | 3.1% |
-| 120 Ma | 4460 km | 13.3% | 7.4% | 4.9% |
-| 200 Ma | 4006 km | 14.1% | 9.8% | 6.4% |
+| time | radius | unaccounted | folded | strain in cratons | strain in weak crust |
+|---|---|---|---|---|---|
+| 5 Ma | 6285 km | 1.7% | 0.9% | 0.0% | 4.2% |
+| 30 Ma | 5770 km | 4.4% | 3.8% | 0.3% | 13.2% |
+| 60 Ma | 5257 km | 6.6% | 6.2% | 0.5% | 17.8% |
+| 120 Ma | 4460 km | 8.1% | 8.5% | 1.1% | 22.8% |
+| 200 Ma | 4006 km | 8.6% | 9.1% | 1.6% | 26.0% |
 
-The reconstruction closes well for the last 30 million years and degrades
-steadily going back. That is the result, and it is reported rather than tuned
-away.
+Splitting strain by strength is the point. Thick cratons now stay within a
+couple of percent of rigid all the way back, and the deformation the model
+cannot avoid has moved into thin necks, shelves and island arcs, which is where
+it belongs. Whether 26% is tolerable there is a separate question, and the
+answer is probably not everywhere.
+
+### Whether it lands where it should
+
+| pair | should be touching by | still apart |
+|---|---|---|
+| South America - Africa | 180 Ma | 4305 km |
+| Australia - Antarctica | 100 Ma | 3708 km |
+| India - Africa | 120 Ma | 5366 km |
+| Greenland - North America | 60 Ma | 3626 km |
+| North America - Africa | 190 Ma | 7197 km |
+
+Only fits with independent support are scored, and only ones plate tectonics and
+Expanding Earth agree on. Reconstructions puzzled together by hand are
+deliberately excluded: whether Australia or Antarctica ends up against the west
+coast of South America is something the model should be allowed to answer.
+
+Nothing on that list is close enough yet. Measured against the previous
+solver these distances have roughly halved and the continents now travel two to
+five thousand kilometres instead of standing still, but the assembly is not
+Pangaea.
 
 ## The other reading of the same number
 
@@ -127,6 +149,15 @@ to.
 
 ## Known weaknesses
 
+- **The northern hemisphere assembles badly.** Gondwana comes together
+  reasonably -- Australia, Antarctica, South America and Africa all converge --
+  but North America and Eurasia do not. Letting the conjugate-margin fronts run
+  without limit closes 4.5% better and does Gondwana well, yet sends North
+  America and Eurasia to opposite sides of the planet, because at 200 Ma the
+  fronts cross the whole Pacific at once and the line where they meet is an
+  artefact of the shape of the hole rather than a ridge. Limiting their reach to
+  about 660 km removes that pathology at the cost of closure. Neither setting is
+  right; the pairing needs to follow isochrons rather than graph distance.
 - **Strain is dominated by the solver, not the geology.** The strain view shows
   a cellular pattern a few cells across that is an artefact of the relaxation
   finding a locally uneven solution. Moving from edge-length to area-based
