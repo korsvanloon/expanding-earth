@@ -30,8 +30,12 @@
 /** The most neighbours a point may end up with; a good triangulation averages six. */
 const MAX_NEIGHBOURS = 11
 
-/** Below this smallest angle a triangle counts as a needle, in radians. */
-const SLIVER = (8 * Math.PI) / 180
+/**
+ * Below this quality a triangle counts as a needle. Quality is one for an
+ * equilateral triangle and falls to zero as one is drawn out; a quarter is
+ * about a smallest angle of eight degrees.
+ */
+const SLIVER = 0.25
 
 /** How far a point's neighbour count is from the six a surface wants. */
 function spread(valence: number): number {
@@ -213,13 +217,13 @@ export class DynamicMesh {
     // Only when it makes the pair of triangles rounder. The measure is the
     // smallest angle in the pair, which is what goes to zero as a triangle
     // turns into a needle.
-    const before = Math.min(smallestAngle(pa, pb, pc), smallestAngle(pb, pa, pd))
-    const after = Math.min(smallestAngle(pc, pd, pa), smallestAngle(pd, pc, pb))
+    const before = Math.min(quality(pa, pb, pc), quality(pb, pa, pd))
+    const after = Math.min(quality(pc, pd, pa), quality(pd, pc, pb))
     // Either the pair gets rounder, or the neighbourhoods get more even without
     // the pair getting worse. Six neighbours is what a triangulation of a
     // surface wants on average, and evening the count out is what stops one
     // point collecting a fan of slivers while the points around it are starved.
-    // A sliver is worth redrawing for any improvement at all. Demanding five
+    // A needle is worth redrawing for any improvement at all. Demanding five
     // percent is right for a mesh that is already decent -- it stops the flips
     // churning -- but in ground that has been sheared badly every triangulation
     // is poor and no single flip clears the bar, so nothing was ever done and
@@ -391,13 +395,13 @@ export function collapseVanished(
   return { collapsed, refused }
 }
 
-/** The smallest angle in a triangle, for sorting the worst to the front. */
+/** A triangle's roundness, for sorting the worst to the front. */
 function worstAngle(mesh: DynamicMesh, pos: Float64Array, f: number): number {
   const p = (k: number) => {
     const v = mesh.faceVerts[f * 3 + k] * 3
     return [pos[v], pos[v + 1], pos[v + 2]]
   }
-  return smallestAngle(p(0), p(1), p(2))
+  return quality(p(0), p(1), p(2))
 }
 
 function outward(a: number[], b: number[], c: number[]): boolean {
@@ -407,15 +411,23 @@ function outward(a: number[], b: number[], c: number[]): boolean {
   return nx * a[0] + ny * a[1] + nz * a[2] > 0
 }
 
-function smallestAngle(a: number[], b: number[], c: number[]): number {
-  const at = (p: number[], q: number[], r: number[]) => {
-    const ux = q[0] - p[0], uy = q[1] - p[1], uz = q[2] - p[2]
-    const vx = r[0] - p[0], vy = r[1] - p[1], vz = r[2] - p[2]
-    const nu = Math.hypot(ux, uy, uz) || 1
-    const nv = Math.hypot(vx, vy, vz) || 1
-    return Math.acos(Math.min(1, Math.max(-1, (ux * vx + uy * vy + uz * vz) / (nu * nv))))
-  }
-  return Math.min(at(a, b, c), at(b, c, a), at(c, a, b))
+/**
+ * How round a triangle is: one for equilateral, towards zero as it is drawn out
+ * into a needle. Four root three times the area over the sum of the squared
+ * sides, which is the usual measure and, unlike the smallest angle, needs no
+ * trigonometry -- this is called for every candidate edge on every pass over
+ * eighty thousand triangles, two hundred times, and three arc-cosines a call
+ * was enough to stop the run finishing.
+ */
+function quality(a: number[], b: number[], c: number[]): number {
+  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
+  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]
+  const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
+  const twiceArea = Math.hypot(nx, ny, nz)
+  const wx = c[0] - b[0], wy = c[1] - b[1], wz = c[2] - b[2]
+  const sides =
+    ux * ux + uy * uy + uz * uz + vx * vx + vy * vy + vz * vz + wx * wx + wy * wy + wz * wz
+  return sides > 0 ? (2 * Math.sqrt(3) * twiceArea) / sides : 0
 }
 
 /**

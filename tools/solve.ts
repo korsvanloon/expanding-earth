@@ -243,6 +243,10 @@ function main() {
   }
   console.log(`[solve] ${islands.count} islands of strong crust hold their shape`)
   const shape = islandShape(dirs, islands.vertexIsland, islands.count, vertexCount, r0)
+  const islandFacing = new Float64Array(islands.count * 9)
+  for (let c = 0; c < islands.count; c++) {
+    islandFacing[c * 9] = 1; islandFacing[c * 9 + 4] = 1; islandFacing[c * 9 + 8] = 1
+  }
 
   /**
    * How hard it is to change a triangle's size, as against its shape.
@@ -482,7 +486,7 @@ function main() {
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
       holdIslands(
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
-        rNext,
+        rNext, islandFacing,
       )
     }
     relaxToSphere(pos, vertexCount, rNext, 1)
@@ -646,13 +650,21 @@ function holdIslands(
   vertexCount: number,
   alive: Uint8Array,
   radiusKm: number,
+  /** The island's orientation carried forward between steps. */
+  carried: Float64Array,
 ) {
   if (count === 0) return
-  const rotation = new Float64Array(count * 9)
-  for (let c = 0; c < count; c++) {
-    rotation[c * 9] = 1; rotation[c * 9 + 4] = 1; rotation[c * 9 + 8] = 1
-  }
-  // Where the island is pointing now, fitted from where its points have got to.
+  // Where the island is pointing now, refined from where it was pointing last
+  // step rather than worked out afresh from today's map.
+  //
+  // The fit walks in small angles and refuses a step beyond about thirty
+  // degrees, which is right for refining and useless for starting: an island
+  // that has turned further than that since the present day gets no fit at all,
+  // the rotation stays the identity, and the hold then drags it back towards
+  // where it sits today. That is a spring tying every continent to its modern
+  // position, and it showed: Africa walked two thousand four hundred kilometres
+  // to end up twenty-one from where it started.
+  const rotation = carried
   for (let pass = 0; pass < 3; pass++) {
     const m = new Float64Array(count * 6)
     const v = new Float64Array(count * 3)
