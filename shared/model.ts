@@ -115,35 +115,6 @@ export function crustScale(ageMa: number, t: number): number {
   return Math.max(MIN_SCALE, 1 - (t - ageMa) / TAU_MA)
 }
 
-/**
- * How the crust's resistance to deformation is derived.
- *
- * Crust is not uniformly strong, and pretending it is was the single mistake
- * behind almost everything wrong with the first solver. Made uniform, the
- * continents stay welded to each other through Panama, the Bering Strait, the
- * Sinai and the Indonesian arcs, and 88% of the surface ends up as one rigid
- * body that cannot rearrange -- so nothing drifts, the oceans never close, and
- * a block that size is forced into 15% of unavoidable strain.
- *
- * The signal that separates a craton from an isthmus is distance to the nearest
- * continental margin. A craton interior is thousands of kilometres from any
- * edge; an isthmus or an island arc is narrow, so every part of it is close to
- * one. Deformation then goes where geology actually puts it -- thinned margins,
- * island chains, narrow necks -- instead of into the middle of thick slabs.
- */
-export const RIGIDITY = {
-  /** Distance from a margin at which continental crust reaches full strength. */
-  cratonKm: 700,
-  /** Continental crust under water is stretched and thinned, and weaker for it. */
-  submergedFactor: 0.25,
-  /** Oceanic lithosphere: rigid, but thin compared with a craton. */
-  oceanic: 0.6,
-  /** Nothing is ever perfectly free, or the mesh comes apart. */
-  floor: 0.02,
-  /** Crust at or above this is treated as a rigid craton core by the solver. */
-  cratonThreshold: 0.9,
-}
-
 /** Surface gravity in m/s^2 for a given radius, holding mass constant. */
 export const surfaceGravity = (radiusKm: number) =>
   (GRAVITATIONAL_CONSTANT * EARTH_MASS_KG) / (radiusKm * 1000) ** 2

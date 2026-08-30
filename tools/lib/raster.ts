@@ -53,37 +53,6 @@ export function loadRaster(path: string): Raster {
 }
 
 /**
- * Land or sea, read off a colour map by how blue each pixel is.
- *
- * The obvious source would be the height map, but it cannot do this: near sea
- * level it compresses everything into a grey level or two, so the Bering,
- * North Sea, Sunda and Barents shelves all read 159-161 and low-lying land such
- * as the Amazon reads 162. A colour map has no such trouble -- water is blue
- * and nothing else is, including the white of Antarctica and Greenland, where
- * blue never exceeds red.
- *
- * Combined with the age grid, which says where crust is continental, this is
- * what identifies a submerged continental shelf: the broad, weak platforms that
- * bridge continents and have to be free to stretch.
- */
-export function loadSeaMask(path: string): Raster {
-  const decoded = jpeg.decode(readFileSync(path), { useTArray: true })
-  const { width, height } = decoded
-  const rgba = decoded.data as Uint8Array
-  const out = new Uint8Array(width * height)
-  for (let i = 0; i < out.length; i++) {
-    const r = rgba[i * 4]
-    const g = rgba[i * 4 + 1]
-    const b = rgba[i * 4 + 2]
-    out[i] = b > r && b > g ? SEA : LAND
-  }
-  return new Raster(width, height, out)
-}
-
-export const SEA = 255
-export const LAND = 0
-
-/**
  * Box-downsample a raster in which `nodata` marks absent values.
  *
  * Averaging a nodata sentinel with real values would smear it, so each output

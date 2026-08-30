@@ -13,8 +13,12 @@ export interface Dataset {
   frames: Int16Array
   /** Per-vertex strain, one byte per vertex per frame. */
   strain: Uint8Array
-  /** How strongly the crust at each vertex resists deformation; see RIGIDITY. */
+  /** How strongly the crust at each vertex resists deformation. */
   rigidity: Float32Array
+  /** Crustal thickness in km at each vertex, from ECM1. */
+  thickness: Float32Array
+  /** Crustal type index at each vertex; see shared/crust.ts CRUST_TYPES. */
+  crustType: Uint8Array
   /** Per-vertex plate, 1-based so 0 can mean unassigned. */
   plates: Uint8Array
   radiusKm: number[]
@@ -24,8 +28,8 @@ export async function loadDataset(): Promise<Dataset> {
   const inline = inlineData()
   const { meta, mesh, frames, strain, plates } = inline ? await inline : await fetchDataset()
 
-  const [vertexCount, faceCount] = new Uint32Array(mesh, 0, 2)
-  let offset = 8
+  const [vertexCount, faceCount] = new Uint32Array(mesh, 0, 3)
+  let offset = 12
   const dirs = new Float32Array(mesh, offset, vertexCount * 3)
   offset += vertexCount * 3 * 4
   const indices = new Uint32Array(mesh, offset, faceCount * 3)
@@ -33,12 +37,22 @@ export async function loadDataset(): Promise<Dataset> {
   const faceAges = new Float32Array(mesh, offset, faceCount)
   offset += faceCount * 4
   const rigidity = new Float32Array(mesh, offset, faceCount)
+  offset += faceCount * 4
+  const faceThickness = new Float32Array(mesh, offset, faceCount)
+  offset += faceCount * 4
+  offset += vertexCount * 4 // origin vertex, needed only by the solver
+  const faceCrustType = new Uint8Array(mesh, offset, faceCount)
 
   // A vertex exists as long as any triangle around it does, so it takes the
   // oldest age of its neighbours. Interpolating this across a triangle gives a
   // soft edge where new crust appears, which reads better than a hard sawtooth.
   const vertexAge = new Float32Array(vertexCount)
   const vertexRigidity = new Float32Array(vertexCount)
+  const vertexThickness = new Float32Array(vertexCount)
+  // A vertex takes the weakest crust it touches: a fault runs through the weak
+  // side of a contact, not the strong one.
+  const vertexType = new Uint8Array(vertexCount)
+  const weakest = new Float32Array(vertexCount).fill(Infinity)
   const share = new Float32Array(vertexCount)
   for (let f = 0; f < faceCount; f++) {
     const age = faceAges[f]
@@ -46,10 +60,19 @@ export async function loadDataset(): Promise<Dataset> {
       const v = indices[f * 3 + k]
       if (age > vertexAge[v]) vertexAge[v] = age
       vertexRigidity[v] += rigidity[f]
+      vertexThickness[v] += faceThickness[f]
+      if (rigidity[f] < weakest[v]) {
+        weakest[v] = rigidity[f]
+        vertexType[v] = faceCrustType[f]
+      }
       share[v]++
     }
   }
-  for (let v = 0; v < vertexCount; v++) if (share[v]) vertexRigidity[v] /= share[v]
+  for (let v = 0; v < vertexCount; v++) {
+    if (!share[v]) continue
+    vertexRigidity[v] /= share[v]
+    vertexThickness[v] /= share[v]
+  }
 
   return {
     meta,
@@ -59,6 +82,8 @@ export async function loadDataset(): Promise<Dataset> {
     frames: new Int16Array(frames),
     strain: new Uint8Array(strain),
     rigidity: vertexRigidity,
+    thickness: vertexThickness,
+    crustType: vertexType,
     plates: new Uint8Array(plates),
     radiusKm: meta.crustModels[0].radiusKm,
   }

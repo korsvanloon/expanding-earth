@@ -14,16 +14,16 @@
  * budget moves the radius by only 5%. That is what makes this tractable despite
  * a source dataset that is neither complete nor entirely correct.
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { Raster, SEA, areaQuantile, downsample, loadRaster, loadSeaMask } from './lib/raster.js'
+import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
+import { CORE_TYPES, CRUST_RIGIDITY, CRUST_TYPES, type CrustType } from '../shared/crust.js'
 import {
   PERMANENT_MA,
   R0_KM,
-  RIGIDITY,
   crustScale,
   type CrustModel,
   type CrustModelId,
@@ -148,15 +148,11 @@ function main() {
   }
   console.log(`  mesh vs full-resolution radius curve: max deviation ${(100 * worst).toFixed(2)}%`)
 
-  // Land or sea comes off the colour map, not the height map: see loadSeaMask.
-  const sea = downsample(
-    loadSeaMask(resolve(TEXTURES, 'blue-marble-map.jpg')),
-    CONFIG.gridWidth, CONFIG.gridHeight, -1,
-  )
-  const rigidity = computeRigidity(mesh, solvedFaceAges, sea)
+  const crust = sampleCrust(mesh)
+  const split = splitIntoFragments(mesh, crust.type, crust.rigidity, solvedFaceAges, faceArea)
 
   mkdirSync(OUT, { recursive: true })
-  writeMesh(resolve(OUT, 'mesh.bin'), mesh.positions, mesh.indices, solvedFaceAges, rigidity)
+  writeMesh(resolve(OUT, 'mesh.bin'), split, solvedFaceAges, crust)
 
   const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'> = {
     version: 1,
@@ -164,6 +160,7 @@ function main() {
     sources: [
       { file: 'public/textures/age-map.png', note: 'Seafloor age grid, 8192x4096, grey 0-254 = 0-280 Ma, white = undated' },
       { file: 'public/textures/height-map.jpg', note: 'Topography/bathymetry, used to classify undated cells and to date them' },
+      { file: 'data-src/ecm1.bin', note: 'ECM1 crustal model (Mooney et al. 2023), 1x1 degree crustal type and thickness' },
       { file: 'public/textures/color-map.jpg', note: 'Surface colour, rides along with the crust' },
     ],
     r0Km: R0_KM,
@@ -376,97 +373,229 @@ function sampleFaceAges(
 }
 
 /**
- * Strength of each triangle of crust, from its distance to the nearest
- * continental margin and whether it stands above sea level.
+ * Read each triangle's crustal type and thickness out of ECM1, and turn the
+ * type into a strength.
  *
- * The distance is measured across the mesh itself rather than on the raster, so
- * it is a real geodesic distance in kilometres and does not stretch towards the
- * poles the way an equirectangular grid does.
- *
- * Continental crust that is under water is weakened on top of that. Broad
- * shallow platforms -- the Bering, Sunda, Barents and North Sea shelves -- are
- * stretched continental crust, and they are exactly the bridges that would
- * otherwise weld whole continents together.
+ * This replaces a heuristic that inferred strength from geodesic distance to
+ * the nearest continental margin. That worked for isthmuses and shelves but got
+ * mountain belts exactly backwards: it called Tibet, the Andes and the Himalaya
+ * as rigid as the Canadian Shield, when they are the most deformable crust on
+ * the planet. An orogen is thick and hot; a shield is thinner and cold. Only a
+ * classification can tell them apart, and ECM1 provides one.
  */
-function computeRigidity(
-  mesh: { positions: Float64Array; indices: Uint32Array },
-  faceAges: Float32Array,
-  sea: Raster,
-): Float32Array {
+function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
+  const raw = readFileSync(resolve(ROOT, 'data-src/ecm1.bin'))
+  const [width, height] = new Uint32Array(raw.buffer, raw.byteOffset, 2)
+  const thicknessGrid = new Float32Array(raw.buffer, raw.byteOffset + 8, width * height)
+  const typeGrid = new Uint8Array(raw.buffer, raw.byteOffset + 8 + width * height * 4, width * height)
+
   const faceCount = mesh.indices.length / 3
-  const centroids = new Float64Array(faceCount * 3)
+  const rigidity = new Float32Array(faceCount)
+  const type = new Uint8Array(faceCount)
+  const thickness = new Float32Array(faceCount)
+
+  const cellAt = (x: number, y: number, z: number) => {
+    const [column, row] = directionToPixel(x, y, z, width, height)
+    return row * width + column
+  }
+
+  const votes = new Map<number, number>()
   for (let f = 0; f < faceCount; f++) {
+    votes.clear()
+    let cx = 0, cy = 0, cz = 0
+    let thicknessSum = 0
+    const cells: number[] = []
+    for (let k = 0; k < 3; k++) {
+      const v = mesh.indices[f * 3 + k] * 3
+      cx += mesh.positions[v]; cy += mesh.positions[v + 1]; cz += mesh.positions[v + 2]
+      cells.push(cellAt(mesh.positions[v], mesh.positions[v + 1], mesh.positions[v + 2]))
+    }
+    const length = Math.hypot(cx, cy, cz) || 1
+    cells.push(cellAt(cx / length, cy / length, cz / length))
+
+    // A triangle is a degree across and a cell is a degree wide, so it can
+    // straddle several; take the type most of its corners agree on.
+    for (const cell of cells) {
+      votes.set(typeGrid[cell], (votes.get(typeGrid[cell]) ?? 0) + 1)
+      thicknessSum += thicknessGrid[cell]
+    }
+    let best = 0
+    let bestCount = -1
+    for (const [candidate, count] of votes) {
+      if (count > bestCount) {
+        bestCount = count
+        best = candidate
+      }
+    }
+    type[f] = best
+    thickness[f] = thicknessSum / cells.length
+    rigidity[f] = CRUST_RIGIDITY[CRUST_TYPES[best]]
+  }
+
+  const share = new Map<string, number>()
+  for (let f = 0; f < faceCount; f++) {
+    const name = CRUST_TYPES[type[f]]
+    share.set(name, (share.get(name) ?? 0) + 1)
+  }
+  console.log('  crustal types by triangle count:')
+  for (const [name, n] of [...share].sort((a, b) => b[1] - a[1])) {
+    console.log(
+      `    ${name}  ${((100 * n) / faceCount).toFixed(1).padStart(5)}%  ` +
+        `rigidity ${CRUST_RIGIDITY[name as keyof typeof CRUST_RIGIDITY].toFixed(2)}`,
+    )
+  }
+  return { rigidity, type, thickness }
+}
+
+/**
+ * Cut the shell into fragments along its weak crust, and give each fragment its
+ * own copy of the vertices it shares with its neighbours.
+ *
+ * This is the orange-peel picture made literal. A peel put back on a smaller
+ * orange does not stretch; it cracks where it is thin and the pieces ride over
+ * one another. Up to now the mesh was a single fixed triangulation, so the only
+ * way it could take up the change in curvature was by deforming -- 25% of
+ * compression in places, and triangles drawn out into needles that smear the
+ * land across them. Once the vertices are duplicated, no triangle spans a
+ * fracture: fragments are free to slide past and over each other, and what used
+ * to be strain becomes overlap, which is what thrust faulting is.
+ *
+ * A fragment is unthinned continental crust plus the sea floor nearest to it.
+ * Thinned margins, island arcs and stretched crust are left out of the cores on
+ * purpose, so Panama, the Bering shelf, the Sinai and the Indonesian arcs fall
+ * on fracture lines rather than welding continents together.
+ */
+function splitIntoFragments(
+  mesh: { positions: Float64Array; indices: Uint32Array },
+  crustType: Uint8Array,
+  rigidity: Float32Array,
+  faceAges: Float32Array,
+  faceArea: Float64Array,
+) {
+  const faceCount = mesh.indices.length / 3
+  const vertexCount = mesh.positions.length / 3
+  const coreTypes = new Set<CrustType>(CORE_TYPES)
+
+  const neighbours = buildFaceAdjacency(mesh.indices, faceCount)
+  const isCore = new Uint8Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    isCore[f] = coreTypes.has(CRUST_TYPES[crustType[f]] as CrustType) ? 1 : 0
+  }
+
+  const parent = new Int32Array(faceCount)
+  for (let f = 0; f < faceCount; f++) parent[f] = f
+  const find = (x: number): number => {
+    while (parent[x] !== x) x = parent[x] = parent[parent[x]]
+    return x
+  }
+  for (let f = 0; f < faceCount; f++) {
+    if (!isCore[f]) continue
+    for (const n of neighbours[f]) {
+      if (!isCore[n]) continue
+      const a = find(f)
+      const b = find(n)
+      if (a !== b) parent[a] = b
+    }
+  }
+
+  // A continent is worth being a fragment; a stray triangle is not.
+  const MIN_CORE_AREA = 0.0015 * 4 * Math.PI
+  const coreArea = new Map<number, number>()
+  for (let f = 0; f < faceCount; f++) {
+    if (isCore[f]) coreArea.set(find(f), (coreArea.get(find(f)) ?? 0) + faceArea[f])
+  }
+  const fragmentId = new Map<number, number>()
+  for (const [root, area] of [...coreArea].sort((a, b) => b[1] - a[1])) {
+    if (area >= MIN_CORE_AREA) fragmentId.set(root, fragmentId.size)
+  }
+
+  // Everything else joins the nearest core across the mesh.
+  const faceFragment = new Int32Array(faceCount).fill(-1)
+  const distance = new Float64Array(faceCount).fill(Infinity)
+  const centre = (f: number) => {
     let x = 0, y = 0, z = 0
     for (let k = 0; k < 3; k++) {
       const v = mesh.indices[f * 3 + k] * 3
       x += mesh.positions[v]; y += mesh.positions[v + 1]; z += mesh.positions[v + 2]
     }
     const length = Math.hypot(x, y, z) || 1
-    centroids[f * 3] = x / length
-    centroids[f * 3 + 1] = y / length
-    centroids[f * 3 + 2] = z / length
+    return [x / length, y / length, z / length] as const
   }
-
-  const neighbours = buildFaceAdjacency(mesh.indices, faceCount)
-  const continental = (f: number) => faceAges[f] >= PERMANENT_MA
-
-  // Multi-source Dijkstra outward from every triangle that touches the
-  // continent-ocean boundary, on both sides of it.
-  const distance = new Float64Array(faceCount).fill(Infinity)
-  const heap: [number, number][] = []
+  const centres = Array.from({ length: faceCount }, (_, f) => centre(f))
+  const arc = (a: number, b: number) =>
+    Math.acos(
+      Math.min(1, Math.max(-1,
+        centres[a][0] * centres[b][0] + centres[a][1] * centres[b][1] + centres[a][2] * centres[b][2])),
+    )
+  const frontier: [number, number][] = []
   for (let f = 0; f < faceCount; f++) {
-    for (const n of neighbours[f]) {
-      if (continental(f) !== continental(n)) {
-        distance[f] = 0
-        heap.push([0, f])
-        break
-      }
-    }
+    const id = isCore[f] ? fragmentId.get(find(f)) : undefined
+    if (id === undefined) continue
+    faceFragment[f] = id
+    distance[f] = 0
+    frontier.push([0, f])
   }
-  const arcKm = (a: number, b: number) => {
-    const dot =
-      centroids[a * 3] * centroids[b * 3] +
-      centroids[a * 3 + 1] * centroids[b * 3 + 1] +
-      centroids[a * 3 + 2] * centroids[b * 3 + 2]
-    return R0_KM * Math.acos(Math.min(1, Math.max(-1, dot)))
-  }
-  heap.sort((p, q) => p[0] - q[0])
-  while (heap.length) {
-    const [d, f] = heap.shift()!
+  while (frontier.length) {
+    const [d, f] = frontier.shift()!
     if (d > distance[f]) continue
     for (const n of neighbours[f]) {
-      const next = d + arcKm(f, n)
-      if (next < distance[n]) {
-        distance[n] = next
-        // Insertion into a nearly sorted list; the frontier stays small.
-        let i = heap.length
-        while (i > 0 && heap[i - 1][0] > next) i--
-        heap.splice(i, 0, [next, n])
-      }
+      const next = d + arc(f, n)
+      if (next >= distance[n]) continue
+      distance[n] = next
+      faceFragment[n] = faceFragment[f]
+      let i = frontier.length
+      while (i > 0 && frontier[i - 1][0] > next) i--
+      frontier.splice(i, 0, [next, n])
     }
   }
 
-  const rigidity = new Float32Array(faceCount)
+  // Duplicate every vertex that more than one fragment uses.
+  const copyOf = new Map<number, number>()
+  const origin: number[] = []
+  const indices = new Uint32Array(faceCount * 3)
   for (let f = 0; f < faceCount; f++) {
-    if (!continental(f)) {
-      rigidity[f] = RIGIDITY.oceanic
-      continue
+    for (let k = 0; k < 3; k++) {
+      const v = mesh.indices[f * 3 + k]
+      const key = v * 256 + faceFragment[f]
+      let copy = copyOf.get(key)
+      if (copy === undefined) {
+        copy = origin.length
+        origin.push(v)
+        copyOf.set(key, copy)
+      }
+      indices[f * 3 + k] = copy
     }
-    const t = Math.min(1, distance[f] / RIGIDITY.cratonKm)
-    let value = t * t * (3 - 2 * t) // smoothstep: soft near the margin
-    const submerged =
-      sea.atDirection(centroids[f * 3], centroids[f * 3 + 1], centroids[f * 3 + 2]) === SEA
-    if (submerged) value *= RIGIDITY.submergedFactor
-    rigidity[f] = Math.max(RIGIDITY.floor, value)
   }
 
-  const cratonFaces = rigidity.reduce((n, r) => n + (r >= RIGIDITY.cratonThreshold ? 1 : 0), 0)
-  const weakFaces = rigidity.reduce((n, r) => n + (r < 0.2 ? 1 : 0), 0)
+  const positions = new Float32Array(origin.length * 3)
+  const vertexFragment = new Uint8Array(origin.length)
+  for (let i = 0; i < origin.length; i++) {
+    positions[i * 3] = mesh.positions[origin[i] * 3]
+    positions[i * 3 + 1] = mesh.positions[origin[i] * 3 + 1]
+    positions[i * 3 + 2] = mesh.positions[origin[i] * 3 + 2]
+  }
+  for (let f = 0; f < faceCount; f++) {
+    for (let k = 0; k < 3; k++) vertexFragment[indices[f * 3 + k]] = faceFragment[f]
+  }
+
+  void rigidity
+  void faceAges
   console.log(
-    `  rigidity: ${((100 * cratonFaces) / faceCount).toFixed(1)}% craton core, ` +
-      `${((100 * weakFaces) / faceCount).toFixed(1)}% weak crust`,
+    `  ${fragmentId.size} fragments; mesh cut from ${vertexCount} to ${origin.length} vertices ` +
+      `(${(((origin.length - vertexCount) / vertexCount) * 100).toFixed(1)}% duplicated along fractures)`,
   )
-  return rigidity
+  return {
+    positions,
+    indices,
+    faceFragment: Uint8Array.from(faceFragment),
+    vertexFragment,
+    // Which vertex of the uncut mesh each copy came from. Cutting disconnects
+    // the two sides of every ocean, so anything that needs to know what used to
+    // lie against what -- finding conjugate margins, above all -- has to work
+    // through the original connectivity rather than the cut one.
+    origin: Uint32Array.from(origin),
+    fragmentCount: fragmentId.size,
+  }
 }
 
 function buildFaceAdjacency(indices: Uint32Array, faceCount: number): number[][] {
@@ -529,21 +658,30 @@ function radiusCurve(faceAges: Float32Array, faceArea: Float64Array): number[] {
 
 function writeMesh(
   path: string,
-  positions: Float64Array,
-  indices: Uint32Array,
+  split: ReturnType<typeof splitIntoFragments>,
   faceAges: Float32Array,
-  rigidity: Float32Array,
+  crust: { rigidity: Float32Array; type: Uint8Array; thickness: Float32Array },
 ) {
-  const dirs = Float32Array.from(positions)
-  const header = new Uint32Array([positions.length / 3, indices.length / 3])
+  const header = new Uint32Array([
+    split.positions.length / 3,
+    split.indices.length / 3,
+    split.fragmentCount,
+  ])
   writeFileSync(
     path,
     Buffer.concat([
       Buffer.from(header.buffer),
-      Buffer.from(dirs.buffer),
-      Buffer.from(indices.buffer),
+      Buffer.from(split.positions.buffer),
+      Buffer.from(split.indices.buffer),
       Buffer.from(faceAges.buffer),
-      Buffer.from(rigidity.buffer),
+      Buffer.from(crust.rigidity.buffer),
+      Buffer.from(crust.thickness.buffer),
+      // Four-byte arrays first: a Uint32Array cannot start on an odd offset,
+      // and the byte-wide sections below would push it off alignment.
+      Buffer.from(split.origin.buffer),
+      Buffer.from(crust.type.buffer),
+      Buffer.from(split.faceFragment.buffer),
+      Buffer.from(split.vertexFragment.buffer),
     ]),
   )
 }
