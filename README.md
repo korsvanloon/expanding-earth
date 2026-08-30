@@ -6,12 +6,12 @@ and the planet shrinks while the continents close up; press play and it grows
 again with the oceans opening out of their ridges.
 
 ```bash
-npm install
-npm run dev      # generates the reconstruction on first run, then serves it
+pnpm install
+pnpm dev         # generates the reconstruction on first run, then serves it
 ```
 
-The first `npm run dev` spends about three minutes building the data from
-`public/textures/age-map.png`, then caches it. `npm run data` rebuilds it.
+The first `pnpm dev` spends about three minutes building the data from
+`public/textures/age-map.png`, then caches it. `pnpm data` rebuilds it.
 
 ## What it does
 
@@ -55,16 +55,20 @@ legacy/               the earlier hand-keyframed prototype, kept for reference
 Generated data lands in `public/data/` and is not committed: it is reproducible
 from the textures in this repository.
 
+The package manager is pnpm, pinned in `package.json` so corepack picks up the
+right version. `pnpm-workspace.yaml` approves esbuild's install script, which
+pnpm blocks by default and vite needs to build.
+
 ## Scripts
 
 | | |
 |---|---|
-| `npm run dev` | generate data if stale, then serve |
-| `npm run data` | rebuild the reconstruction |
-| `npm run build` | production build |
-| `npm run artifact` | build a single self-contained HTML file |
-| `npm run test` | unit tests |
-| `npm run typecheck` | app and pipeline |
+| `pnpm dev` | generate data if stale, then serve |
+| `pnpm data` | rebuild the reconstruction |
+| `pnpm build` | production build |
+| `pnpm artifact` | build a single self-contained HTML file |
+| `pnpm test` | unit tests |
+| `pnpm typecheck` | app and pipeline |
 
 ## A necessary disclaimer
 
