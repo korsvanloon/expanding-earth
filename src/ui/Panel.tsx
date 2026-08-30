@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { SURFACE_MAPS } from '@shared/maps'
 import { R0_KM, surfaceGravity } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
 import { useStore, type ViewMode } from '@/store'
@@ -13,7 +14,7 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
 
 export function Panel({ data }: { data: Dataset }) {
   const timeMa = useClockTime(8)
-  const { mode, setMode, showGrid, setShowGrid } = useStore()
+  const { mode, setMode, showGrid, setShowGrid, surfaceMap, setSurfaceMap } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
   const { meta } = data
@@ -62,6 +63,17 @@ export function Panel({ data }: { data: Dataset }) {
           </button>
         ))}
       </div>
+      <label className="field">
+        <span>Surface map</span>
+        <select value={surfaceMap} onChange={(e) => setSurfaceMap(e.target.value)}>
+          {SURFACE_MAPS.map((m) => (
+            <option key={m.id} value={m.id} title={m.note}>
+              {m.label}
+            </option>
+          ))}
+        </select>
+      </label>
+      <p className="caption">{SURFACE_MAPS.find((m) => m.id === surfaceMap)?.note}</p>
       <label className="toggle">
         <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
         Graticule (fixed to the crust)

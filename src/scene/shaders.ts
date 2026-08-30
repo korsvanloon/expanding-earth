@@ -39,6 +39,25 @@ const float PI = 3.14159265;
 const float PERMANENT = 1.0e8;
 
 /**
+ * Colour space, which three.js handles for its own materials but not for a
+ * custom one on GLSL3 -- it skips declaring the output and with it the
+ * conversion (see WebGLProgram, the glslVersion === GLSL3 branch).
+ *
+ * The texture is still decoded from sRGB to linear when it is sampled, so
+ * without putting it back on the way out every colour is written far darker
+ * than it should be. Lighting has to happen in linear, so colours written as
+ * literals here are given in sRGB, the way one actually picks a colour, and
+ * converted on the way in.
+ */
+vec3 srgbToLinear(vec3 c) {
+  return mix(pow((c + 0.055) / 1.055, vec3(2.4)), c / 12.92, vec3(lessThanEqual(c, vec3(0.04045))));
+}
+
+vec3 linearToSrgb(vec3 c) {
+  return mix(1.055 * pow(c, vec3(0.41666)) - 0.055, c * 12.92, vec3(lessThanEqual(c, vec3(0.0031308))));
+}
+
+/**
  * GLSL twin of directionToUv in shared/sphere.ts. The two must stay identical:
  * that function decides which crust a triangle is made of, this one decides
  * which pixel gets painted on it.
@@ -80,7 +99,7 @@ vec3 ageRamp(float ageMa) {
   c = mix(c, vec3(0.34, 0.68, 0.36), smoothstep(0.28, 0.5, t));
   c = mix(c, vec3(0.18, 0.55, 0.75), smoothstep(0.45, 0.72, t));
   c = mix(c, vec3(0.36, 0.25, 0.62), smoothstep(0.68, 1.0, t));
-  return c;
+  return srgbToLinear(c);
 }
 
 /** Diverging: blue where the model compresses crust, red where it stretches it. */
@@ -89,7 +108,7 @@ vec3 strainRamp(float strain) {
   vec3 cold = vec3(0.16, 0.38, 0.72);
   vec3 warm = vec3(0.78, 0.21, 0.16);
   vec3 neutral = vec3(0.90, 0.89, 0.86);
-  return t < 0.0 ? mix(neutral, cold, -t) : mix(neutral, warm, t);
+  return srgbToLinear(t < 0.0 ? mix(neutral, cold, -t) : mix(neutral, warm, t));
 }
 
 void main() {
@@ -104,7 +123,7 @@ void main() {
     // Crust that has not formed yet. Played forwards this is the moment it
     // erupts at a ridge, so it starts incandescent and darkens as it cools.
     float heat = exp(sinceBirth * 0.4);
-    base = mix(vec3(0.03, 0.03, 0.05), vec3(1.0, 0.42, 0.08), heat);
+    base = srgbToLinear(mix(vec3(0.03, 0.03, 0.05), vec3(1.0, 0.42, 0.08), heat));
     glow = heat;
   } else if (uMode == 0) {
     base = surface(vDir);
@@ -113,7 +132,9 @@ void main() {
     // shaded by the surface map's brightness so the landmasses stay legible
     // instead of merging into one blank field.
     float relief = dot(surface(vDir), vec3(0.299, 0.587, 0.114));
-    base = continental ? vec3(0.60, 0.56, 0.49) * (0.65 + 0.9 * relief) : ageRamp(sinceBirth);
+    base = continental
+      ? srgbToLinear(vec3(0.60, 0.56, 0.49)) * (0.65 + 0.9 * relief)
+      : ageRamp(sinceBirth);
   } else {
     base = strainRamp(vStrain);
   }
@@ -126,7 +147,7 @@ void main() {
   }
 
   float lambert = max(dot(normalize(vNormal), normalize(uLight)), 0.0);
-  vec3 lit = base * (0.38 + 0.95 * lambert) * 1.25 + glow * vec3(0.9, 0.32, 0.06);
-  fragColor = vec4(min(lit, vec3(1.0)), 1.0);
+  vec3 lit = base * (0.30 + 0.85 * lambert) + glow * srgbToLinear(vec3(0.9, 0.32, 0.06));
+  fragColor = vec4(linearToSrgb(min(lit, vec3(1.0))), 1.0);
 }
 `

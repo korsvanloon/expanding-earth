@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { DEFAULT_SURFACE_MAP } from '@shared/maps'
 
 export type ViewMode = 'surface' | 'age' | 'strain'
 
@@ -15,11 +16,14 @@ interface State {
   /** Myr of model time per second of wall clock. */
   speed: number
   mode: ViewMode
+  /** Which surface map is painted on the crust; see shared/maps.ts. */
+  surfaceMap: string
   showGrid: boolean
   endTimeMa: number
   setPlaying: (playing: boolean) => void
   setSpeed: (speed: number) => void
   setMode: (mode: ViewMode) => void
+  setSurfaceMap: (surfaceMap: string) => void
   setShowGrid: (showGrid: boolean) => void
   setEndTime: (endTimeMa: number) => void
   seek: (timeMa: number) => void
@@ -29,11 +33,13 @@ export const useStore = create<State>((set) => ({
   playing: false,
   speed: 25,
   mode: 'surface',
+  surfaceMap: DEFAULT_SURFACE_MAP,
   showGrid: false,
   endTimeMa: 200,
   setPlaying: (playing) => set({ playing }),
   setSpeed: (speed) => set({ speed }),
   setMode: (mode) => set({ mode }),
+  setSurfaceMap: (surfaceMap) => set({ surfaceMap }),
   setShowGrid: (showGrid) => set({ showGrid }),
   setEndTime: (endTimeMa) => set({ endTimeMa }),
   seek: (timeMa) => {

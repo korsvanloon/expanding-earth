@@ -32,6 +32,11 @@ the age field cut it further along fracture zones. The blocks that move as units
 are simply whatever stays connected, so the plate boundaries come out of the
 magnetic anomaly pattern.
 
+Five surface maps are selectable, all of which ride along with the crust. The
+last of them paints the sea-floor age grid the model is built from, which makes
+a useful check: the coloured bands are the data, and the black gaps are where
+the reconstruction says no crust existed yet.
+
 The reconstruction is then integrated backwards a million years at a time.
 Surviving crust keeps its present-day size because rock does not stretch;
 vanished crust pulls its two margins together but can never push them apart. See
@@ -57,6 +62,7 @@ from the textures in this repository.
 | `npm run dev` | generate data if stale, then serve |
 | `npm run data` | rebuild the reconstruction |
 | `npm run build` | production build |
+| `npm run artifact` | build a single self-contained HTML file |
 | `npm run test` | unit tests |
 | `npm run typecheck` | app and pipeline |
 

@@ -22,6 +22,7 @@ import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import jpeg from 'jpeg-js'
 import type { Meta } from '../shared/model.js'
+import { SURFACE_MAPS } from '../shared/maps.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
@@ -48,6 +49,10 @@ function main() {
   const css = bundle.find((f) => f.endsWith('.css'))
   if (!js || !css) throw new Error('run `npm run build` first')
 
+  const textures = Object.fromEntries(
+    SURFACE_MAPS.map((m) => [m.file, uri('image/jpeg', shrinkTexture(m.file))]),
+  )
+
   const html = `<title>Expanding Earth</title>
 <style>
 ${readFileSync(resolve(DIST, 'assets', css), 'utf8')}
@@ -57,9 +62,7 @@ html, body, #root { height: 100%; margin: 0; background: #05070c; }
 </style>
 <div id="root"></div>
 <script>
-window.__ASSETS__ = {
-  'textures/blue-marble-map.jpg': '${uri('image/jpeg', shrinkTexture())}'
-};
+window.__ASSETS__ = ${JSON.stringify(textures)};
 window.__DATA__ = (async () => {
   const bytes = (b64) => {
     const binary = atob(b64);
@@ -100,6 +103,10 @@ ${readFileSync(resolve(DIST, 'assets', js), 'utf8').replaceAll('</script', '<\\/
   for (const [name, buffer] of Object.entries(payload)) {
     console.log(`  ${name.padEnd(8)} ${(buffer.length / 1e6).toFixed(2)} MB`)
   }
+  console.log(
+    `[artifact] ${SURFACE_MAPS.length} surface maps, ` +
+      `${(Object.values(textures).reduce((n, t) => n + t.length, 0) / 1e6).toFixed(2)} MB`,
+  )
   console.log(`[artifact] wrote ${out} (${(html.length / 1e6).toFixed(1)} MB of a 16 MB budget)`)
 }
 
@@ -125,11 +132,9 @@ function deltaSplit(frames: Int16Array, stride: number, frameCount: number) {
   return planes
 }
 
-/** Box-downsample the surface texture and re-encode it small enough to inline. */
-function shrinkTexture() {
-  const source = jpeg.decode(readFileSync(resolve(ROOT, 'public/textures/blue-marble-map.jpg')), {
-    useTArray: true,
-  })
+/** Box-downsample a surface texture and re-encode it small enough to inline. */
+function shrinkTexture(file: string) {
+  const source = jpeg.decode(readFileSync(resolve(ROOT, 'public', file)), { useTArray: true })
   const width = TEXTURE_WIDTH
   const height = width / 2
   const out = new Uint8Array(width * height * 4)

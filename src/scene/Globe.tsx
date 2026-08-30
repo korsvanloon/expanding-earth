@@ -1,6 +1,7 @@
 import { useFrame, useLoader } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
+import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
 import { sampleFrame, type Dataset } from '@/data'
 import { clock, useStore } from '@/store'
@@ -11,16 +12,25 @@ const MODES = { surface: 0, age: 1, strain: 2 } as const
 export function Globe({ data }: { data: Dataset }) {
   const geometry = useRef<THREE.BufferGeometry>(null)
   const material = useRef<THREE.ShaderMaterial>(null)
-  const map = useLoader(THREE.TextureLoader, asset('textures/blue-marble-map.jpg'))
+  // Every map is loaded up front. They are a few megabytes together, and
+  // switching between them should be instant rather than a visible reload.
+  const maps = useLoader(
+    THREE.TextureLoader,
+    SURFACE_MAPS.map((m) => asset(m.file)),
+  )
 
   const mode = useStore((s) => s.mode)
   const showGrid = useStore((s) => s.showGrid)
+  const surfaceMap = useStore((s) => s.surfaceMap)
+  const map = maps[Math.max(0, SURFACE_MAPS.findIndex((m) => m.id === surfaceMap))]
 
   useEffect(() => {
-    map.colorSpace = THREE.SRGBColorSpace
-    map.wrapS = THREE.RepeatWrapping
-    map.anisotropy = 8
-  }, [map])
+    for (const texture of maps) {
+      texture.colorSpace = THREE.SRGBColorSpace
+      texture.wrapS = THREE.RepeatWrapping
+      texture.anisotropy = 8
+    }
+  }, [maps])
 
   const buffers = useMemo(() => {
     const count = data.meta.vertexCount
@@ -39,7 +49,8 @@ export function Globe({ data }: { data: Dataset }) {
       uGrid: { value: 0 },
       uLight: { value: new THREE.Vector3(1, 0.4, 1) },
     }),
-    [data, map],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- uMap is swapped in useFrame
+    [data],
   )
 
   // Fill the buffers before the first render, so nothing is drawn at the origin.
@@ -64,6 +75,7 @@ export function Globe({ data }: { data: Dataset }) {
       g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1)
     }
     if (material.current) {
+      material.current.uniforms.uMap.value = map
       material.current.uniforms.uTimeMa.value = clock.timeMa
       material.current.uniforms.uMode.value = MODES[mode]
       material.current.uniforms.uGrid.value = showGrid ? 1 : 0
