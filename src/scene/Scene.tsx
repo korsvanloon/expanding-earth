@@ -9,7 +9,9 @@ import { Globe } from './Globe'
 
 export function Scene({ data }: { data: Dataset }) {
   return (
-    <Canvas camera={{ position: [0.6, 1.2, 3.2], fov: 42, near: 0.01, far: 100 }} dpr={[1, 2]}>
+    // A near plane close to the camera is what wrecks depth precision, and the
+    // globe is never nearer than the orbit limit below, so it can sit well out.
+    <Canvas camera={{ position: [0.6, 1.2, 3.2], fov: 42, near: 0.4, far: 40 }} dpr={[1, 2]}>
       <color attach="background" args={['#05070c']} />
       <Stars radius={40} depth={30} count={3000} factor={3} fade speed={0} />
       <YoungCrust data={data} />
@@ -20,7 +22,7 @@ export function Scene({ data }: { data: Dataset }) {
       <Framing />
       <OrbitControls
         enablePan={false}
-        minDistance={1.2}
+        minDistance={1.5}
         maxDistance={16}
         rotateSpeed={0.5}
         zoomSpeed={0.7}
@@ -43,7 +45,10 @@ function YoungCrust({ data }: { data: Dataset }) {
   const mesh = useRef<Mesh>(null)
   useFrame(() => {
     if (!mesh.current) return
-    // A whisker inside the crust, so the two never fight over the same pixels.
+    // A whisker inside the crust, so the two never fight over the same pixels
+    // and a crack reads as a crack rather than as a pit. It can sit this close
+    // only because the near plane above leaves the depth buffer some precision
+    // to work with.
     const r = (radiusAt(data, clock.timeMa) / R0_KM) * 0.997
     mesh.current.scale.setScalar(r)
   })

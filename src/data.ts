@@ -4,6 +4,13 @@ import { asset, inlineData } from '@/assets'
 
 export interface Dataset {
   meta: Meta
+  /**
+   * Vertices in the cut mesh, read from mesh.bin rather than taken from the
+   * metadata. The mesh file is the authority on its own shape: cutting the
+   * shell into fragments duplicates vertices, so a count computed anywhere
+   * earlier is a count of a different mesh.
+   */
+  vertexCount: number
   /** Present-day unit direction per vertex; the crust's identity, never moves. */
   dirs: Float32Array
   indices: Uint32Array
@@ -80,6 +87,7 @@ export async function loadDataset(): Promise<Dataset> {
 
   return {
     meta,
+    vertexCount,
     dirs,
     indices,
     vertexAge,
@@ -123,8 +131,7 @@ export function sampleFrame(
   /** Per-frame 3x3 rotations that hold one continent still; see src/frames.ts. */
   reference?: Float32Array,
 ) {
-  const { meta, frames } = data
-  const vertexCount = meta.vertexCount
+  const { meta, frames, vertexCount } = data
   const x = Math.min(Math.max(timeMa / meta.frameStepMa, 0), meta.frameCount - 1)
   const i0 = Math.min(Math.floor(x), meta.frameCount - 1)
   const i1 = Math.min(i0 + 1, meta.frameCount - 1)

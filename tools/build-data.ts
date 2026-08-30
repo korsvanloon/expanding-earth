@@ -177,7 +177,13 @@ function main() {
     ],
     r0Km: R0_KM,
     subdivision: CONFIG.subdivision,
-    vertexCount,
+    // The cut mesh, not the icosphere it started as. Splitting the shell into
+    // fragments duplicates every vertex on a fracture, and everything
+    // downstream -- the solver's frames, the viewer's buffers -- is sized by
+    // this number. Leaving the icosphere's count here left the viewer reading
+    // the frames with too short a stride: the duplicated vertices had no
+    // position at all and the shell tore open along the cuts.
+    vertexCount: split.positions.length / 3,
     faceCount,
     maxAgeMa: CONFIG.maxAgeMa,
     depthAgeFit,

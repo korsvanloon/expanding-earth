@@ -43,7 +43,7 @@ export function Globe({ data }: { data: Dataset }) {
   const plateAttribute = useMemo(() => Float32Array.from(data.plates), [data])
 
   const buffers = useMemo(() => {
-    const count = data.meta.vertexCount
+    const count = data.vertexCount
     return {
       positions: new Float32Array(count * 3),
       strain: new Float32Array(count),

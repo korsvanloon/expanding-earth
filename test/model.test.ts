@@ -4,6 +4,7 @@ import { crustScale, sampleCurve, MIN_SCALE, TAU_MA } from '../shared/model'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import { resolve } from 'node:path'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 
 describe('icosphere', () => {
   it('has the Euler-characteristic vertex count at each subdivision', () => {
@@ -127,5 +128,29 @@ describe('sphere mapping', () => {
     expect(at(-10, 55)).toBeLessThan(255) // its mirror, the Indian Ocean
     expect(at(-80, 0)).toBe(255) // Antarctica, so north and south are not swapped
     expect(at(0, -25)).toBeLessThan(20) // Mid-Atlantic Ridge, young crust
+  })
+})
+
+describe('the built dataset', () => {
+  // The mesh file is the authority on its own shape, and everything the viewer
+  // reads is sized by it: the frames are frameCount x vertexCount x 3, the
+  // strain frameCount x vertexCount. Cutting the shell into fragments
+  // duplicates vertices along every fracture, so a vertex count taken before
+  // the cut describes a different mesh -- and reading the frames with that
+  // stride tore the globe open along the cuts and scrambled it further back in
+  // time. These three files have to agree or nothing downstream can be right.
+  const data = resolve(import.meta.dirname, '../public/data')
+  const present = existsSync(resolve(data, 'mesh.bin'))
+
+  it.runIf(present)('is internally consistent about how many vertices it has', () => {
+    const mesh = readFileSync(resolve(data, 'mesh.bin'))
+    const meta = JSON.parse(readFileSync(resolve(data, 'meta.json'), 'utf8'))
+    const vertexCount = mesh.readUInt32LE(0)
+    const faceCount = mesh.readUInt32LE(4)
+
+    expect(meta.vertexCount).toBe(vertexCount)
+    expect(meta.faceCount).toBe(faceCount)
+    expect(statSync(resolve(data, 'frames.bin')).size).toBe(meta.frameCount * vertexCount * 3 * 2)
+    expect(statSync(resolve(data, 'strain.bin')).size).toBe(meta.frameCount * vertexCount)
   })
 })

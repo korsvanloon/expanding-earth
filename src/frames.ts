@@ -19,7 +19,7 @@ import type { Dataset } from '@/data'
 export type Rotations = Float32Array
 
 export function buildReferenceRotations(data: Dataset, regionId: string): Rotations {
-  const { meta, dirs, vertexAge, frames } = data
+  const { meta, vertexCount, dirs, vertexAge, frames } = data
   const region = REGIONS.find((r) => r.id === regionId)
   const out = new Float32Array(meta.frameCount * 9)
   const identity = [1, 0, 0, 0, 1, 0, 0, 0, 1]
@@ -30,7 +30,7 @@ export function buildReferenceRotations(data: Dataset, regionId: string): Rotati
   }
 
   const members: number[] = []
-  for (let v = 0; v < meta.vertexCount; v++) {
+  for (let v = 0; v < vertexCount; v++) {
     if (vertexAge[v] < PERMANENT_MA) continue
     const [u, w] = directionToUv(dirs[v * 3], dirs[v * 3 + 1], dirs[v * 3 + 2])
     const lon = (u - 0.5) * 360
@@ -49,7 +49,7 @@ export function buildReferenceRotations(data: Dataset, regionId: string): Rotati
 
   const k = 1 / 32767
   const unit = (frame: number, v: number, into: number[]) => {
-    const b = (frame * meta.vertexCount + v) * 3
+    const b = (frame * vertexCount + v) * 3
     const x = frames[b] * k, y = frames[b + 1] * k, z = frames[b + 2] * k
     const length = Math.hypot(x, y, z) || 1
     into[0] = x / length; into[1] = y / length; into[2] = z / length
