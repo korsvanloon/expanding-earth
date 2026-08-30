@@ -30,6 +30,9 @@
 /** The most neighbours a point may end up with; a good triangulation averages six. */
 const MAX_NEIGHBOURS = 11
 
+/** Below this smallest angle a triangle counts as a needle, in radians. */
+const SLIVER = (8 * Math.PI) / 180
+
 /** How far a point's neighbour count is from the six a surface wants. */
 function spread(valence: number): number {
   return Math.abs(valence - 6)
@@ -216,7 +219,13 @@ export class DynamicMesh {
     // the pair getting worse. Six neighbours is what a triangulation of a
     // surface wants on average, and evening the count out is what stops one
     // point collecting a fan of slivers while the points around it are starved.
-    const rounder = after > before * 1.05
+    // A sliver is worth redrawing for any improvement at all. Demanding five
+    // percent is right for a mesh that is already decent -- it stops the flips
+    // churning -- but in ground that has been sheared badly every triangulation
+    // is poor and no single flip clears the bar, so nothing was ever done and
+    // two fifths of the sea floor ended up as needles.
+    const desperate = before < SLIVER
+    const rounder = after > before * (desperate ? 1.0005 : 1.05)
     const evener =
       spread(this.incident[a].size - 1) + spread(this.incident[b].size - 1) +
         spread(this.incident[c].size + 1) + spread(this.incident[d].size + 1) <
@@ -382,6 +391,15 @@ export function collapseVanished(
   return { collapsed, refused }
 }
 
+/** The smallest angle in a triangle, for sorting the worst to the front. */
+function worstAngle(mesh: DynamicMesh, pos: Float64Array, f: number): number {
+  const p = (k: number) => {
+    const v = mesh.faceVerts[f * 3 + k] * 3
+    return [pos[v], pos[v + 1], pos[v + 2]]
+  }
+  return smallestAngle(p(0), p(1), p(2))
+}
+
 function outward(a: number[], b: number[], c: number[]): boolean {
   const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
   const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]
@@ -422,7 +440,12 @@ export function retriangulate(
   let flipped = 0
   for (let pass = 0; pass < passes; pass++) {
     let did = 0
-    for (let f = 0; f < mesh.faceCount; f++) {
+    // Worst first. Sweeping in face order spends the pass on triangles that
+    // were nearly fine and leaves the needles for a pass that never comes.
+    const order: number[] = []
+    for (let f = 0; f < mesh.faceCount; f++) if (mesh.faceAlive[f]) order.push(f)
+    order.sort((x, y) => worstAngle(mesh, pos, x) - worstAngle(mesh, pos, y))
+    for (const f of order) {
       if (!mesh.faceAlive[f]) continue
       for (let k = 0; k < 3; k++) {
         const a = mesh.faceVerts[f * 3 + k]

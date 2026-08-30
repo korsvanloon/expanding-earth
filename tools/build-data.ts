@@ -155,6 +155,7 @@ function main() {
     crust.rigidity,
     faceCount,
     mesh.indices,
+    crust.type,
   )
 
   const crustModels: CrustModel[] = (Object.keys(ageFields) as CrustModelId[]).map((id) => {

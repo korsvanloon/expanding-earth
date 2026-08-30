@@ -1,4 +1,16 @@
 import { PERMANENT_MA } from '../../shared/model.js'
+import { CRUST_TYPES, type CrustType } from '../../shared/crust.js'
+
+/**
+ * The crust ECM1 reads as having been pulled out: extended crust and the
+ * continental margins beside it.
+ *
+ * An island arc is thin too, and it was never stretched -- it is thin because
+ * it is young volcanic crust built on nothing. Un-stretching it was what made
+ * Central America start deforming within the first twenty million years, which
+ * is a thing the model was doing to itself rather than a thing the data said.
+ */
+const STRETCHED: CrustType[] = ['EXCT', 'COMA']
 
 /** The most a piece of continental crust is believed to have been stretched. */
 const MAX_STRETCH = Number(process.env.MAX_STRETCH ?? 2.5)
@@ -31,7 +43,9 @@ export function unstretching(
   rigidity: Float32Array,
   faceCount: number,
   indices: Uint32Array,
+  crustType?: Uint8Array,
 ) {
+  const stretched = new Set<CrustType>(STRETCHED)
   // Unextended continental crust, read off the model rather than assumed: the
   // median thickness of the shields and platforms, which are the crust nothing
   // has pulled on.
@@ -43,6 +57,7 @@ export function unstretching(
   const stretch = new Float32Array(faceCount).fill(1)
   for (let f = 0; f < faceCount; f++) {
     if (faceAges[f] < PERMANENT_MA || thickness[f] <= 0) continue
+    if (crustType && !stretched.has(CRUST_TYPES[crustType[f]] as CrustType)) continue
     // Capped: past about two and a half the crust is no longer a stretched
     // continent but the start of an ocean, and ECM1's thinnest cells are as
     // likely to be the grid being a degree across as they are to be real.
@@ -57,8 +72,11 @@ export function unstretching(
     riftMa[f] = faceAges[f]
     queue.push(f)
   }
-  // Oldest sea floor first, so an inland margin takes the age of the ocean it
-  // actually rifted from rather than of whatever water is nearest.
+  // Oldest sea floor first, and claimed rather than merely visited first, so a
+  // margin takes the age of the ocean it actually rifted from. Sorting the
+  // seeds and then walking breadth-first does not do it: every seed sits at
+  // depth zero, so the nearest water wins whatever its age, and a margin facing
+  // an ancient ocean would date itself off some young sea a little closer.
   queue.sort((a, b) => faceAges[b] - faceAges[a])
 
   // The face graph: two triangles are neighbours when they share an edge.
@@ -80,13 +98,21 @@ export function unstretching(
       }
     }
   }
-  for (let head = 0; head < queue.length; head++) {
-    const f = queue[head]
-    for (const n of neighbourOf[f]) {
-      if (riftMa[n] >= 0) continue
-      riftMa[n] = riftMa[f]
-      queue.push(n)
+  const REACH = 12
+  const depth = new Int32Array(faceCount)
+  for (const f of queue) depth[f] = 0
+  for (let round = 0; round < REACH; round++) {
+    const frontier = queue.slice()
+    queue.length = 0
+    for (const f of frontier) {
+      for (const n of neighbourOf[f]) {
+        if (riftMa[n] >= 0) continue
+        riftMa[n] = riftMa[f]
+        depth[n] = depth[f] + 1
+        queue.push(n)
+      }
     }
+    if (!queue.length) break
   }
   for (let f = 0; f < faceCount; f++) if (riftMa[f] < 0) riftMa[f] = 0
 

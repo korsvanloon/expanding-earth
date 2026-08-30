@@ -124,7 +124,7 @@ const CONFIG = {
   /** How hard an island is pulled back to its own shape, per sweep. */
   islandHold: Number(process.env.ISLAND_HOLD ?? 0.35),
   /** How many rounds of redrawing slivers per step. */
-  flipPasses: Number(process.env.FLIP_PASSES ?? 4),
+  flipPasses: Number(process.env.FLIP_PASSES ?? 6),
   /** Smoothing passes over the age field before differentiating it. */
   flowSmoothing: Number(process.env.FLOW_SMOOTH ?? 6),
   /** The fastest half-spreading rate believed, km/Myr. */
@@ -201,6 +201,7 @@ function main() {
   offset += vertexCount * 4 // origin, which an uncut mesh does not need
   offset += faceCount * 2 // per-face fragment
   const vertexIsland = new Uint16Array(buffer.buffer, offset, vertexCount)
+  const crustType = new Uint8Array(buffer.buffer, offset + vertexCount * 2, faceCount)
   console.log(`[solve] ${vertexCount} vertices, ${faceCount} faces`)
   if (cutPairCount) throw new Error('this solver closes the mesh up; it wants an uncut one')
 
@@ -234,9 +235,6 @@ function main() {
   const pos = new Float64Array(vertexCount * 3)
   for (let i = 0; i < vertexCount * 3; i++) pos[i] = dirs[i] * r0
   const previous = new Float64Array(pos)
-  /** Where each island's crust would sit if it had kept its shape exactly. */
-  const rest = new Float64Array(pos)
-
   // Read from the mesh rather than worked out again, so the picture and the
   // physics cannot drift apart.
   const islands = {
@@ -244,6 +242,7 @@ function main() {
     count: vertexIsland.reduce((m, id) => Math.max(m, id), 0),
   }
   console.log(`[solve] ${islands.count} islands of strong crust hold their shape`)
+  const shape = islandShape(dirs, islands.vertexIsland, islands.count, vertexCount, r0)
 
   /**
    * How hard it is to change a triangle's size, as against its shape.
@@ -307,7 +306,7 @@ function main() {
   const drift = new Float64Array(vertexCount * 3)
 
   const { stretch, riftMa } = unstretching(
-    thickness, faceAges, rigidity, faceCount, indices,
+    thickness, faceAges, rigidity, faceCount, indices, crustType,
   )
   const stretchAt = (f: number, t: number) =>
     1 + (stretch[f] - 1) * (riftMa[f] > 0 ? Math.min(1, t / riftMa[f]) : 0)
@@ -453,14 +452,7 @@ function main() {
     refusedTotal += closed.refused
     settleCollapsed()
 
-    dilateIslands(
-      pos, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive, rPrev, rNext,
-    )
     driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
-    // The shape an island is held to is the one it has right now, before the
-    // relaxation starts pushing it about. Everything the sweeps do to it after
-    // this is undone except the part a rotation could have produced.
-    rest.set(pos)
 
     for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
 
@@ -488,7 +480,10 @@ function main() {
         }
       }
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
-      holdIslands(pos, rest, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive)
+      holdIslands(
+        pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
+        rNext,
+      )
     }
     relaxToSphere(pos, vertexCount, rNext, 1)
     // Redraw whatever the move has left as slivers, then settle again: a
@@ -592,89 +587,72 @@ function main() {
 
 
 /**
- * Move each island onto the smaller sphere without shrinking the rock.
+ * What each island's shape actually is, measured once.
  *
- * The step begins by scaling everything by the ratio of the two radii, which
- * moves the whole shell onto the new sphere but also makes every piece of it
- * that much smaller -- and rock does not do that. For sea floor it hardly
- * matters, since the springs pull it back within a sweep or two; for an island
- * held to its own shape it matters entirely, because the shape it is held to is
- * the squashed one and the squashing is then frozen in for good. Craton strain
- * doubled the first time the islands went in, for this reason alone.
- *
- * So each island is opened back out about its own centre: every point keeps its
- * distance along the surface from the middle of the island, measured in
- * kilometres rather than in degrees. On a smaller sphere the same kilometres
- * subtend a wider angle, which is exactly the picture -- a rigid cap laid on a
- * tighter ball has to reach further round it.
+ * For every point: how far it lies from the middle of its island, in
+ * kilometres along the surface, and which way. Those two numbers are the
+ * island's shape, and they are what must not change.
  */
-function dilateIslands(
-  pos: Float64Array,
-  island: Int32Array,
-  count: number,
-  vertexCount: number,
-  alive: Uint8Array,
-  rPrev: number,
-  rNext: number,
+function islandShape(
+  dirs: Float32Array, island: Int32Array, count: number, vertexCount: number, r0: number,
 ) {
-  if (count === 0 || rNext <= 0) return
   const centre = new Float64Array(count * 3)
   for (let i = 0; i < vertexCount; i++) {
     const c = island[i]
-    if (c < 0 || !alive[i]) continue
-    const length = Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
-    centre[c * 3] += pos[i * 3] / length
-    centre[c * 3 + 1] += pos[i * 3 + 1] / length
-    centre[c * 3 + 2] += pos[i * 3 + 2] / length
+    if (c < 0) continue
+    for (let k = 0; k < 3; k++) centre[c * 3 + k] += dirs[i * 3 + k]
   }
   for (let c = 0; c < count; c++) {
     const length = Math.hypot(centre[c * 3], centre[c * 3 + 1], centre[c * 3 + 2]) || 1
-    centre[c * 3] /= length; centre[c * 3 + 1] /= length; centre[c * 3 + 2] /= length
+    for (let k = 0; k < 3; k++) centre[c * 3 + k] /= length
   }
-  const grow = rPrev / rNext
+  const arcKm = new Float64Array(vertexCount)
+  const bearing = new Float64Array(vertexCount * 3)
   for (let i = 0; i < vertexCount; i++) {
     const c = island[i]
-    if (c < 0 || !alive[i]) continue
-    const length = Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
-    const ux = pos[i * 3] / length, uy = pos[i * 3 + 1] / length, uz = pos[i * 3 + 2] / length
+    if (c < 0) continue
     const cx = centre[c * 3], cy = centre[c * 3 + 1], cz = centre[c * 3 + 2]
-    const dot = Math.min(1, Math.max(-1, ux * cx + uy * cy + uz * cz))
-    const angle = Math.acos(dot)
-    if (angle < 1e-9) continue
-    const wanted = Math.min(Math.PI * 0.9, angle * grow)
-    // Slide out along the same bearing from the island's centre.
-    const tx = ux - cx * dot, ty = uy - cy * dot, tz = uz - cz * dot
+    const dot = Math.min(1, Math.max(-1, dirs[i * 3] * cx + dirs[i * 3 + 1] * cy + dirs[i * 3 + 2] * cz))
+    arcKm[i] = Math.acos(dot) * r0
+    const tx = dirs[i * 3] - cx * dot, ty = dirs[i * 3 + 1] - cy * dot, tz = dirs[i * 3 + 2] - cz * dot
     const tl = Math.hypot(tx, ty, tz) || 1
-    const sin = Math.sin(wanted)
-    const cos = Math.cos(wanted)
-    pos[i * 3] = (cx * cos + (tx / tl) * sin) * rNext
-    pos[i * 3 + 1] = (cy * cos + (ty / tl) * sin) * rNext
-    pos[i * 3 + 2] = (cz * cos + (tz / tl) * sin) * rNext
+    bearing[i * 3] = tx / tl; bearing[i * 3 + 1] = ty / tl; bearing[i * 3 + 2] = tz / tl
   }
+  return { centre, arcKm, bearing }
 }
 
 /**
- * Pull each island back towards the shape it is supposed to have kept.
+ * Put each island back where its own shape says it should be.
  *
- * The best rigid placement of its rest shape, fitted over the points that still
- * exist, then a pull towards that placement. Not all the way: a cap of the
- * present-day sphere cannot be laid on a smaller one without deforming, and how
- * much is set by Gauss rather than by anything we can choose, so an island that
- * insists absolutely would simply tear its surroundings instead.
+ * The version before this fitted the best rigid placement of the island's
+ * present-day shape and pulled towards that, which cannot work: a cap of the
+ * present-day sphere does not lie on a smaller one at all, so the target was
+ * always slightly off the surface and the projection back onto it undid the
+ * hold. Shields were still deforming by five percent.
+ *
+ * Rebuilt from the shape instead. Only the island's placement is fitted -- one
+ * rotation, three numbers -- and then every point is put at its own distance
+ * from the middle, in kilometres, along its own bearing. Distances outwards
+ * from the centre come out exactly right. What is left over is the tangential
+ * stretch of laying a flat disc on a ball, which is Gauss's and not ours, and
+ * it is spread evenly instead of piling up at one edge.
  */
 function holdIslands(
   pos: Float64Array,
-  rest: Float64Array,
+  dirs: Float32Array,
+  shape: ReturnType<typeof islandShape>,
   island: Int32Array,
   count: number,
   vertexCount: number,
   alive: Uint8Array,
+  radiusKm: number,
 ) {
   if (count === 0) return
   const rotation = new Float64Array(count * 9)
   for (let c = 0; c < count; c++) {
     rotation[c * 9] = 1; rotation[c * 9 + 4] = 1; rotation[c * 9 + 8] = 1
   }
+  // Where the island is pointing now, fitted from where its points have got to.
   for (let pass = 0; pass < 3; pass++) {
     const m = new Float64Array(count * 6)
     const v = new Float64Array(count * 3)
@@ -682,11 +660,14 @@ function holdIslands(
       const c = island[i]
       if (c < 0 || !alive[i]) continue
       const r = c * 9
-      const rx = rest[i * 3], ry = rest[i * 3 + 1], rz = rest[i * 3 + 2]
+      const rx = dirs[i * 3], ry = dirs[i * 3 + 1], rz = dirs[i * 3 + 2]
       const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
       const qy = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
       const qz = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
-      const dx = pos[i * 3] - qx, dy = pos[i * 3 + 1] - qy, dz = pos[i * 3 + 2] - qz
+      const length = Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
+      const dx = pos[i * 3] / length - qx
+      const dy = pos[i * 3 + 1] / length - qy
+      const dz = pos[i * 3 + 2] / length - qz
       const q2 = qx * qx + qy * qy + qz * qz
       const o = c * 6
       m[o] += q2 - qx * qx; m[o + 1] += q2 - qy * qy; m[o + 2] += q2 - qz * qz
@@ -713,13 +694,24 @@ function holdIslands(
     const c = island[i]
     if (c < 0 || !alive[i]) continue
     const r = c * 9
-    const rx = rest[i * 3], ry = rest[i * 3 + 1], rz = rest[i * 3 + 2]
-    const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
-    const qy = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
-    const qz = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
-    pos[i * 3] += hold * (qx - pos[i * 3])
-    pos[i * 3 + 1] += hold * (qy - pos[i * 3 + 1])
-    pos[i * 3 + 2] += hold * (qz - pos[i * 3 + 2])
+    const cx0 = shape.centre[c * 3], cy0 = shape.centre[c * 3 + 1], cz0 = shape.centre[c * 3 + 2]
+    const bx0 = shape.bearing[i * 3], by0 = shape.bearing[i * 3 + 1], bz0 = shape.bearing[i * 3 + 2]
+    const cx = rotation[r] * cx0 + rotation[r + 1] * cy0 + rotation[r + 2] * cz0
+    const cy = rotation[r + 3] * cx0 + rotation[r + 4] * cy0 + rotation[r + 5] * cz0
+    const cz = rotation[r + 6] * cx0 + rotation[r + 7] * cy0 + rotation[r + 8] * cz0
+    const bx = rotation[r] * bx0 + rotation[r + 1] * by0 + rotation[r + 2] * bz0
+    const by = rotation[r + 3] * bx0 + rotation[r + 4] * by0 + rotation[r + 5] * bz0
+    const bz = rotation[r + 6] * bx0 + rotation[r + 7] * by0 + rotation[r + 8] * bz0
+    // Same kilometres from the middle, which on a smaller sphere is a wider
+    // angle: a rigid cap laid on a tighter ball reaches further round it.
+    const theta = Math.min(Math.PI * 0.9, shape.arcKm[i] / radiusKm)
+    const sin = Math.sin(theta), cos = Math.cos(theta)
+    const tx = (cx * cos + bx * sin) * radiusKm
+    const ty = (cy * cos + by * sin) * radiusKm
+    const tz = (cz * cos + bz * sin) * radiusKm
+    pos[i * 3] += hold * (tx - pos[i * 3])
+    pos[i * 3 + 1] += hold * (ty - pos[i * 3 + 1])
+    pos[i * 3 + 2] += hold * (tz - pos[i * 3 + 2])
   }
 }
 
