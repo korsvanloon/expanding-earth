@@ -111,11 +111,12 @@ export function Panel({ data }: { data: Dataset }) {
       </label>
       <label className="toggle">
         <input type="checkbox" checked={showMesh} onChange={(e) => setShowMesh(e.target.checked)} />
-        Mesh, through glass
+        Show the mesh
       </label>
       <p className="caption">
-        The shell turns transparent and its triangles are drawn on top, so you can watch the
-        fragments slide past each other and see the far side of the globe through the cracks.
+        The triangles the crust is made of, drawn on top of it. Watch them close up as the crust
+        they stand for un-forms, and watch the edges be redrawn where one piece slides past
+        another.
       </p>
 
       <section>

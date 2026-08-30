@@ -45,6 +45,7 @@ import {
 import { CRATON_RIGIDITY, WEAK_RIGIDITY } from '../shared/crust.js'
 import { directionToUv } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
+import { unstretching } from './lib/unstretching.js'
 import { buildIcosphere } from './lib/icosphere.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -119,6 +120,16 @@ const CONFIG = {
   plateTolerance: Number(process.env.PLATE_TOL ?? 4),
   /** Fewer points than this and it is not a plate, it is a boundary. */
   smallestPlate: Number(process.env.SMALLEST_PLATE ?? 60),
+  /**
+   * Crust at least this strong belongs to an island that keeps its shape:
+   * shields at 1.00, platforms at 0.90, stable basins at 0.70. Orogens, thinned
+   * margins, island arcs and sea floor are all below it and stay free.
+   */
+  islandStrength: Number(process.env.ISLAND_STRENGTH ?? 0.7),
+  /** Smaller than this fraction of the sphere and it is not worth holding. */
+  smallestIsland: Number(process.env.SMALLEST_ISLAND ?? 0.0002),
+  /** How hard an island is pulled back to its own shape, per sweep. */
+  islandHold: Number(process.env.ISLAND_HOLD ?? 0.35),
   /** How many rounds of redrawing slivers per step. */
   flipPasses: Number(process.env.FLIP_PASSES ?? 4),
   /** Smoothing passes over the age field before differentiating it. */
@@ -226,6 +237,16 @@ function main() {
   const pos = new Float64Array(vertexCount * 3)
   for (let i = 0; i < vertexCount * 3; i++) pos[i] = dirs[i] * r0
   const previous = new Float64Array(pos)
+  /** Where each island's crust would sit if it had kept its shape exactly. */
+  const rest = new Float64Array(pos)
+
+  const faceSolidAngle = new Float64Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    faceSolidAngle[f] = solidAngle(
+      dirs, indices[f * 3] * 3, indices[f * 3 + 1] * 3, indices[f * 3 + 2] * 3,
+    )
+  }
+  const islands = findIslands(indices, rigidity, faceSolidAngle, faceCount, vertexCount)
 
   const vertexAge = new Float32Array(vertexCount)
   const vertexRigidity = new Float64Array(vertexCount)
@@ -259,7 +280,7 @@ function main() {
     thickness, faceAges, rigidity, faceCount, indices,
   )
   const stretchAt = (f: number, t: number) =>
-    1 + (stretch[f] - 1) * Math.min(1, riftMa[f] > 0 ? t / riftMa[f] : 1)
+    1 + (stretch[f] - 1) * (riftMa[f] > 0 ? Math.min(1, t / riftMa[f]) : 0)
   const restAreaNow = new Float64Array(faceCount)
 
   // A fixed set of directions to ask "is there any crust here?" of.
@@ -358,7 +379,10 @@ function main() {
       separation.set(key, [...(separation.get(key) ?? []), closest(target.a, target.b)])
     }
 
-    const found = findPlates(pos, atLastFrame, mesh, Math.max(meta.frameStepMa, 1), vertexCount)
+    const found = findPlates(
+      pos, atLastFrame, mesh, Math.max(meta.frameStepMa, 1), vertexCount,
+      plates[plates.length - 1],
+    )
     plates.push(found.ids)
     plateReport = { count: found.count, biggest: found.biggest }
     atLastFrame.set(pos)
@@ -399,7 +423,14 @@ function main() {
     refusedTotal += closed.refused
     settleCollapsed()
 
+    dilateIslands(
+      pos, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive, rPrev, rNext,
+    )
     driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
+    // The shape an island is held to is the one it has right now, before the
+    // relaxation starts pushing it about. Everything the sweeps do to it after
+    // this is undone except the part a rotation could have produced.
+    rest.set(pos)
 
     for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
 
@@ -427,6 +458,7 @@ function main() {
         }
       }
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
+      holdIslands(pos, rest, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive)
     }
     relaxToSphere(pos, vertexCount, rNext, 1)
     // Redraw whatever the move has left as slivers, then settle again: a
@@ -529,6 +561,223 @@ function main() {
 }
 
 /**
+ * The islands of crust that are not allowed to lose their shape.
+ *
+ * Not plates: plates covered the whole sphere and had to account for every
+ * triangle, which is what made them arbitrary. These are islands -- the pale
+ * ground on the crustal strength map, shields and platforms and stable basins,
+ * connected up wherever it is continuous. Arabia, Madagascar, India, western
+ * and eastern Australia, Greenland, the Siberian and East European platforms,
+ * the several pieces of Africa. Between them the crust is free, because between
+ * them the crust really is: orogens, thinned margins, island arcs, sea floor.
+ *
+ * A shield does not deform. Springs alone say that only locally -- a correction
+ * has to diffuse across thirty triangles to reach the far side of a craton, and
+ * forty sweeps barely manage it -- so each island is also fitted as a whole and
+ * pulled back towards the one rigid position that best explains where its
+ * points have got to.
+ */
+function findIslands(
+  indices: Uint32Array,
+  rigidity: Float32Array,
+  faceArea: Float64Array,
+  faceCount: number,
+  vertexCount: number,
+) {
+  const neighbourOf: number[][] = Array.from({ length: faceCount }, () => [])
+  {
+    const seen = new Map<number, number>()
+    for (let f = 0; f < faceCount; f++) {
+      for (let k = 0; k < 3; k++) {
+        const x = indices[f * 3 + k]
+        const y = indices[f * 3 + ((k + 1) % 3)]
+        const key = Math.min(x, y) * vertexCount + Math.max(x, y)
+        const other = seen.get(key)
+        if (other === undefined) seen.set(key, f)
+        else {
+          neighbourOf[f].push(other)
+          neighbourOf[other].push(f)
+        }
+      }
+    }
+  }
+
+  const island = new Int32Array(faceCount).fill(-1)
+  const areas: number[] = []
+  const stack: number[] = []
+  for (let f = 0; f < faceCount; f++) {
+    if (island[f] >= 0 || rigidity[f] < CONFIG.islandStrength) continue
+    const id = areas.length
+    let area = 0
+    island[f] = id
+    stack.push(f)
+    while (stack.length) {
+      const g = stack.pop()!
+      area += faceArea[g]
+      for (const n of neighbourOf[g]) {
+        if (island[n] >= 0 || rigidity[n] < CONFIG.islandStrength) continue
+        island[n] = id
+        stack.push(n)
+      }
+    }
+    areas.push(area)
+  }
+
+  // Too small to hold a shape worth keeping.
+  const minArea = CONFIG.smallestIsland * 4 * Math.PI
+  const keep = new Map<number, number>()
+  areas.forEach((area, id) => {
+    if (area >= minArea) keep.set(id, keep.size)
+  })
+  const vertexIsland = new Int32Array(vertexCount).fill(-1)
+  for (let f = 0; f < faceCount; f++) {
+    const id = island[f] < 0 ? undefined : keep.get(island[f])
+    if (id === undefined) continue
+    for (let k = 0; k < 3; k++) vertexIsland[indices[f * 3 + k]] = id
+  }
+  const across = [...keep.keys()]
+    .map((id) => Math.round(2 * 6371 * Math.asin(Math.sqrt(areas[id] / (4 * Math.PI)))))
+    .sort((a, b) => b - a)
+  console.log(
+    `[solve] ${keep.size} islands of strong crust, ${across.slice(0, 10).join(' ')} km across` +
+      `${across.length > 10 ? ` ... ${across[across.length - 1]}` : ''}`,
+  )
+  return { vertexIsland, count: keep.size }
+}
+
+/**
+ * Move each island onto the smaller sphere without shrinking the rock.
+ *
+ * The step begins by scaling everything by the ratio of the two radii, which
+ * moves the whole shell onto the new sphere but also makes every piece of it
+ * that much smaller -- and rock does not do that. For sea floor it hardly
+ * matters, since the springs pull it back within a sweep or two; for an island
+ * held to its own shape it matters entirely, because the shape it is held to is
+ * the squashed one and the squashing is then frozen in for good. Craton strain
+ * doubled the first time the islands went in, for this reason alone.
+ *
+ * So each island is opened back out about its own centre: every point keeps its
+ * distance along the surface from the middle of the island, measured in
+ * kilometres rather than in degrees. On a smaller sphere the same kilometres
+ * subtend a wider angle, which is exactly the picture -- a rigid cap laid on a
+ * tighter ball has to reach further round it.
+ */
+function dilateIslands(
+  pos: Float64Array,
+  island: Int32Array,
+  count: number,
+  vertexCount: number,
+  alive: Uint8Array,
+  rPrev: number,
+  rNext: number,
+) {
+  if (count === 0 || rNext <= 0) return
+  const centre = new Float64Array(count * 3)
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0 || !alive[i]) continue
+    const length = Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
+    centre[c * 3] += pos[i * 3] / length
+    centre[c * 3 + 1] += pos[i * 3 + 1] / length
+    centre[c * 3 + 2] += pos[i * 3 + 2] / length
+  }
+  for (let c = 0; c < count; c++) {
+    const length = Math.hypot(centre[c * 3], centre[c * 3 + 1], centre[c * 3 + 2]) || 1
+    centre[c * 3] /= length; centre[c * 3 + 1] /= length; centre[c * 3 + 2] /= length
+  }
+  const grow = rPrev / rNext
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0 || !alive[i]) continue
+    const length = Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
+    const ux = pos[i * 3] / length, uy = pos[i * 3 + 1] / length, uz = pos[i * 3 + 2] / length
+    const cx = centre[c * 3], cy = centre[c * 3 + 1], cz = centre[c * 3 + 2]
+    const dot = Math.min(1, Math.max(-1, ux * cx + uy * cy + uz * cz))
+    const angle = Math.acos(dot)
+    if (angle < 1e-9) continue
+    const wanted = Math.min(Math.PI * 0.9, angle * grow)
+    // Slide out along the same bearing from the island's centre.
+    const tx = ux - cx * dot, ty = uy - cy * dot, tz = uz - cz * dot
+    const tl = Math.hypot(tx, ty, tz) || 1
+    const sin = Math.sin(wanted)
+    const cos = Math.cos(wanted)
+    pos[i * 3] = (cx * cos + (tx / tl) * sin) * rNext
+    pos[i * 3 + 1] = (cy * cos + (ty / tl) * sin) * rNext
+    pos[i * 3 + 2] = (cz * cos + (tz / tl) * sin) * rNext
+  }
+}
+
+/**
+ * Pull each island back towards the shape it is supposed to have kept.
+ *
+ * The best rigid placement of its rest shape, fitted over the points that still
+ * exist, then a pull towards that placement. Not all the way: a cap of the
+ * present-day sphere cannot be laid on a smaller one without deforming, and how
+ * much is set by Gauss rather than by anything we can choose, so an island that
+ * insists absolutely would simply tear its surroundings instead.
+ */
+function holdIslands(
+  pos: Float64Array,
+  rest: Float64Array,
+  island: Int32Array,
+  count: number,
+  vertexCount: number,
+  alive: Uint8Array,
+) {
+  if (count === 0) return
+  const rotation = new Float64Array(count * 9)
+  for (let c = 0; c < count; c++) {
+    rotation[c * 9] = 1; rotation[c * 9 + 4] = 1; rotation[c * 9 + 8] = 1
+  }
+  for (let pass = 0; pass < 3; pass++) {
+    const m = new Float64Array(count * 6)
+    const v = new Float64Array(count * 3)
+    for (let i = 0; i < vertexCount; i++) {
+      const c = island[i]
+      if (c < 0 || !alive[i]) continue
+      const r = c * 9
+      const rx = rest[i * 3], ry = rest[i * 3 + 1], rz = rest[i * 3 + 2]
+      const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
+      const qy = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
+      const qz = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
+      const dx = pos[i * 3] - qx, dy = pos[i * 3 + 1] - qy, dz = pos[i * 3 + 2] - qz
+      const q2 = qx * qx + qy * qy + qz * qz
+      const o = c * 6
+      m[o] += q2 - qx * qx; m[o + 1] += q2 - qy * qy; m[o + 2] += q2 - qz * qz
+      m[o + 3] -= qx * qy; m[o + 4] -= qx * qz; m[o + 5] -= qy * qz
+      v[c * 3] += qy * dz - qz * dy
+      v[c * 3 + 1] += qz * dx - qx * dz
+      v[c * 3 + 2] += qx * dy - qy * dx
+    }
+    for (let c = 0; c < count; c++) {
+      const o = c * 6
+      const omega = solve3(
+        [m[o], m[o + 3], m[o + 4], m[o + 3], m[o + 1], m[o + 5], m[o + 4], m[o + 5], m[o + 2]],
+        [v[c * 3], v[c * 3 + 1], v[c * 3 + 2]],
+      )
+      if (!omega) continue
+      const angle = Math.hypot(...omega)
+      if (angle < 1e-12 || angle > 0.5) continue
+      compose(rotation, c * 9, omega[0] / angle, omega[1] / angle, omega[2] / angle, angle)
+    }
+  }
+
+  const hold = CONFIG.islandHold
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0 || !alive[i]) continue
+    const r = c * 9
+    const rx = rest[i * 3], ry = rest[i * 3 + 1], rz = rest[i * 3 + 2]
+    const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
+    const qy = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
+    const qz = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
+    pos[i * 3] += hold * (qx - pos[i * 3])
+    pos[i * 3 + 1] += hold * (qy - pos[i * 3 + 1])
+    pos[i * 3 + 2] += hold * (qz - pos[i * 3 + 2])
+  }
+}
+
+/**
  * Read the plates back out of the motion.
  *
  * This is the last thing in the model that used to be assumed and is now
@@ -555,6 +804,7 @@ function findPlates(
   mesh: DynamicMesh,
   dtMa: number,
   vertexCount: number,
+  previousIds: Uint8Array | undefined,
 ) {
   // Only the motion across the surface counts. Everything also moves outwards
   // as the Earth grows -- eighty-odd kilometres between frames, more than the
@@ -717,8 +967,38 @@ function findPlates(
     finalSizes.set(label[v], (finalSizes.get(label[v]) ?? 0) + 1)
   }
   const ranked = [...finalSizes].sort((a, b) => b[1] - a[1])
+
+  /**
+   * A plate keeps the number it had last time.
+   *
+   * The plates are found again from scratch at every frame, which is the point
+   * -- they are allowed to differ -- but numbering them afresh each time made
+   * the whole map change colour on every step, and a thing that changes colour
+   * looks like a thing that changed. Largest first is a stable enough ordering
+   * for the big plates and hopeless for the rest, so each new plate instead
+   * claims the number carried by most of the ground it covers, biggest first,
+   * and only a genuinely new plate gets a number nobody was using.
+   */
   const renumber = new Map<number, number>()
-  ranked.forEach(([id], i) => renumber.set(id, Math.min(254, i) + 1))
+  const taken = new Set<number>()
+  for (const [id] of ranked) {
+    const votes = new Map<number, number>()
+    for (let v = 0; v < vertexCount; v++) {
+      if (label[v] !== id || !previousIds || previousIds[v] === 0) continue
+      votes.set(previousIds[v], (votes.get(previousIds[v]) ?? 0) + 1)
+    }
+    let inherited = 0
+    let most = 0
+    for (const [was, n] of votes) if (n > most && !taken.has(was)) { most = n; inherited = was }
+    if (!inherited) {
+      for (let candidate = 1; candidate <= 254; candidate++) {
+        if (!taken.has(candidate)) { inherited = candidate; break }
+      }
+    }
+    if (!inherited) inherited = 255
+    taken.add(inherited)
+    renumber.set(id, inherited)
+  }
   const out = new Uint8Array(vertexCount)
   for (let v = 0; v < vertexCount; v++) {
     if (!mesh.vertexAlive[v] || label[v] < 0) continue
@@ -888,101 +1168,6 @@ function inside(
 
 
 
-/**
- * How much each piece of continental crust was stretched to reach its present
- * thickness, and when that happened.
- *
- * Continental crust is about forty kilometres thick where nothing has happened
- * to it. The places ECM1 reads as thin -- the passive margins, the extended
- * crust behind them -- are thin because they were pulled out during rifting,
- * and crust conserves its volume: a margin now twenty kilometres thick covered
- * half the ground before it was stretched. Run backwards, it has to gather
- * itself back up.
- *
- * Which is also why those places show as weak on the strength map. They are not
- * weak by accident and then stretched; they are thin because they were
- * stretched, and thin is what weak means here. The reconstruction was treating
- * them as rigid pieces of their present size, so the crust it had to fit onto
- * the smaller Earth was several percent larger than the crust that actually
- * existed.
- *
- * When it happened is set by the ocean next door: a margin was pulled apart as
- * the sea floor beside it began to open, so the age of the nearest sea floor is
- * when to have finished putting it back.
- */
-function unstretching(
-  thickness: Float32Array,
-  faceAges: Float32Array,
-  rigidity: Float32Array,
-  faceCount: number,
-  indices: Uint32Array,
-) {
-  // Unextended continental crust, read off the model rather than assumed: the
-  // median thickness of the shields and platforms, which are the crust nothing
-  // has pulled on.
-  const intact: number[] = []
-  for (let f = 0; f < faceCount; f++) if (rigidity[f] >= 0.9) intact.push(thickness[f])
-  intact.sort((a, b) => a - b)
-  const reference = intact.length ? intact[Math.floor(intact.length / 2)] : 40
-
-  const stretch = new Float32Array(faceCount).fill(1)
-  for (let f = 0; f < faceCount; f++) {
-    if (faceAges[f] < PERMANENT_MA || thickness[f] <= 0) continue
-    // Capped: past about two and a half the crust is no longer a stretched
-    // continent but the start of an ocean, and ECM1's thinnest cells are as
-    // likely to be the grid being a degree across as they are to be real.
-    stretch[f] = Math.min(CONFIG.maxStretch, Math.max(1, reference / thickness[f]))
-  }
-
-  // When the sea floor beside it opened, spread inland over the face graph.
-  const riftMa = new Float32Array(faceCount).fill(-1)
-  const queue: number[] = []
-  for (let f = 0; f < faceCount; f++) {
-    if (faceAges[f] >= PERMANENT_MA) continue
-    riftMa[f] = faceAges[f]
-    queue.push(f)
-  }
-  // Oldest sea floor first, so an inland margin takes the age of the ocean it
-  // actually rifted from rather than of whatever water is nearest.
-  queue.sort((a, b) => faceAges[b] - faceAges[a])
-
-  // The face graph: two triangles are neighbours when they share an edge.
-  const neighbourOf: number[][] = Array.from({ length: faceCount }, () => [])
-  {
-    const seen = new Map<number, number>()
-    const width = indices.reduce((m, v) => Math.max(m, v), 0) + 1
-    for (let f = 0; f < faceCount; f++) {
-      for (let k = 0; k < 3; k++) {
-        const x = indices[f * 3 + k]
-        const y = indices[f * 3 + ((k + 1) % 3)]
-        const key = Math.min(x, y) * width + Math.max(x, y)
-        const other = seen.get(key)
-        if (other === undefined) seen.set(key, f)
-        else {
-          neighbourOf[f].push(other)
-          neighbourOf[other].push(f)
-        }
-      }
-    }
-  }
-  for (let head = 0; head < queue.length; head++) {
-    const f = queue[head]
-    for (const n of neighbourOf[f]) {
-      if (riftMa[n] >= 0) continue
-      riftMa[n] = riftMa[f]
-      queue.push(n)
-    }
-  }
-  for (let f = 0; f < faceCount; f++) if (riftMa[f] < 0) riftMa[f] = 0
-
-  let thinned = 0
-  for (let f = 0; f < faceCount; f++) if (stretch[f] > 1.05) thinned++
-  console.log(
-    `[solve] unextended continental crust ${reference.toFixed(0)} km; ` +
-      `${((100 * thinned) / faceCount).toFixed(1)}% of the shell reads as stretched`,
-  )
-  return { stretch, riftMa }
-}
 
 /**
  * The spreading velocity field, read off the age grid.

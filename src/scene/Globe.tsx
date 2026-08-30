@@ -11,7 +11,7 @@ import { fragmentShader, vertexShader } from './shaders'
 const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, plates: 4 } as const
 
 /** How much of the crust survives in the mesh view. Enough to read, not to hide. */
-const GLASS_OPACITY = 0.55
+const GLASS_OPACITY = 1
 
 export function Globe({ data }: { data: Dataset }) {
   const material = useRef<THREE.ShaderMaterial>(null)
@@ -113,7 +113,7 @@ export function Globe({ data }: { data: Dataset }) {
       material.current.uniforms.uTimeMa.value = clock.timeMa
       material.current.uniforms.uMode.value = MODES[mode]
       material.current.uniforms.uGrid.value = showGrid ? 1 : 0
-      material.current.uniforms.uOpacity.value = showMesh ? GLASS_OPACITY : 1
+      material.current.uniforms.uOpacity.value = GLASS_OPACITY
       // A light just off the camera's shoulder: everything you turn towards is
       // lit, but the sphere still reads as a sphere.
       material.current.uniforms.uLight.value
@@ -132,12 +132,9 @@ export function Globe({ data }: { data: Dataset }) {
           fragmentShader={fragmentShader}
           uniforms={uniforms}
           glslVersion={THREE.GLSL3}
-          transparent={showMesh}
-          // Glass has to let the far side through, which means drawing the
-          // triangles that face away and not stamping the depth buffer on the
-          // way past. Opaque, neither applies and both cost fill rate.
-          depthWrite={!showMesh}
-          side={showMesh ? THREE.DoubleSide : THREE.FrontSide}
+          transparent={false}
+          depthWrite
+          side={THREE.FrontSide}
         />
       </mesh>
       {showMesh && (
@@ -146,11 +143,10 @@ export function Globe({ data }: { data: Dataset }) {
             color="#bcd8ff"
             wireframe
             transparent
-            // Eighty thousand triangles at a hundred kilometres across: any
-            // heavier than this and the mesh stops being a grid over the world
-            // and becomes fog in front of it. The fragment boundaries still
-            // stand out, because cutting doubled the edges along them.
-            opacity={0.12}
+            // Drawn on a solid globe rather than through it. Letting the far
+            // side show through put two hemispheres of grid on top of each
+            // other and the whole thing read as fog.
+            opacity={0.35}
             depthWrite={false}
             toneMapped={false}
           />

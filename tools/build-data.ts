@@ -21,6 +21,7 @@ import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CORE_TYPES, CRUST_RIGIDITY, CRUST_TYPES, type CrustType } from '../shared/crust.js'
+import { unstretching } from './lib/unstretching.js'
 import {
   PERMANENT_MA,
   R0_KM,
@@ -142,13 +143,26 @@ function main() {
       'nearest dated cell. Lower bound on past radius.',
   }
 
+  // What the crust was, not what it is. ECM1 says a fifth of the shell is
+  // thinner than unextended continental crust, which means it was pulled out to
+  // get that way and covered less ground before it was: the area budget the
+  // radius comes from has to count it at the size it had then, not now.
+  const crust = sampleCrust(mesh)
+  const thinning = unstretching(
+    crust.thickness,
+    sampleFaceAges(mesh, ageFields[CONFIG.solvedModel], age),
+    crust.rigidity,
+    faceCount,
+    mesh.indices,
+  )
+
   const crustModels: CrustModel[] = (Object.keys(ageFields) as CrustModelId[]).map((id) => {
     const faceAges = sampleFaceAges(mesh, ageFields[id], age)
     return {
       id,
       label: id,
       assumption: assumptions[id],
-      radiusKm: radiusCurve(faceAges, faceArea),
+      radiusKm: radiusCurve(faceAges, faceArea, thinning),
     }
   })
   // The solved variant goes first so the app can treat it as the default.
@@ -176,7 +190,6 @@ function main() {
   }
   console.log(`  mesh vs full-resolution radius curve: max deviation ${(100 * worst).toFixed(2)}%`)
 
-  const crust = sampleCrust(mesh)
   // The mesh is no longer cut into plates. It closes up instead: when the crust
   // under a triangle has not been made yet the triangle goes, and what moves
   // together is whatever the surviving crust holds together. A fixed set of
@@ -739,13 +752,31 @@ function computeFaceAreas(positions: Float64Array, indices: Uint32Array): Float6
  * constraints is what lets the reconstruction close: the shell is asked to
  * cover exactly as much sphere as there is crust to cover it with.
  */
-function radiusCurve(faceAges: Float32Array, faceArea: Float64Array): number[] {
+function radiusCurve(
+  faceAges: Float32Array,
+  faceArea: Float64Array,
+  thinning: { stretch: Float32Array; riftMa: Float32Array },
+): number[] {
   const curve: number[] = []
   for (let t = 0; t <= CONFIG.endTimeMa; t += CONFIG.radiusStepMa) {
     let solidAngle = 0
     for (let f = 0; f < faceAges.length; f++) {
       const scale = crustScale(faceAges[f], t)
-      solidAngle += faceArea[f] * scale * scale
+      // A margin that has been pulled out to half its thickness covered half
+      // the ground before it was, so at the time it had not yet been stretched
+      // the area budget must count it small. Leaving this out was asking the
+      // reconstruction to fit today's stretched margins onto a sphere sized for
+      // crust that was never stretched, and it showed up exactly where it
+      // would: the crust came out 4.6% larger in area than it should be, on a
+      // planet that was getting smaller.
+      // Crust whose rifting cannot be dated -- nothing near it in the age
+      // grid -- is left alone rather than un-stretched blindly. Treating an
+      // unknown rift age as "already finished" applied the whole correction at
+      // t=0 and moved today's radius off 6371, which is the one value in this
+      // model that is not up for discussion.
+      const rift = thinning.riftMa[f]
+      const pulled = 1 + (thinning.stretch[f] - 1) * (rift > 0 ? Math.min(1, t / rift) : 0)
+      solidAngle += (faceArea[f] * scale * scale) / pulled
     }
     curve.push(R0_KM * Math.sqrt(solidAngle / (4 * Math.PI)))
   }
