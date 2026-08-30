@@ -4,7 +4,7 @@ import { Suspense, useEffect, useRef } from 'react'
 import { MathUtils, type Mesh, type PerspectiveCamera } from 'three'
 import { R0_KM } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
-import { clock } from '@/store'
+import { clock, useStore } from '@/store'
 import { Globe } from './Globe'
 
 export function Scene({ data }: { data: Dataset }) {
@@ -43,6 +43,9 @@ export function Scene({ data }: { data: Dataset }) {
  */
 function YoungCrust({ data }: { data: Dataset }) {
   const mesh = useRef<Mesh>(null)
+  // In the mesh view the point is to see through the shell, and an opaque ball
+  // sitting just inside it is exactly what stops you.
+  const showMesh = useStore((s) => s.showMesh)
   useFrame(() => {
     if (!mesh.current) return
     // A whisker inside the crust, so the two never fight over the same pixels
@@ -52,6 +55,7 @@ function YoungCrust({ data }: { data: Dataset }) {
     const r = (radiusAt(data, clock.timeMa) / R0_KM) * 0.997
     mesh.current.scale.setScalar(r)
   })
+  if (showMesh) return null
   return (
     <mesh ref={mesh}>
       <sphereGeometry args={[1, 96, 48]} />

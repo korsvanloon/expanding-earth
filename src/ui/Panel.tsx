@@ -8,7 +8,11 @@ import { useClockTime } from './useClockTime'
 
 const MODES: { id: ViewMode; label: string; hint: string }[] = [
   { id: 'surface', label: 'Surface', hint: "Today's surface, carried along with the crust" },
-  { id: 'age', label: 'Crustal age', hint: 'How old each piece of crust was at that moment' },
+  {
+    id: 'age',
+    label: 'Crustal age',
+    hint: "Each band keeps today's colour throughout, so red vanishes first, then orange, then yellow",
+  },
   { id: 'strain', label: 'Strain', hint: 'Deformation the reconstruction demands of the crust' },
   {
     id: 'rigidity',
@@ -20,8 +24,8 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
 
 export function Panel({ data }: { data: Dataset }) {
   const timeMa = useClockTime(8)
-  const { mode, setMode, showGrid, setShowGrid, surfaceMap, setSurfaceMap,
-    referenceFrame, setReferenceFrame } = useStore()
+  const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
+    surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
   const { meta } = data
@@ -100,6 +104,14 @@ export function Panel({ data }: { data: Dataset }) {
         <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
         Graticule (fixed to the crust)
       </label>
+      <label className="toggle">
+        <input type="checkbox" checked={showMesh} onChange={(e) => setShowMesh(e.target.checked)} />
+        Mesh, through glass
+      </label>
+      <p className="caption">
+        The shell turns transparent and its triangles are drawn on top, so you can watch the
+        fragments slide past each other and see the far side of the globe through the cracks.
+      </p>
 
       <section>
         <h2>Radius</h2>

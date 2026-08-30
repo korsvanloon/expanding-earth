@@ -21,6 +21,8 @@ interface State {
   /** Region held still while the rest of the world moves; '' for no-net-rotation. */
   referenceFrame: string
   showGrid: boolean
+  /** Draw the shell as glass with its triangles on top; see src/scene/Globe.tsx. */
+  showMesh: boolean
   endTimeMa: number
   setPlaying: (playing: boolean) => void
   setSpeed: (speed: number) => void
@@ -28,6 +30,7 @@ interface State {
   setSurfaceMap: (surfaceMap: string) => void
   setReferenceFrame: (referenceFrame: string) => void
   setShowGrid: (showGrid: boolean) => void
+  setShowMesh: (showMesh: boolean) => void
   setEndTime: (endTimeMa: number) => void
   seek: (timeMa: number) => void
 }
@@ -39,6 +42,7 @@ export const useStore = create<State>((set) => ({
   surfaceMap: DEFAULT_SURFACE_MAP,
   referenceFrame: 'africa',
   showGrid: false,
+  showMesh: false,
   endTimeMa: 200,
   setPlaying: (playing) => set({ playing }),
   setSpeed: (speed) => set({ speed }),
@@ -46,6 +50,7 @@ export const useStore = create<State>((set) => ({
   setSurfaceMap: (surfaceMap) => set({ surfaceMap }),
   setReferenceFrame: (referenceFrame) => set({ referenceFrame }),
   setShowGrid: (showGrid) => set({ showGrid }),
+  setShowMesh: (showMesh) => set({ showMesh }),
   setEndTime: (endTimeMa) => set({ endTimeMa }),
   seek: (timeMa) => {
     clock.timeMa = timeMa

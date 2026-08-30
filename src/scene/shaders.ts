@@ -33,6 +33,8 @@ uniform float uMaxAgeMa;
 uniform int uMode;        // 0 surface, 1 crustal age, 2 strain
 uniform float uGrid;
 uniform vec3 uLight;
+/** Below 1 the shell turns to glass, so the mesh and the far side show through. */
+uniform float uOpacity;
 
 in vec3 vDir;
 in float vAge;
@@ -159,9 +161,15 @@ void main() {
     // shaded by the surface map's brightness so the landmasses stay legible
     // instead of merging into one blank field.
     float relief = dot(surface(vDir), vec3(0.299, 0.587, 0.114));
+    // Coloured by the crust's age today, not by how long it had existed at
+    // this moment. A band keeps its colour for the whole run, so winding the
+    // clock back makes the red crust vanish first, then the orange, then the
+    // yellow -- and you can watch the oceans close in the order the age grid
+    // says they opened. Colouring by the age at the time repaints every band
+    // on every step, which looks alive but says nothing you can check.
     base = continental
       ? srgbToLinear(vec3(0.60, 0.56, 0.49)) * (0.65 + 0.9 * relief)
-      : ageRamp(sinceBirth);
+      : ageRamp(vAge);
   } else {
     base = strainRamp(vStrain);
   }
@@ -173,8 +181,12 @@ void main() {
     base = mix(base, vec3(0.0), line * 0.35);
   }
 
-  float lambert = max(dot(normalize(vNormal), normalize(uLight)), 0.0);
+  // Seen through the shell, the far side is drawn from behind and its outward
+  // normal points away from us. Turning it round lights it as the surface it
+  // is rather than leaving half the globe in shadow.
+  vec3 normal = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+  float lambert = max(dot(normal, normalize(uLight)), 0.0);
   vec3 lit = base * (0.30 + 0.85 * lambert) + glow * srgbToLinear(vec3(0.9, 0.32, 0.06));
-  fragColor = vec4(linearToSrgb(min(lit, vec3(1.0))), 1.0);
+  fragColor = vec4(linearToSrgb(min(lit, vec3(1.0))), uOpacity);
 }
 `
