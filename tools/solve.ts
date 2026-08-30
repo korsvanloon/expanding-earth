@@ -72,8 +72,41 @@ const CONFIG = {
    * transmitting rigidity.
    */
   unbornStiffness: Number(process.env.UNBORN_K ?? 0.6),
-  /** How hard conjugate margins are pulled back together, per sweep. */
-  seamGain: Number(process.env.SEAM_GAIN ?? 0.35),
+  /**
+   * How much of a plate's move in a step comes from shutting its oceans rather
+   * than from following the spreading field.
+   *
+   * The field says which way the crust travels; the conjugate margins say what
+   * it has to end up against. Both are needed -- the field alone drives motion
+   * but never closes anything, and margins alone close beautifully while turning
+   * the continent one way and then back.
+   */
+  seamShare: Number(process.env.SEAM_SHARE ?? 0.7),
+  /**
+   * How wide a band of isochrons the spreading field is read from, Myr.
+   *
+   * The field describes how fast the crust at a given isochron was moving when
+   * it formed, so what matters at time t is the crust around age t -- the
+   * margin that is disappearing. Reading it across a band rather than a line
+   * gives the fit enough points to pin a rotation down.
+   */
+  flowWindowMa: Number(process.env.FLOW_WINDOW ?? 14),
+  /** Set to 0 to turn the spreading field off, for comparison. */
+  flowGain: Number(process.env.FLOW_GAIN ?? 1),
+  /**
+   * How much of the previous step's rotation a plate keeps.
+   *
+   * Plates hold an Euler pole for tens of millions of years; nothing in the
+   * mantle turns one round and back again in a single step. Carrying the pole
+   * forward is both what the rock does and what makes the motion readable,
+   * and it is what moves a fragment through the moments when its own ocean
+   * floor has nothing left to say.
+   */
+  poleMemory: Number(process.env.POLE_MEMORY ?? 0.5),
+  /** Smoothing passes over the age field before differentiating it. */
+  flowSmoothing: Number(process.env.FLOW_SMOOTH ?? 6),
+  /** The fastest half-spreading rate believed, km/Myr. */
+  maxRate: Number(process.env.MAX_RATE ?? 200),
   /**
    * How many partners one margin point may be paired with in a step.
    *
@@ -227,6 +260,17 @@ function main() {
   // The mesh arrives already cut along its weak crust, so every vertex belongs
   // to exactly one fragment and a whole fragment can be snapped rigid without
   // tearing anything -- the flaw that sank two earlier attempts at this.
+  const flow = spreadingField(dirs, origin, originalCount, uncutAge, uncut, vertexCount, r0)
+  /** Each fragment's accumulated rotation, which carries its flow vectors along. */
+  const carried = new Float64Array(fragmentCount * 9)
+  for (let c = 0; c < fragmentCount; c++) {
+    carried[c * 9] = 1
+    carried[c * 9 + 4] = 1
+    carried[c * 9 + 8] = 1
+  }
+  /** Last step's Euler vector per fragment, so a plate keeps its pole. */
+  const pole = new Float64Array(fragmentCount * 3)
+
   const plates = { count: fragmentCount, interior: new Int32Array(vertexFragment) }
   const vertexBlock = new Int32Array(vertexFragment)
 
@@ -268,6 +312,7 @@ function main() {
    */
   const hold = new Float64Array(vertexCount)
   let seamReport = { count: 0, meanKm: 0 }
+  let turnedCount = 0
   const frames: Int16Array[] = []
   const strains: Uint8Array[] = []
   const diagnostics: FrameDiagnostics[] = []
@@ -288,6 +333,41 @@ function main() {
     regionVertices.set(region.id, list)
   }
   const separation = new Map<string, number[]>()
+
+  /**
+   * How straight each continent's path is: the distance it actually travelled
+   * divided by the distance between where it started and where it ended up.
+   *
+   * One means it went there and stopped. Two means it walked twice as far as it
+   * got, which is what turning one way and then back looks like in a number.
+   * This is the thing the reconstruction was worst at and the diagnostics could
+   * not see: coverage and strain are both read one frame at a time and say
+   * nothing at all about whether the motion between frames makes sense.
+   */
+  const track = new Map<string, { first: number[]; last: number[]; walked: number }>()
+  const regionCentre = (id: string) => {
+    let x = 0, y = 0, z = 0
+    for (const v of regionVertices.get(id) ?? []) {
+      const length = Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
+      x += pos[v * 3] / length; y += pos[v * 3 + 1] / length; z += pos[v * 3 + 2] / length
+    }
+    const length = Math.hypot(x, y, z) || 1
+    return [x / length, y / length, z / length]
+  }
+  const followRegions = (radiusKm: number) => {
+    for (const region of REGIONS) {
+      const centre = regionCentre(region.id)
+      const seen = track.get(region.id)
+      if (!seen) {
+        track.set(region.id, { first: centre, last: centre, walked: 0 })
+        continue
+      }
+      const dot = Math.min(1, Math.max(-1,
+        seen.last[0] * centre[0] + seen.last[1] * centre[1] + seen.last[2] * centre[2]))
+      seen.walked += Math.acos(dot) * radiusKm
+      seen.last = centre
+    }
+  }
 
   const record = (t: number) => {
     // Closest approach, not centre to centre. Two continents that have just met
@@ -341,6 +421,7 @@ function main() {
   }
 
   record(0)
+  followRegions(radiusAt(0))
   const started = Date.now()
 
   const endTimeMa = CONFIG.endMa ?? meta.endTimeMa
@@ -375,6 +456,10 @@ function main() {
     )
     seamReport = { count: seams.length / 2, meanKm: meanSeamGap(pos, seams) }
     dilateBlocks(pos, vertexBlock, plates.count, rPrev, rNext, vertexCount, alive)
+    turnedCount = CONFIG.flowGain === 0 ? 0 : driveByFlow(
+      pos, vertexBlock, plates.count, vertexCount, flow, vertexAge, alive, carried, pole,
+      seams, t, CONFIG.stepMa,
+    )
     // The craton interiors are rigid, so remember the shape they are allowed to
     // keep; everything the relaxation does to them afterwards is undone except
     // the part a rotation could have produced.
@@ -418,7 +503,6 @@ function main() {
       }
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
       closeFractures(pos, cutPairs, cutPairCount, alive)
-      closeSeams(pos, seams, vertexBlock, plates.count, vertexCount, CONFIG.seamGain)
       keepFragmentsRigid(
         pos, reference, plates.interior, alive, plates.count, vertexCount, hold,
       )
@@ -429,6 +513,8 @@ function main() {
     settleUnborn(pos, alive, adjacency, vertexCount, rNext)
     removeNetRotation(pos, previous, vertexCount, shrink)
 
+    followRegions(rNext)
+
     if (t % meta.frameStepMa === 0) {
       record(t)
       const d = diagnostics[diagnostics.length - 1]
@@ -438,7 +524,8 @@ function main() {
           `unclosed=${(100 * d.gapFraction).toFixed(2)}%  ` +
           `folded=${(100 * d.overlapFraction).toFixed(2)}%  ` +
           `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%  ` +
-          `seams=${String(seamReport.count).padStart(5)} at ${seamReport.meanKm.toFixed(0).padStart(4)} km`,
+          `seams=${String(seamReport.count).padStart(5)} at ${seamReport.meanKm.toFixed(0).padStart(4)} km  ` +
+          `driven=${String(turnedCount).padStart(3)}/${plates.count}`,
       )
     }
   }
@@ -483,6 +570,19 @@ function main() {
         `now ${km[0].toFixed(0).padStart(6)} km   ` +
         `at ${String(target.joinedByMa).padStart(3)} Ma ${atJoin.toFixed(0).padStart(6)} km` +
         `   (should be touching)`,
+    )
+  }
+  console.log('[solve] how straight each continent walked (1.0 is a single smooth move):')
+  for (const region of REGIONS) {
+    const seen = track.get(region.id)
+    if (!seen) continue
+    const dot = Math.min(1, Math.max(-1,
+      seen.first[0] * seen.last[0] + seen.first[1] * seen.last[1] + seen.first[2] * seen.last[2]))
+    const net = Math.acos(dot) * radiusAt(endTimeMa)
+    console.log(
+      `  ${region.label.padEnd(18)} walked ${seen.walked.toFixed(0).padStart(6)} km ` +
+        `to get ${net.toFixed(0).padStart(5)} km   ` +
+        `${net > 1 ? `x${(seen.walked / net).toFixed(1)}` : '(went nowhere)'}`,
     )
   }
   console.log(
@@ -833,6 +933,318 @@ function unstretching(
   return { stretch, riftMa }
 }
 
+/**
+ * The spreading velocity field, read off the age grid.
+ *
+ * Lines of equal age on the sea floor are old positions of a ridge, so the
+ * gradient of age points straight across them: along the direction that crust
+ * actually travelled. That is the same direction the fracture zones scratch
+ * into the bathymetry -- the stretch marks you can see on any bathymetric map,
+ * running at right angles to the ridges for thousands of kilometres.
+ *
+ * The speed comes out of the same derivative. If age rises by one million years
+ * over twenty-nine kilometres then twenty-nine kilometres of crust were made per
+ * million years, so the half-spreading rate is one over the gradient. Across the
+ * whole grid that gives a median of 29 km/Myr, with the slow Atlantic ridges
+ * near 10 and the East Pacific Rise near 90, which is what ships measure. There
+ * is nothing to fit: the field is a derivative of data we already had.
+ *
+ * Run backwards, a piece of sea floor travels down this gradient towards the
+ * ridge it erupted from, at that rate. So `flow` is `-grad(age) / |grad(age)|^2`
+ * -- pointing towards younger crust, with the length of the half rate, in
+ * kilometres per million years.
+ *
+ * A fracture zone is a step in the age field, and the gradient of a step points
+ * across the step, which is along the ridge rather than across it -- exactly
+ * wrong. The field is smoothed over a few hundred kilometres first, which keeps
+ * the trend of the isochrons and drops the steps.
+ */
+function spreadingField(
+  dirs: Float32Array,
+  origin: Uint32Array,
+  originalCount: number,
+  uncutAge: Float32Array,
+  adjacency: { offsets: Uint32Array; neighbours: Uint32Array },
+  vertexCount: number,
+  r0: number,
+) {
+  // Positions and ages on the uncut mesh, so the gradient at a fracture is
+  // taken across the crust rather than stopping at the cut.
+  const unit = new Float64Array(originalCount * 3)
+  for (let v = 0; v < vertexCount; v++) {
+    const o = origin[v]
+    unit[o * 3] = dirs[v * 3]
+    unit[o * 3 + 1] = dirs[v * 3 + 1]
+    unit[o * 3 + 2] = dirs[v * 3 + 2]
+  }
+
+  const { offsets, neighbours } = adjacency
+  let age = new Float64Array(originalCount)
+  for (let o = 0; o < originalCount; o++) {
+    age[o] = uncutAge[o] >= PERMANENT_MA ? NaN : uncutAge[o]
+  }
+  let next = new Float64Array(originalCount)
+  for (let pass = 0; pass < CONFIG.flowSmoothing; pass++) {
+    for (let o = 0; o < originalCount; o++) {
+      if (Number.isNaN(age[o])) {
+        next[o] = NaN
+        continue
+      }
+      let sum = age[o]
+      let n = 1
+      for (let k = offsets[o]; k < offsets[o + 1]; k++) {
+        const a = age[neighbours[k]]
+        if (Number.isNaN(a)) continue
+        sum += a
+        n++
+      }
+      next[o] = sum / n
+    }
+    const swap = age
+    age = next
+    next = swap
+  }
+
+  const field = new Float64Array(vertexCount * 3)
+  let counted = 0
+  const rates: number[] = []
+  for (let o = 0; o < originalCount; o++) {
+    if (Number.isNaN(age[o])) continue
+    const nx = unit[o * 3], ny = unit[o * 3 + 1], nz = unit[o * 3 + 2]
+    // Any two directions in the tangent plane will do; take the one that avoids
+    // the pole of the cross product.
+    const helper = Math.abs(ny) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+    let e1 = [
+      ny * helper[2] - nz * helper[1],
+      nz * helper[0] - nx * helper[2],
+      nx * helper[1] - ny * helper[0],
+    ]
+    const e1n = Math.hypot(e1[0], e1[1], e1[2]) || 1
+    e1 = [e1[0] / e1n, e1[1] / e1n, e1[2] / e1n]
+    const e2 = [
+      ny * e1[2] - nz * e1[1],
+      nz * e1[0] - nx * e1[2],
+      nx * e1[1] - ny * e1[0],
+    ]
+
+    // Least squares fit of a plane through the neighbouring ages.
+    let axx = 0, axy = 0, ayy = 0, bx = 0, by = 0, samples = 0
+    for (let k = offsets[o]; k < offsets[o + 1]; k++) {
+      const u = neighbours[k]
+      if (Number.isNaN(age[u])) continue
+      const dx = (unit[u * 3] - nx) * r0
+      const dy = (unit[u * 3 + 1] - ny) * r0
+      const dz = (unit[u * 3 + 2] - nz) * r0
+      const x = dx * e1[0] + dy * e1[1] + dz * e1[2]
+      const y = dx * e2[0] + dy * e2[1] + dz * e2[2]
+      const d = age[u] - age[o]
+      axx += x * x; axy += x * y; ayy += y * y
+      bx += x * d; by += y * d
+      samples++
+    }
+    if (samples < 3) continue
+    const det = axx * ayy - axy * axy
+    if (Math.abs(det) < 1e-9) continue
+    const gx = (ayy * bx - axy * by) / det
+    const gy = (axx * by - axy * bx) / det
+    const g2 = gx * gx + gy * gy
+    if (g2 < 1e-12) continue
+    const rate = 1 / Math.sqrt(g2)
+    if (!Number.isFinite(rate) || rate > CONFIG.maxRate) continue
+    rates.push(rate)
+    // Down the gradient, at the half rate.
+    const fx = -(gx * e1[0] + gy * e2[0]) / g2
+    const fy = -(gx * e1[1] + gy * e2[1]) / g2
+    const fz = -(gx * e1[2] + gy * e2[2]) / g2
+    field[o * 3] = fx
+    field[o * 3 + 1] = fy
+    field[o * 3 + 2] = fz
+    counted++
+  }
+
+  // Hand each cut copy the field of the vertex it came from.
+  const out = new Float64Array(vertexCount * 3)
+  for (let v = 0; v < vertexCount; v++) {
+    const o = origin[v]
+    out[v * 3] = field[o * 3]
+    out[v * 3 + 1] = field[o * 3 + 1]
+    out[v * 3 + 2] = field[o * 3 + 2]
+  }
+  rates.sort((a, b) => a - b)
+  console.log(
+    `[solve] spreading field over ${((100 * counted) / originalCount).toFixed(0)}% of the mesh; ` +
+      `half rate median ${rates[Math.floor(rates.length / 2)].toFixed(0)} km/Myr ` +
+      `(10th ${rates[Math.floor(rates.length * 0.1)].toFixed(0)}, ` +
+      `90th ${rates[Math.floor(rates.length * 0.9)].toFixed(0)})`,
+  )
+  return out
+}
+
+/**
+ * Turn each fragment by the rotation its own sea floor asks for.
+ *
+ * Everything up to here worked out where a plate should go by racing fronts
+ * through vanished crust and pairing whichever margins collided, then fitting a
+ * fresh rotation to whatever pairs turned up. The pairs changed from step to
+ * step, so the fit changed with them, and a continent turned one way and then
+ * back -- the jitter that made North America, Arabia and Europe unreadable.
+ * Nothing in that said a plate should keep going the way it was going.
+ *
+ * The spreading field says where every piece of crust goes before anything is
+ * fitted, so all that is left is to find the one rotation per fragment that
+ * best does what its crust asks. That is smooth by construction: the field does
+ * not change its mind between steps.
+ *
+ * It is read at the isochrons that are disappearing now -- crust aged within a
+ * window of t -- because that is the margin the ocean is closing at this
+ * moment. Crust deep inside a plate records the rate at the time it formed,
+ * which is a different question.
+ *
+ * A fragment keeps a share of last step's Euler vector. Plates hold a pole for
+ * tens of millions of years, so this is what the rock does; it also carries a
+ * fragment through the steps where its own sea floor has nothing left to say,
+ * which is the whole of a continent's history once the ocean beside it has
+ * closed. Land needs no field of its own: a fragment moves as one piece, so a
+ * continent inherits the rotation its margins were given.
+ */
+function driveByFlow(
+  pos: Float64Array,
+  block: Int32Array,
+  count: number,
+  vertexCount: number,
+  flow: Float64Array,
+  vertexAge: Float32Array,
+  alive: Uint8Array,
+  carried: Float64Array,
+  pole: Float64Array,
+  seams: Uint32Array,
+  t: number,
+  dt: number,
+) {
+  if (count === 0) return 0
+  const m = new Float64Array(count * 6)
+  const rhs = new Float64Array(count * 3)
+  const samples = new Int32Array(count)
+  // The conjugate margins get their own system rather than being thrown in with
+  // the field. There are a hundred or so pairs against thousands of field
+  // samples, and mixed together the pairs would be outvoted -- but they are the
+  // only thing that actually shuts an ocean, so they are solved separately and
+  // the two answers blended.
+  const sm = new Float64Array(count * 6)
+  const srhs = new Float64Array(count * 3)
+  const spairs = new Int32Array(count)
+
+  const accumulate = (
+    mat: Float64Array, vec: Float64Array, c: number,
+    px: number, py: number, pz: number, dx: number, dy: number, dz: number,
+  ) => {
+    const p2 = px * px + py * py + pz * pz
+    const o = c * 6
+    mat[o] += p2 - px * px; mat[o + 1] += p2 - py * py; mat[o + 2] += p2 - pz * pz
+    mat[o + 3] -= px * py; mat[o + 4] -= px * pz; mat[o + 5] -= py * pz
+    vec[c * 3] += py * dz - pz * dy
+    vec[c * 3 + 1] += pz * dx - px * dz
+    vec[c * 3 + 2] += px * dy - py * dx
+  }
+
+  for (let i = 0; i < seams.length; i += 2) {
+    const a = seams[i]
+    const b = seams[i + 1]
+    if (!alive[a] || !alive[b]) continue
+    const ca = block[a]
+    const cb = block[b]
+    const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2]
+    const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2]
+    // Each margin comes half the way; between them the ocean shuts.
+    if (ca >= 0) {
+      accumulate(sm, srhs, ca, ax, ay, az, (bx - ax) * 0.5, (by - ay) * 0.5, (bz - az) * 0.5)
+      spairs[ca]++
+    }
+    if (cb >= 0) {
+      accumulate(sm, srhs, cb, bx, by, bz, (ax - bx) * 0.5, (ay - by) * 0.5, (az - bz) * 0.5)
+      spairs[cb]++
+    }
+  }
+
+  for (let i = 0; i < vertexCount; i++) {
+    const c = block[i]
+    if (c < 0 || !alive[i]) continue
+    const age = vertexAge[i]
+    if (age >= PERMANENT_MA || age < t || age > t + CONFIG.flowWindowMa) continue
+    const fx = flow[i * 3], fy = flow[i * 3 + 1], fz = flow[i * 3 + 2]
+    if (fx === 0 && fy === 0 && fz === 0) continue
+
+    // The field was measured on today's Earth, so it travels with the plate.
+    const r = c * 9
+    const dx = (carried[r] * fx + carried[r + 1] * fy + carried[r + 2] * fz) * dt
+    const dy = (carried[r + 3] * fx + carried[r + 4] * fy + carried[r + 5] * fz) * dt
+    const dz = (carried[r + 6] * fx + carried[r + 7] * fy + carried[r + 8] * fz) * dt
+
+    // Least squares for the omega with omega x p closest to d, over the plate.
+    accumulate(m, rhs, c, pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2], dx, dy, dz)
+    samples[c]++
+  }
+
+  const memory = CONFIG.poleMemory
+  const share = CONFIG.seamShare
+  const fitOf = (mat: Float64Array, vec: Float64Array, c: number) => {
+    const o = c * 6
+    return solve3(
+      [mat[o], mat[o + 3], mat[o + 4], mat[o + 3], mat[o + 1], mat[o + 5],
+        mat[o + 4], mat[o + 5], mat[o + 2]],
+      [vec[c * 3], vec[c * 3 + 1], vec[c * 3 + 2]],
+    )
+  }
+  let driven = 0
+  for (let c = 0; c < count; c++) {
+    const field = samples[c] >= 8 ? fitOf(m, rhs, c) : null
+    const closing = spairs[c] >= 4 ? fitOf(sm, srhs, c) : null
+    let wx = pole[c * 3], wy = pole[c * 3 + 1], wz = pole[c * 3 + 2]
+    if (field || closing) {
+      // Where the crust goes, and what it has to meet: one rotation for both.
+      const gx = (field ? (1 - share) * field[0] : 0) + (closing ? share * closing[0] : 0)
+      const gy = (field ? (1 - share) * field[1] : 0) + (closing ? share * closing[1] : 0)
+      const gz = (field ? (1 - share) * field[2] : 0) + (closing ? share * closing[2] : 0)
+      const scale = field && closing ? 1 : field ? 1 / (1 - share) : 1 / share
+      wx = memory * wx + (1 - memory) * gx * scale
+      wy = memory * wy + (1 - memory) * gy * scale
+      wz = memory * wz + (1 - memory) * gz * scale
+      if (field) driven++
+    } else {
+      // Nothing to read this step: coast on the pole it already had, fading, so
+      // a plate that has run out of evidence slows rather than stopping dead.
+      wx *= memory; wy *= memory; wz *= memory
+    }
+    pole[c * 3] = wx
+    pole[c * 3 + 1] = wy
+    pole[c * 3 + 2] = wz
+
+    const angle = Math.hypot(wx, wy, wz)
+    if (angle < 1e-12 || angle > 0.5) continue
+    compose(carried, c * 9, wx / angle, wy / angle, wz / angle, angle)
+  }
+
+  // Turn every fragment by the step it was just given.
+  const step = new Float64Array(count * 9)
+  for (let c = 0; c < count; c++) {
+    step[c * 9] = 1; step[c * 9 + 4] = 1; step[c * 9 + 8] = 1
+    const wx = pole[c * 3], wy = pole[c * 3 + 1], wz = pole[c * 3 + 2]
+    const angle = Math.hypot(wx, wy, wz)
+    if (angle < 1e-12 || angle > 0.5) continue
+    compose(step, c * 9, wx / angle, wy / angle, wz / angle, angle)
+  }
+  for (let i = 0; i < vertexCount; i++) {
+    const c = block[i]
+    if (c < 0 || !alive[i]) continue
+    const r = c * 9
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
+    pos[i * 3] = step[r] * x + step[r + 1] * y + step[r + 2] * z
+    pos[i * 3 + 1] = step[r + 3] * x + step[r + 4] * y + step[r + 5] * z
+    pos[i * 3 + 2] = step[r + 6] * x + step[r + 7] * y + step[r + 8] * z
+  }
+  return driven
+}
+
 /** How far apart the paired margins still are, averaged, as a progress report. */
 function meanSeamGap(pos: Float64Array, seams: Uint32Array) {
   if (!seams.length) return 0
@@ -845,79 +1257,6 @@ function meanSeamGap(pos: Float64Array, seams: Uint32Array) {
   return total / (seams.length / 2)
 }
 
-/**
- * Draw conjugate margins back together, moving whole plates rather than
- * stretching them. Each pair asks its two points to meet in the middle; those
- * requests are collapsed into the single rotation per plate that best satisfies
- * them, so a continent is dragged across an ocean without being pulled out of
- * shape on the way.
- */
-function closeSeams(
-  pos: Float64Array,
-  seams: Uint32Array,
-  vertexPlate: Int32Array,
-  plateCount: number,
-  vertexCount: number,
-  gain: number,
-) {
-  if (!seams.length || plateCount === 0) return
-  const m = new Float64Array(plateCount * 6)
-  const v = new Float64Array(plateCount * 3)
-  const trace = new Float64Array(plateCount)
-  const size = new Float64Array(plateCount)
-
-  const add = (i: number, dx: number, dy: number, dz: number) => {
-    const p = vertexPlate[i]
-    if (p < 0) return
-    const qx = pos[i * 3], qy = pos[i * 3 + 1], qz = pos[i * 3 + 2]
-    const q2 = qx * qx + qy * qy + qz * qz
-    const o = p * 6
-    m[o] += q2 - qx * qx; m[o + 1] += q2 - qy * qy; m[o + 2] += q2 - qz * qz
-    m[o + 3] -= qx * qy; m[o + 4] -= qx * qz; m[o + 5] -= qy * qz
-    v[p * 3] += qy * dz - qz * dy
-    v[p * 3 + 1] += qz * dx - qx * dz
-    v[p * 3 + 2] += qx * dy - qy * dx
-    trace[p] += q2
-    size[p]++
-  }
-
-  for (let s = 0; s < seams.length; s += 2) {
-    const a = seams[s], b = seams[s + 1]
-    const dx = (pos[b * 3] - pos[a * 3]) * 0.5
-    const dy = (pos[b * 3 + 1] - pos[a * 3 + 1]) * 0.5
-    const dz = (pos[b * 3 + 2] - pos[a * 3 + 2]) * 0.5
-    add(a, dx, dy, dz)
-    add(b, -dx, -dy, -dz)
-  }
-
-  for (let p = 0; p < plateCount; p++) {
-    if (size[p] === 0) continue
-    const ridge = 1e-3 * (trace[p] / size[p])
-    const o = p * 6
-    const omega = solve3(
-      [m[o] + ridge, m[o + 3], m[o + 4], m[o + 3], m[o + 1] + ridge, m[o + 5],
-       m[o + 4], m[o + 5], m[o + 2] + ridge],
-      [v[p * 3], v[p * 3 + 1], v[p * 3 + 2]],
-    )
-    if (!omega) continue
-    const angle = Math.hypot(...omega)
-    // Cap the step so one badly conditioned plate cannot fling itself away.
-    const scale = (angle > 0.03 ? 0.03 / angle : 1) * gain
-    v[p * 3] = omega[0] * scale
-    v[p * 3 + 1] = omega[1] * scale
-    v[p * 3 + 2] = omega[2] * scale
-  }
-
-  for (let i = 0; i < vertexCount; i++) {
-    const p = vertexPlate[i]
-    if (p < 0 || size[p] === 0) continue
-    const wx = v[p * 3], wy = v[p * 3 + 1], wz = v[p * 3 + 2]
-    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
-    pos[i * 3] = x + wy * z - wz * y
-    pos[i * 3 + 1] = y + wz * x - wx * z
-    pos[i * 3 + 2] = z + wx * y - wy * x
-  }
-}
 
 /**
  * Undo whatever the relaxation did to a fragment, keeping only the part a rigid
