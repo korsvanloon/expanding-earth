@@ -22,6 +22,7 @@ import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CORE_TYPES, CRUST_RIGIDITY, CRUST_TYPES, type CrustType } from '../shared/crust.js'
 import { unstretching } from './lib/unstretching.js'
+import { findIslands } from './lib/islands.js'
 import {
   PERMANENT_MA,
   R0_KM,
@@ -197,13 +198,17 @@ function main() {
   // million years and then two when the Gulf of Mexico shuts, and that is the
   // sort of thing the reconstruction has to be free to find. See
   // tools/lib/dynamic-mesh.ts.
+  // The islands of strong crust that hold their shape, worked out here so the
+  // solver and the viewer are looking at the same ones.
+  const islands = findIslands(mesh.indices, crust.rigidity, faceArea, faceCount, vertexCount)
+
   const split = CONFIG.cutIntoFragments
     ? splitIntoFragments(mesh, crust.type, crust.rigidity, solvedFaceAges, faceArea)
     : {
         positions: Float32Array.from(mesh.positions),
         indices: Uint32Array.from(mesh.indices),
         faceFragment: new Uint16Array(faceCount),
-        vertexFragment: new Uint16Array(vertexCount),
+        vertexFragment: Uint16Array.from(islands.vertexIsland, (id) => id + 1),
         origin: Uint32Array.from({ length: vertexCount }, (_, v) => v),
         cutPairs: new Uint32Array(0),
         fragmentCount: 1,

@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { DEFAULT_SURFACE_MAP } from '@shared/maps'
 
-export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'plates'
+export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'islands'
 
 /**
  * Playback time lives here rather than in React state on purpose: it changes

@@ -8,7 +8,7 @@ import { buildReferenceRotations } from '@/frames'
 import { clock, useStore } from '@/store'
 import { fragmentShader, vertexShader } from './shaders'
 
-const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, plates: 4 } as const
+const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, islands: 4 } as const
 
 /** How much of the crust survives in the mesh view. Enough to read, not to hide. */
 const GLASS_OPACITY = 1
@@ -42,12 +42,14 @@ export function Globe({ data }: { data: Dataset }) {
     }
   }, [maps])
 
+  // Island ids arrive as shorts; the shader wants floats. They never change.
+  const islandAttribute = useMemo(() => Float32Array.from(data.islands), [data])
+
   const buffers = useMemo(() => {
     const count = data.vertexCount
     return {
       positions: new Float32Array(count * 3),
       strain: new Float32Array(count),
-      plate: new Float32Array(count),
     }
   }, [data])
 
@@ -60,7 +62,7 @@ export function Globe({ data }: { data: Dataset }) {
     const g = new THREE.BufferGeometry()
     g.setAttribute('position', dynamic(buffers.positions, 3))
     g.setAttribute('aStrain', dynamic(buffers.strain, 1))
-    g.setAttribute('aPlate', dynamic(buffers.plate, 1))
+    g.setAttribute('aIsland', new THREE.BufferAttribute(islandAttribute, 1))
     g.setAttribute('aDir', new THREE.BufferAttribute(data.dirs, 3))
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
@@ -69,7 +71,7 @@ export function Globe({ data }: { data: Dataset }) {
     // over forty thousand moving vertices is work for nothing.
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1)
     return g
-  }, [data, buffers])
+  }, [data, buffers, islandAttribute])
 
   useEffect(() => () => geometry.dispose(), [geometry])
 
@@ -89,7 +91,7 @@ export function Globe({ data }: { data: Dataset }) {
 
   // Fill the buffers before the first render, so nothing is drawn at the origin.
   useMemo(
-    () => sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, buffers.plate, rotations),
+    () => sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations),
     [data, buffers, rotations],
   )
 
@@ -104,10 +106,9 @@ export function Globe({ data }: { data: Dataset }) {
       }
     }
 
-    sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, buffers.plate, rotations)
+    sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations)
     geometry.attributes.position.needsUpdate = true
     geometry.attributes.aStrain.needsUpdate = true
-    geometry.attributes.aPlate.needsUpdate = true
     if (material.current) {
       material.current.uniforms.uMap.value = map
       material.current.uniforms.uTimeMa.value = clock.timeMa

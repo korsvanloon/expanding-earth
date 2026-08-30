@@ -27,6 +27,14 @@
  * zipped shut rather than as a hole.
  */
 
+/** The most neighbours a point may end up with; a good triangulation averages six. */
+const MAX_NEIGHBOURS = 11
+
+/** How far a point's neighbour count is from the six a surface wants. */
+function spread(valence: number): number {
+  return Math.abs(valence - 6)
+}
+
 export interface CollapseResult {
   /** Edges collapsed. */
   collapsed: number
@@ -129,6 +137,12 @@ export class DynamicMesh {
     let shared = 0
     for (const u of ringA) if (ringB.has(u)) shared++
     if (shared !== 2) return false
+    // The merged point inherits both neighbourhoods. Let that run and a few
+    // points end up with thirty neighbours each, with long thin triangles
+    // fanning out from them across the ocean -- the mesh stops being a grid and
+    // becomes a spider's web, and every triangle in the fan is one nudge from
+    // turning inside out.
+    if (ringA.size + ringB.size - shared - 2 > MAX_NEIGHBOURS) return false
     // A triangle with all three corners on the ring of the other end would be
     // turned inside out rather than removed.
     for (const f of along) {
@@ -198,7 +212,17 @@ export class DynamicMesh {
     // turns into a needle.
     const before = Math.min(smallestAngle(pa, pb, pc), smallestAngle(pb, pa, pd))
     const after = Math.min(smallestAngle(pc, pd, pa), smallestAngle(pd, pc, pb))
-    if (after <= before * 1.05) return null
+    // Either the pair gets rounder, or the neighbourhoods get more even without
+    // the pair getting worse. Six neighbours is what a triangulation of a
+    // surface wants on average, and evening the count out is what stops one
+    // point collecting a fan of slivers while the points around it are starved.
+    const rounder = after > before * 1.05
+    const evener =
+      spread(this.incident[a].size - 1) + spread(this.incident[b].size - 1) +
+        spread(this.incident[c].size + 1) + spread(this.incident[d].size + 1) <
+      spread(this.incident[a].size) + spread(this.incident[b].size) +
+        spread(this.incident[c].size) + spread(this.incident[d].size)
+    if (!rounder && !(evener && after > before * 0.9)) return null
     return [c, d, along[0], along[1]]
   }
 
@@ -337,14 +361,19 @@ export function collapseVanished(
       mesh.facesAlong(a, b, along)
       if (along.length !== 2) continue
       if (faceAge[along[0]] >= timeMa || faceAge[along[1]] >= timeMa) continue
-      if (!mesh.canCollapse(a, b, ringA, ringB, pos)) {
+      // Keep whichever end has fewer neighbours, so the merged point does not
+      // become a hub.
+      const [keep, drop] = mesh.facesAt(a).size <= mesh.facesAt(b).size ? [a, b] : [b, a]
+      if (!mesh.canCollapse(keep, drop, ringA, ringB, pos)) {
         refused++
         continue
       }
       // The two sides meet in the middle, which is where the crust between them
       // erupted.
-      for (let c = 0; c < 3; c++) pos[a * 3 + c] = (pos[a * 3 + c] + pos[b * 3 + c]) * 0.5
-      mesh.collapse(a, b)
+      for (let c = 0; c < 3; c++) {
+        pos[keep * 3 + c] = (pos[keep * 3 + c] + pos[drop * 3 + c]) * 0.5
+      }
+      mesh.collapse(keep, drop)
       collapsed++
       did++
     }

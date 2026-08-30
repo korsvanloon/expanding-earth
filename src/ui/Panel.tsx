@@ -15,9 +15,9 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
   },
   { id: 'strain', label: 'Strain', hint: 'Deformation the reconstruction demands of the crust' },
   {
-    id: 'plates',
-    label: 'Plates',
-    hint: 'Measured, not assumed: patches whose points turned out to be turning as one rigid body, found again at every moment',
+    id: 'islands',
+    label: 'Strong islands',
+    hint: 'The shields, platforms and stable basins that are held to their own shape; everything between them is free to deform',
   },
   {
     id: 'rigidity',

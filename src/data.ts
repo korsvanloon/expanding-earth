@@ -29,6 +29,8 @@ export interface Dataset {
    * plate before the run. See findPlates in tools/solve.ts.
    */
   plates: Uint8Array
+  /** Which island of strong crust each vertex belongs to; 0 for none. */
+  islands: Uint16Array
   /** How strongly the crust at each vertex resists deformation. */
   rigidity: Float32Array
   /** Crustal thickness in km at each vertex, from ECM1. */
@@ -56,8 +58,13 @@ export async function loadDataset(): Promise<Dataset> {
   offset += faceCount * 4
   offset += vertexCount * 4 // origin vertex, needed only by the solver
   offset += cutPairCount * 8 // fracture constraints, needed only by the solver
-  offset += faceCount * 2 // per-face fragment, unused now that plates are measured
-  offset += vertexCount * 2 // per-vertex fragment, likewise
+  offset += faceCount * 2 // per-face fragment, unused
+  // Which island of strong crust each vertex belongs to, 0 for none. These are
+  // an input to the reconstruction rather than a reading of it: the shields,
+  // platforms and stable basins that are held to their own shape while
+  // everything between them is free.
+  const vertexIsland = new Uint16Array(mesh, offset, vertexCount)
+  offset += vertexCount * 2
   const faceCrustType = new Uint8Array(mesh, offset, faceCount)
 
   // A vertex exists as long as any triangle around it does, so it takes the
@@ -100,6 +107,7 @@ export async function loadDataset(): Promise<Dataset> {
     frames: new Int16Array(frames),
     strain: new Uint8Array(strain),
     plates: new Uint8Array(plates),
+    islands: vertexIsland,
     rigidity: vertexRigidity,
     thickness: vertexThickness,
     crustType: vertexType,
@@ -135,8 +143,6 @@ export function sampleFrame(
   timeMa: number,
   positions: Float32Array,
   strain: Float32Array,
-  /** Plate ids, taken from the nearer keyframe: an identity does not blend. */
-  plate: Float32Array,
   /** Per-frame 3x3 rotations that hold one continent still; see src/frames.ts. */
   reference?: Float32Array,
 ) {
@@ -181,6 +187,5 @@ export function sampleFrame(
     const s0 = data.strain[sa + i]
     const s1 = data.strain[sb + i]
     strain[i] = ((s0 + (s1 - s0) * f) / 127.5 - 1) * 0.2
-    plate[i] = data.plates[(f < 0.5 ? sa : sb) + i]
   }
 }

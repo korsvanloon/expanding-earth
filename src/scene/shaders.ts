@@ -1,12 +1,12 @@
 export const vertexShader = /* glsl */ `
 in vec3 aDir;
-in float aPlate;
+in float aIsland;
 in float aAge;
 in float aStrain;
 in float aRigidity;
 
 out vec3 vDir;
-out float vPlate;
+out float vIsland;
 out float vAge;
 out float vStrain;
 out float vRigidity;
@@ -14,7 +14,7 @@ out vec3 vNormal;
 
 void main() {
   vDir = aDir;
-  vPlate = aPlate;
+  vIsland = aIsland;
   vAge = aAge;
   vStrain = aStrain;
   vRigidity = aRigidity;
@@ -37,7 +37,7 @@ uniform vec3 uLight;
 uniform float uOpacity;
 
 in vec3 vDir;
-in float vPlate;
+in float vIsland;
 in float vAge;
 in float vStrain;
 in float vRigidity;
@@ -122,12 +122,10 @@ vec3 strainRamp(float strain) {
 }
 
 /**
- * A repeating hue per plate. The ids are ordered largest first, so the same
- * colour means about the same size of thing from one moment to the next; there
- * are more plates than hues, and neighbours differ, which is what matters for
- * seeing where a boundary runs.
+ * A repeating hue per island. There are more islands than hues and neighbours
+ * differ, which is what matters for seeing where one ends.
  */
-vec3 plateRamp(float id) {
+vec3 islandRamp(float id) {
   float h = fract(id * 0.2469);
   vec3 c = clamp(abs(mod(h * 6.0 + vec3(0.0, 4.0, 2.0), 6.0) - 3.0) - 1.0, 0.0, 1.0);
   return srgbToLinear(mix(vec3(0.55), c, 0.75));
@@ -159,7 +157,13 @@ void main() {
   } else if (uMode == 3) {
     base = rigidityRamp(vRigidity);
   } else if (uMode == 4) {
-    base = vPlate < 0.5 ? srgbToLinear(vec3(0.18)) : plateRamp(vPlate);
+    // Crust belonging to no island is the ground that is free to deform, and
+    // it is shown as the surface it is rather than as a blank, so the islands
+    // read as what they are: the parts held still.
+    float relief = dot(surface(vDir), vec3(0.299, 0.587, 0.114));
+    base = vIsland < 0.5
+      ? srgbToLinear(vec3(0.22, 0.23, 0.26)) * (0.5 + relief)
+      : islandRamp(vIsland);
   } else if (uMode == 1) {
     // Continental crust has no sea-floor age, so it gets a neutral tint --
     // shaded by the surface map's brightness so the landmasses stay legible
