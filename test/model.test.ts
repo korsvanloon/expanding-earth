@@ -7,6 +7,7 @@ import {
 import { crustScale, sampleCurve, MIN_SCALE, TAU_MA, type Meta } from '../shared/model'
 import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
+import { distortion, shapePairs } from '../tools/lib/shape'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import { resolve } from 'node:path'
@@ -223,6 +224,148 @@ describe('measuring coverage', () => {
 
     const { overlapFraction } = measure(mesh, pos, 200000)
     expect(overlapFraction).toBeGreaterThan(0)
+  })
+})
+
+describe('measuring shape', () => {
+  const R0 = 6371
+  const DEG = Math.PI / 180
+
+  /**
+   * A ten-by-ten patch of the sphere around a place, as its own group.
+   *
+   * Degrees in, radians out. The first version of this handed degrees straight
+   * to lonLatToDirection, which takes radians, and scattered every patch over
+   * the whole sphere -- so the shrinking test read 57% and looked like a real
+   * finding about the measure. Points sixteen thousand kilometres apart are not
+   * an island; the numbers below are only worth anything because the patch is
+   * the size a shield actually is.
+   */
+  const patch = (
+    lonDeg: number, latDeg: number, halfWidthDeg: number, group: number,
+    out: { dirs: Float32Array; group: Int32Array }, from: number, count: number,
+  ) => {
+    for (let i = 0; i < count; i++) {
+      const u = (i % 10) / 9 - 0.5
+      const w = Math.floor(i / 10) / 9 - 0.5
+      const d = lonLatToDirection(
+        (lonDeg + 2 * u * halfWidthDeg) * DEG,
+        (latDeg + 2 * w * halfWidthDeg) * DEG,
+      )
+      const v = from + i
+      out.dirs[v * 3] = d[0]
+      out.dirs[v * 3 + 1] = d[1]
+      out.dirs[v * 3 + 2] = d[2]
+      out.group[v] = group
+    }
+  }
+
+  /** Lay a cap on a sphere the way holdIslands does: same km out, same bearing. */
+  const layOn = (dirs: Float32Array, count: number, centre: number[], radiusKm: number) => {
+    const pos = new Float64Array(dirs.length)
+    for (let v = 0; v < count; v++) {
+      const d = [dirs[v * 3], dirs[v * 3 + 1], dirs[v * 3 + 2]]
+      const dot = Math.min(1, d[0] * centre[0] + d[1] * centre[1] + d[2] * centre[2])
+      const arcKm = Math.acos(dot) * R0
+      const t = [d[0] - centre[0] * dot, d[1] - centre[1] * dot, d[2] - centre[2] * dot]
+      const l = Math.hypot(t[0], t[1], t[2]) || 1
+      const theta = arcKm / radiusKm
+      for (let k = 0; k < 3; k++) {
+        pos[v * 3 + k] = (centre[k] * Math.cos(theta) + (t[k] / l) * Math.sin(theta)) * radiusKm
+      }
+    }
+    return pos
+  }
+
+  // Float32 directions and an acos of a dot product; a rigid body reads as
+  // deformed by a couple of parts in a million and no less. Four orders below
+  // the percents this is used to measure, so a floor rather than a worry.
+  const FLOAT_NOISE = 1e-5
+
+  it('reports a body that only turned as undeformed', () => {
+    const dirs = new Float32Array(100 * 3)
+    const group = new Int32Array(100).fill(-1)
+    patch(20, 10, 6, 0, { dirs, group }, 0, 100)
+    const pairs = shapePairs(dirs, group, 1, 100, R0)
+    expect(pairs.a.length).toBeGreaterThan(50)
+    // Turn the whole patch a third of the way round the pole. Every distance
+    // within it is unchanged, so a measure of shape must say nothing happened.
+    const pos = new Float64Array(dirs.length)
+    const angle = Math.PI * 2 / 3
+    for (let v = 0; v < 100; v++) {
+      const x = dirs[v * 3], y = dirs[v * 3 + 1], z = dirs[v * 3 + 2]
+      pos[v * 3] = (x * Math.cos(angle) - z * Math.sin(angle)) * R0
+      pos[v * 3 + 1] = y * R0
+      pos[v * 3 + 2] = (x * Math.sin(angle) + z * Math.cos(angle)) * R0
+    }
+    expect(distortion(pairs, pos, R0).islandDistortion).toBeLessThan(FLOAT_NOISE)
+  })
+
+  it('sees a stretch as the stretch it is', () => {
+    const dirs = new Float32Array(100 * 3)
+    const group = new Int32Array(100).fill(-1)
+    patch(0, 0, 6, 0, { dirs, group }, 0, 100)
+    const pairs = shapePairs(dirs, group, 1, 100, R0)
+    // Blow the patch up by a tenth about its own centre. Distances outwards
+    // from the middle grow by exactly a tenth and distances across it by
+    // sin(1.1 theta) / sin(theta), which on a sphere is slightly less, so the
+    // honest answer is a tenth and a hair under rather than a tenth exactly.
+    const centre = lonLatToDirection(0, 0)
+    const pos = new Float64Array(dirs.length)
+    for (let v = 0; v < 100; v++) {
+      const d = [dirs[v * 3], dirs[v * 3 + 1], dirs[v * 3 + 2]]
+      const dot = Math.min(1, d[0] * centre[0] + d[1] * centre[1] + d[2] * centre[2])
+      const theta = Math.acos(dot) * 1.1
+      const t = [d[0] - centre[0] * dot, d[1] - centre[1] * dot, d[2] - centre[2] * dot]
+      const l = Math.hypot(t[0], t[1], t[2]) || 1
+      for (let k = 0; k < 3; k++) {
+        pos[v * 3 + k] = (centre[k] * Math.cos(theta) + (t[k] / l) * Math.sin(theta)) * R0
+      }
+    }
+    const seen = distortion(pairs, pos, R0).islandDistortion
+    expect(seen).toBeGreaterThan(0.098)
+    expect(seen).toBeLessThan(0.1)
+  })
+
+  it('does not mistake the sphere shrinking for a continent deforming', () => {
+    // The measure's one real hazard. A rigid cap cannot be laid on a smaller
+    // sphere without deforming -- Theorema Egregium -- so this reads something
+    // once the Earth is 61% of its present size whatever the solver does, and
+    // if that reading were the size of the deformation being looked for the
+    // diagnostic would be worthless. For a cap the size of a shield it is not:
+    // a thousandth, against the tens of percent a lat/lon continent shows.
+    const dirs = new Float32Array(100 * 3)
+    const group = new Int32Array(100).fill(-1)
+    patch(0, 0, 6, 0, { dirs, group }, 0, 100)
+    const pairs = shapePairs(dirs, group, 1, 100, R0)
+    const small = 3905
+    const pos = layOn(dirs, 100, lonLatToDirection(0, 0), small)
+    expect(distortion(pairs, pos, small).islandDistortion).toBeLessThan(0.002)
+    // And it is the shrinking that does it, not the laying-on: the same cap
+    // laid on today's sphere comes back exactly where it started.
+    const same = layOn(dirs, 100, lonLatToDirection(0, 0), R0)
+    expect(distortion(pairs, same, R0).islandDistortion).toBeLessThan(FLOAT_NOISE)
+  })
+
+  it('blames the island that deformed and not its neighbour', () => {
+    const dirs = new Float32Array(200 * 3)
+    const group = new Int32Array(200).fill(-1)
+    patch(0, 0, 6, 0, { dirs, group }, 0, 100)
+    patch(120, 0, 6, 1, { dirs, group }, 100, 100)
+    const pairs = shapePairs(dirs, group, 2, 200, R0)
+    const pos = new Float64Array(dirs.length)
+    for (let i = 0; i < dirs.length; i++) pos[i] = dirs[i] * R0
+    // Fold the second island's northern half onto its southern edge. The first
+    // is untouched, so it must come out clean and the worst must be the second.
+    for (let v = 100; v < 200; v++) {
+      if (dirs[v * 3 + 1] <= 0) continue
+      for (let k = 0; k < 3; k++) pos[v * 3 + k] = dirs[100 * 3 + k] * R0
+    }
+    const seen = distortion(pairs, pos, R0)
+    expect(seen.worstGroup).toBe(1)
+    expect(seen.worstIslandDistortion).toBeGreaterThan(0.2)
+    const alone = shapePairs(dirs, Int32Array.from(group, (g) => (g === 0 ? 0 : -1)), 1, 200, R0)
+    expect(distortion(alone, pos, R0).islandDistortion).toBeLessThan(FLOAT_NOISE)
   })
 })
 

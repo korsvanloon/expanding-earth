@@ -11,7 +11,7 @@
  *
  * Keep prose out of the marked blocks and numbers out of the prose.
  */
-import type { Meta } from '../../shared/model.js'
+import type { FrameDiagnostics, Meta } from '../../shared/model.js'
 
 const OPEN = (name: string) => `<!-- from-the-run: ${name} -->`
 const CLOSE = '<!-- /from-the-run -->'
@@ -87,6 +87,38 @@ export function runBlocks(meta: Meta): Record<string, string> {
 
     blocks: `The run finds ${meta.diagnostics.map((d) => d.blockCount).reduce((a, b) => Math.max(a, b))} ` +
       `blocks at its most divided and ${last.blockCount} at ${meta.endTimeMa} Ma.`,
+
+    motion: [
+      '| time | crust removed | median speed | blocks | biggest block | island shape |',
+      '|---|---|---|---|---|---|',
+      ...SHOWN_MA.concat(meta.endTimeMa).filter((ma, i, all) => all.indexOf(ma) === i)
+        .map((ma) => {
+          const d = at(ma)
+          if (!d) return null
+          return `| ${ma} Ma | ${pct(d.forcingFraction, 3)}/Myr | ` +
+            `${d.medianSpeedKmMyr.toFixed(1)} km/Myr | ${d.blockCount} | ` +
+            `${pct(d.biggestBlockShare, 0)} | ${pct(d.islandDistortion, 1)} |`
+        }).filter((r) => r !== null),
+    ].join('\n'),
+
+    reach: (() => {
+      // Rates against rates and peaks against peaks. Nothing in here is a
+      // threshold: the window is stated, the extremes are the run's own, and
+      // the reader can see the ratio rather than being handed a date this file
+      // decided on.
+      const quiet = 20
+      const tail = meta.diagnostics.filter((d) => d.timeMa > meta.endTimeMa - quiet)
+      const removed = tail.reduce((a, d) => a + d.forcingFraction * meta.frameStepMa, 0)
+      const peak = (get: (d: FrameDiagnostics) => number) =>
+        meta.diagnostics.reduce((a, d) => Math.max(a, get(d)), 0)
+      return `Over the last ${quiet} Myr of the run the age grid takes away ` +
+        `${pct(removed, 2)} of the globe in total &mdash; ${pct(removed / quiet, 3)} per Myr, ` +
+        `against a peak of ${pct(peak((d) => d.forcingFraction), 2)}. The median surface speed ` +
+        `falls from a peak of ${peak((d) => d.medianSpeedKmMyr).toFixed(0)} km/Myr to ` +
+        `${last.medianSpeedKmMyr.toFixed(1)}, the block count from as many as ` +
+        `${peak((d) => d.blockCount)} to ${last.blockCount}, and the biggest block grows to ` +
+        `${pct(last.biggestBlockShare, 0)} of the shell.`
+    })(),
   }
 }
 

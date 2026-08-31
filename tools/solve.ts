@@ -57,6 +57,7 @@ import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topo
 import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
 import { cellBuckets, coverage, probeCells, probeDirections } from './lib/coverage.js'
+import { distortion, shapePairs } from './lib/shape.js'
 import { unstretching } from './lib/unstretching.js'
 
 import { buildIcosphere } from './lib/icosphere.js'
@@ -210,6 +211,18 @@ function main() {
   }
   console.log(`[solve] ${islands.count} islands of strong crust hold their shape`)
   const shape = islandShape(dirs, islands.vertexIsland, islands.count, vertexCount, r0)
+  /**
+   * The pairs whose distance the islands are supposed to keep.
+   *
+   * Sampled from the islands rather than from the lat/lon regions because an
+   * island is a claim this model makes -- shields hold their shape -- while a
+   * region is a box on a map, and half of what a box measures is Madagascar
+   * genuinely leaving Africa. See tools/lib/shape.ts.
+   */
+  const heldPairs = shapePairs(dirs, islands.vertexIsland, islands.count, vertexCount, r0)
+  console.log(
+    `[solve] ${heldPairs.a.length} pairs of points watched for the shape of their island`,
+  )
   const islandFacing = new Float64Array(islands.count * 9)
   for (let c = 0; c < islands.count; c++) {
     islandFacing[c * 9] = 1; islandFacing[c * 9 + 4] = 1; islandFacing[c * 9 + 8] = 1
@@ -465,6 +478,9 @@ function main() {
     )
     plates.push(found.ids)
     plateReport = { count: found.count, biggest: found.biggest }
+    const speed = medianSpeed(
+      pos, atLastFrame, mesh, radiusAt(t), Math.max(meta.frameStepMa, 1), vertexCount,
+    )
     atLastFrame.set(pos)
 
     for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
@@ -474,6 +490,7 @@ function main() {
     strains.push(
       perVertexStrain(strain, mesh.faceVerts, restAreaNow, faceCount, vertexCount, mesh.faceAlive),
     )
+    const held = distortion(heldPairs, pos, radiusAt(t))
     const tiled = coverage(pos, mesh, faceCount, probes, cells, buckets)
     // Should be impossible; said out loud rather than trusted, because when the
     // probes did sit on the mesh this went wrong in total silence.
@@ -492,6 +509,17 @@ function main() {
       ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, mesh.faceAlive),
       reliefKm: relief(pos, vertexCount, radiusAt(t)),
       blockCount: plateReport.count,
+      biggestBlockShare: plateReport.biggest[0] ?? 0,
+      // The crust the grid took away arriving here, per Myr: the forcing. Zero
+      // at the first frame because no time has passed; it borrows the second
+      // below, as the plates do.
+      forcingFraction: t > 0
+        ? ((radiusAt(t - meta.frameStepMa) / r0) ** 2 - (radiusAt(t) / r0) ** 2)
+          / meta.frameStepMa
+        : 0,
+      medianSpeedKmMyr: speed,
+      islandDistortion: held.islandDistortion,
+      worstIslandDistortion: held.worstIslandDistortion,
     })
   }
 
@@ -623,6 +651,9 @@ function main() {
   if (plates.length > 1) {
     plates[0] = plates[1]
     diagnostics[0].blockCount = diagnostics[1].blockCount
+    diagnostics[0].biggestBlockShare = diagnostics[1].biggestBlockShare
+    diagnostics[0].forcingFraction = diagnostics[1].forcingFraction
+    diagnostics[0].medianSpeedKmMyr = diagnostics[1].medianSpeedKmMyr
   }
   const plateBuffer = Buffer.concat(plates.map((p) => Buffer.from(p.buffer)))
   const topologyBuffer = Buffer.from(writeTopology(topologyDeltas))
@@ -838,6 +869,43 @@ function holdIslands(
     pos[i * 3 + 1] += hold * (ty - pos[i * 3 + 1])
     pos[i * 3 + 2] += hold * (tz - pos[i * 3 + 2])
   }
+}
+
+/**
+ * How fast the crust is moving across the surface, km/Myr, at the median point.
+ *
+ * The number the block count has to be read against. Blocks are patches that
+ * one rotation explains to within a few km/Myr, so when the crust slows below
+ * that the finder cannot tell a rigid shell from a still one and reports a
+ * single block turning at nearly nothing. That is what the run does past
+ * 180 Ma, where the sea floor -- and so the forcing -- has run out.
+ *
+ * Radial motion is left out for the same reason findPlates leaves it out: the
+ * sphere itself grows by eighty-odd kilometres between frames, more than the
+ * continents travel, and none of that is crust moving over crust.
+ */
+function medianSpeed(
+  pos: Float64Array,
+  before: Float64Array,
+  mesh: DynamicMesh,
+  radiusKm: number,
+  dtMa: number,
+  vertexCount: number,
+) {
+  const speeds: number[] = []
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    const i = v * 3
+    const now = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+    const then = length3(before[i], before[i + 1], before[i + 2]) || 1
+    const dot = Math.min(1, Math.max(-1,
+      (pos[i] * before[i] + pos[i + 1] * before[i + 1] + pos[i + 2] * before[i + 2])
+        / (now * then)))
+    speeds.push((Math.acos(dot) * radiusKm) / dtMa)
+  }
+  if (!speeds.length) return 0
+  speeds.sort((a, b) => a - b)
+  return speeds[speeds.length >> 1]
 }
 
 /**

@@ -64,6 +64,10 @@ export function Panel({ data }: { data: Dataset }) {
   const folded = pick((i) => meta.diagnostics[i].foldFraction)
   const strain = pick((i) => meta.diagnostics[i].medianStrain)
   const blocks = pick((i) => meta.diagnostics[i].blockCount)
+  const biggestBlock = pick((i) => meta.diagnostics[i].biggestBlockShare)
+  const forcing = pick((i) => meta.diagnostics[i].forcingFraction)
+  const speed = pick((i) => meta.diagnostics[i].medianSpeedKmMyr)
+  const heldShape = pick((i) => meta.diagnostics[i].islandDistortion)
   const subduction = pick((i) => meta.fixedRadiusDiagnostics[i].gapFraction)
 
   const step = meta.radiusStepMa
@@ -83,7 +87,11 @@ export function Panel({ data }: { data: Dataset }) {
       <div className="stats">
         <Stat label="Radius" value={`${radius.toFixed(0)} km`} note={`${((100 * radius) / R0_KM).toFixed(1)}% of today`} />
         <Stat label="Surface gravity" value={`${gravity.toFixed(1)} m/s²`} note="if mass were constant" />
-        <Stat label="Plates" value={blocks.toFixed(0)} note="found in the motion" />
+        <Stat
+          label="Plates"
+          value={blocks.toFixed(0)}
+          note={`biggest ${(100 * biggestBlock).toFixed(0)}% of the shell`}
+        />
         <Stat label="Median strain" value={`${(100 * strain).toFixed(1)}%`} note="asked of the crust" />
       </div>
 
@@ -180,6 +188,39 @@ export function Panel({ data }: { data: Dataset }) {
           failing, reported rather than tuned away. The bare figure is measured against a hundred
           thousand directions spread over the sphere; it used to ask only the mesh&rsquo;s own
           corners, where crust is hardest to miss, and meant nothing.
+        </p>
+      </section>
+
+      <section>
+        <h2>Is anything still moving?</h2>
+        <Chart
+          times={times}
+          series={[
+            {
+              values: meta.diagnostics.map((d) => d.medianSpeedKmMyr),
+              color: '#6f9fd8',
+              label: 'median surface speed',
+            },
+          ]}
+          currentMa={timeMa}
+          endMa={end}
+          format={(v) => `${v.toFixed(0)} km/Myr`}
+        />
+        <p className="caption">
+          The only thing that makes this model move is crust leaving it, and at {timeMa.toFixed(0)}{' '}
+          Ma the age grid is taking away{' '}
+          <strong>{(100 * forcing).toFixed(3)}%</strong> of the globe per million years. The crust
+          answers at <strong>{speed.toFixed(1)} km/Myr</strong> at the median point, in{' '}
+          <strong>{blocks.toFixed(0)}</strong> blocks whose biggest covers{' '}
+          <strong>{(100 * biggestBlock).toFixed(0)}%</strong> of the shell, while the shields keep
+          their own shape to <strong>{(100 * heldShape).toFixed(1)}%</strong>.
+        </p>
+        <p className="caption">
+          Read the block count against the speed, never alone. Blocks are found by growing a region
+          over every point one rotation explains to within a few km/Myr, so once the crust slows
+          below that a still shell and a rigid one look identical and everything joins one block
+          turning at nearly nothing. That is what happens past 180 Ma, where the sea floor runs out:
+          the count falling to one there is the record ending, not a shell welding.
         </p>
       </section>
 
@@ -325,8 +366,23 @@ function Method({ data }: { data: Dataset }) {
           some deformation is unavoidable and the strain figure is the honest residual, not a bug.
         </li>
         <li>
-          Before ~200 Ma there is no ocean floor left to measure and the whole method stops. Nothing
-          here is extrapolated past that.
+          The model reaches 180 Ma, not {meta.endTimeMa}. Over the last twenty million years of the
+          run the age grid removes almost nothing, so the frames are the solver settling rather than
+          history &mdash; and the one fit whose target date lies past that edge, North America
+          against Africa at 190 Ma, is being asked something the data cannot answer.
+        </li>
+        <li>
+          Through the middle of the run the crust moves as scores of patches of a few percent each,
+          where the Earth has about fifteen plates and the Pacific alone is a fifth of the surface.
+          Deformation is spread through every piece of weak crust instead of concentrating into
+          belts, so nothing plate-sized moves as one. This is the open problem here, and it is why a
+          margin can come to rest against its conjugate with a fifth of its length in contact.
+        </li>
+        <li>
+          Craton strain is an area strain, per triangle. Shear preserves area exactly and a
+          per-face figure cannot see a shield bent in half, so it reads small whatever happens to
+          the shape of a continent. The island figure above is the one to read for that: distances
+          between pairs of points of the same shield, which no rotation or reflection can flatter.
         </li>
       </ul>
 

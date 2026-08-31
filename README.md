@@ -10,15 +10,44 @@ pnpm install
 pnpm dev         # generates the reconstruction on first run, then serves it
 ```
 
-The first `pnpm dev` spends under three minutes building the data from
+The first `pnpm dev` spends two to four minutes building the data from
 `public/textures/age-map.png`, then caches it. `pnpm data` rebuilds it, and
-notices when any file under `tools/` or `shared/` has changed.
+notices when any file under `tools/` or `shared/` has changed. The spread in
+that figure is the machine, not the run: the same two hundred steps measured
+155 s and 213 s on two containers of the same shape on the same day, so treat
+any timing here as an order of magnitude.
 
 While tweaking the solver, `SUBDIV=5 pnpm data` does the whole two hundred
 million years in forty seconds on a quarter of the triangles. It is a different
 model rather than a cheaper view of the same one — its fits are its own, so use
 it to see which way a parameter moves things and not for a number worth
 quoting.
+
+## What this is, in the words the field uses
+
+A **model**, not a simulation and not an algorithm — those are parts of it.
+Precisely: a *kinematic reconstruction* of the crust, solved as an *inverse
+problem*.
+
+- **Reconstruction**, because the output is where the crust was, frame by frame.
+- **Kinematic**, because nothing here is a force. There is no mantle, no
+  viscosity, no driving stress. Motion follows from geometry: crust that did not
+  exist yet is taken out, the rest is carried along the spreading field, and the
+  sphere it sits on is the size its own area budget says.
+- **Inverse**, because it runs from the observation to the cause. The usual
+  method is the other way round: a plate map and a hierarchy of Euler rotation
+  poles, fitted by hand, played forwards. Here the age grid is the input and the
+  plates are an *output* — read back out of the answer.
+- Geologists would call the operation **retrodeformation**: undoing deformation
+  to recover an earlier state. This is a whole-shell one.
+- The **algorithm** inside it is a position-based constraint relaxation
+  (Gauss–Seidel) on a triangulation that changes its own topology as crust
+  disappears. That is the solver, one component of the model.
+
+"Simulation" is the word to avoid. Nothing evolves forward under its own physics
+here; a geometric problem is solved at each step. And nothing is fitted to a
+hand-assembled reconstruction — the fits in the scorecard are scored against
+independent evidence, never used as a target.
 
 ## What it does
 

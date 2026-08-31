@@ -68,12 +68,65 @@ one rotation explains to within a few km/Myr.
 The run finds 125 blocks at its most divided and 2 at 200 Ma.
 <!-- /from-the-run -->
 
-Two blocks at 200 Ma is not a result to be pleased with. It is the failure mode
-this solver was built to avoid — one rigid sheet, which cannot change curvature
-without absurd strain — and it is not yet known whether that is Pangaea
-assembling or the closure welding what it should have left apart. The
-bare-sphere figure that would settle it is measured where it cannot fail; see
-Known weaknesses.
+### Why it ends with one block, and why that is not welding
+
+A block count near one at the end of the run looked like the failure mode this
+solver was built to avoid: one rigid sheet, which cannot change curvature
+without absurd strain. It is not that. It is the record running out.
+
+The only thing that makes this model move is crust leaving it, and the sea floor
+does not go back far enough to keep that up:
+
+<!-- from-the-run: reach -->
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 16 km/Myr to 2.5, the block count from as many as 125 to 2, and the biggest block grows to 96% of the shell.
+<!-- /from-the-run -->
+
+So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
+finder — which grows a region over every point one rotation explains to within
+a few km/Myr — cannot tell a rigid shell from a still one. Below that tolerance
+everything joins a single block turning at almost nothing. The finder is not
+wrong; it has nothing to see.
+
+The fits say the same: between 180 and 200 Ma no scored pair moves by more than
+three kilometres. **The model reaches 180 Ma.** Frames past it are kept because
+they cost nothing and because the flatline is worth looking at, but no figure
+should be quoted from them, and the one fit whose target date lies past the
+edge — North America against Africa at 190 Ma — is being asked a question the
+data cannot answer.
+
+### What the block count says where it can see
+
+| what it could be | what would show |
+|---|---|
+| a welded shell | few blocks, the biggest covering most of the crust |
+| a shattered shell | many blocks, none of them large |
+| plates | a dozen-odd blocks, the biggest a fifth of the surface |
+
+<!-- from-the-run: motion -->
+| time | crust removed | median speed | blocks | biggest block | island shape |
+|---|---|---|---|---|---|
+| 5 Ma | 0.620%/Myr | 5.1 km/Myr | 76 | 26% | 0.3% |
+| 30 Ma | 0.644%/Myr | 13.6 km/Myr | 125 | 3% | 0.7% |
+| 60 Ma | 0.448%/Myr | 13.0 km/Myr | 103 | 4% | 1.0% |
+| 120 Ma | 0.256%/Myr | 12.7 km/Myr | 57 | 6% | 2.1% |
+| 200 Ma | 0.000%/Myr | 2.5 km/Myr | 2 | 96% | 2.9% |
+<!-- /from-the-run -->
+
+The middle of the run is the second row. The crust moves as scores of patches of
+a few percent each, where the Earth has about fifteen plates and the Pacific
+alone is a fifth of the surface. The deformation is spread evenly through every
+piece of crust weak enough to take it instead of concentrating into belts, so no
+piece large enough to be a plate turns out to be moving as one. That is the open
+problem in this reconstruction, and it is the reason a margin can come to rest
+against its conjugate with only a fifth of its length in contact.
+
+The islands hold, which is the one part of this that works as intended: the
+shields and platforms keep their own shape to a few percent for the whole run,
+measured as the change in distance between pairs of their own points rather than
+as area strain. Area strain cannot answer this question at all — shear preserves
+area exactly, and a per-face figure is blind to a shield bent in half — which is
+why `cratonStrain` reported 0.7% while a continent-sized box lost a third of its
+shape.
 
 An earlier version cut the shell wherever the age field stepped by more than
 20 Ma, treating fracture zones and transform faults as faults the crust could

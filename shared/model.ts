@@ -75,6 +75,51 @@ export interface FrameDiagnostics {
   reliefKm: number
   /** Number of rigid blocks the age data splits the crust into at this time. */
   blockCount: number
+  /**
+   * Share of the biggest of those blocks, as a fraction of the live crust.
+   *
+   * The count on its own cannot tell a shattered shell from a welded one --
+   * two hundred blocks of half a percent each and two blocks of ninety-six
+   * both fail, in opposite directions -- and it was the count alone that was
+   * reported for most of this project's life.
+   */
+  biggestBlockShare: number
+  /**
+   * Share of today's surface whose crust the age grid took away arriving here,
+   * per Myr. This is the forcing: the only thing that makes the model move.
+   *
+   * It goes to zero at 180 Ma, because that is as far back as the sea floor
+   * goes. Frames past that are the solver settling, not history, and the
+   * diagnostics beside them freeze -- which is exactly what makes the block
+   * count read 2 at 200 Ma. See `medianSpeedKmMyr`.
+   */
+  forcingFraction: number
+  /**
+   * Median surface speed of the live crust over the interval behind this frame,
+   * km/Myr. Radial growth is excluded: only motion across the surface counts.
+   *
+   * The number the block count has to be read against. Blocks are found by
+   * growing a region over everything one rotation explains to within a few
+   * km/Myr, so once the median speed falls below that tolerance a still shell
+   * is indistinguishable from a rigid one and everything joins a single block
+   * turning at nearly zero. The finder is not wrong; it has nothing to see.
+   */
+  medianSpeedKmMyr: number
+  /**
+   * How much the islands of strong crust have lost their own shape: RMS change
+   * in the distance between pairs of points of the same island, as a fraction
+   * of that distance today.
+   *
+   * `cratonStrain` was doing this job and cannot: it is a per-face area strain,
+   * so it is blind to shear, which preserves area exactly, and it is local, so
+   * a shield folded in half reports nothing as long as each of its triangles
+   * keeps its size. This measures the thing that actually has to hold -- a
+   * shield is the same distance across as it was -- and measures it across the
+   * whole island rather than triangle by triangle.
+   */
+  islandDistortion: number
+  /** The same for the worst single island, which is where it will fail first. */
+  worstIslandDistortion: number
 }
 
 export interface Meta {
