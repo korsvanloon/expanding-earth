@@ -325,6 +325,8 @@ function main() {
   const stretchAt = (f: number, t: number) =>
     1 + (stretch[f] - 1) * (riftMa[f] > 0 ? Math.min(1, t / riftMa[f]) : 0)
   const restAreaNow = new Float64Array(faceCount)
+  /** What each of the three edges of a face should measure at the current step. */
+  const edgeTarget = new Float64Array(faceCount * 3)
 
   // A fixed set of directions to ask "is there any crust here?" of.
   const probes = Float64Array.from(buildIcosphere(5).positions)
@@ -486,7 +488,19 @@ function main() {
 
     driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
 
-    for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
+    // What each edge is asked to measure, worked out once for the step rather
+    // than once per sweep. Neither the rest lengths nor how far the crust has
+    // been let out change while the sweeps run, so forty sweeps were asking the
+    // same question forty times: a million square roots a step, and four
+    // million divisions, for a hundred thousand distinct answers.
+    for (let f = 0; f < faceCount; f++) {
+      const stretched = stretchAt(f, t)
+      restAreaNow[f] = restArea[f] / stretched
+      const pull = Math.sqrt(stretched)
+      edgeTarget[f * 3] = restEdge[f * 3] / pull
+      edgeTarget[f * 3 + 1] = restEdge[f * 3 + 1] / pull
+      edgeTarget[f * 3 + 2] = restEdge[f * 3 + 2] / pull
+    }
 
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
       const forward = sweep % 2 === 0
@@ -495,11 +509,10 @@ function main() {
         if (!mesh.faceAlive[f]) continue
         const stiffness = stretchResist[f]
         if (stiffness === 0) continue
-        const pull = Math.sqrt(stretchAt(f, t))
         for (let k = 0; k < 3; k++) {
           const i = mesh.faceVerts[f * 3 + k] * 3
           const j = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
-          const target = restEdge[f * 3 + k] / pull
+          const target = edgeTarget[f * 3 + k]
           const dx = pos[i] - pos[j]
           const dy = pos[i + 1] - pos[j + 1]
           const dz = pos[i + 2] - pos[j + 2]

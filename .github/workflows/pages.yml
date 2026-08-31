@@ -36,8 +36,9 @@ jobs:
       # `pnpm build` regenerates the reconstruction from the textures and the
       # crustal model in the repository before bundling. That is two hundred
       # one-million-year steps over eighty thousand triangles, forty relaxation
-      # sweeps each, so budget half an hour rather than the couple of minutes
-      # this used to take. Nothing is fetched from the network.
+      # sweeps each: about four minutes on this runner, down from twenty once
+      # the retriangulation stopped measuring every triangle a thousand times
+      # over. Nothing is fetched from the network.
       - run: pnpm build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/

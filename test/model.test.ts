@@ -175,6 +175,38 @@ describe('the collapsing mesh', () => {
     expect(mesh.eulerCharacteristic()).toBe(2)
   })
 
+  // The flip test used to ask whether two points were already joined by
+  // building the whole ring of one of them and looking in it, which allocated a
+  // set of six entries a hundred thousand times a pass. `adjacent` answers the
+  // same question by scanning, and the run is only unchanged if it answers it
+  // identically -- including for the pairs that are not joined, which is most
+  // of them.
+  it('answers adjacency exactly as the ring does', () => {
+    const { mesh } = build(2)
+    const ring = new Set<number>()
+    for (let u = 0; u < mesh.vertexCount; u++) {
+      mesh.ring(u, ring)
+      for (let v = 0; v < mesh.vertexCount; v++) {
+        expect(mesh.adjacent(u, v)).toBe(ring.has(v))
+      }
+    }
+    // A point is in no one's ring, its own included, so this is not vacuous.
+    expect(ring.size).toBeGreaterThan(0)
+    expect(mesh.adjacent(0, 0)).toBe(false)
+  })
+
+  it('finds the corner of a triangle that an edge does not name', () => {
+    const { mesh } = build(2)
+    for (let f = 0; f < mesh.faceCount; f++) {
+      const [a, b, c] = [0, 1, 2].map((k) => mesh.faceVerts[f * 3 + k])
+      expect(mesh.cornerOpposite(f, a, b)).toBe(c)
+      expect(mesh.cornerOpposite(f, b, c)).toBe(a)
+      expect(mesh.cornerOpposite(f, c, a)).toBe(b)
+      // A triangle has no fourth corner to offer.
+      expect(mesh.cornerOpposite(f, a, -1)).toBe(b)
+    }
+  })
+
   it('stays a sphere however much is collapsed away', () => {
     const { mesh, pos } = build(3)
     const faceCount = mesh.faceCount

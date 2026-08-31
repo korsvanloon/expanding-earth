@@ -21,6 +21,7 @@ import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CORE_TYPES, CRUST_RIGIDITY, CRUST_TYPES, type CrustType } from '../shared/crust.js'
+import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
 import {
@@ -37,7 +38,23 @@ const TEXTURES = resolve(ROOT, 'public/textures')
 const OUT = resolve(ROOT, 'public/data')
 
 export const CONFIG = {
-  subdivision: 6,
+  /**
+   * How finely the shell is divided. Six is 40,962 points and is what the
+   * published run uses.
+   *
+   * Five is a quarter of the triangles and solves the whole two hundred
+   * million years in under a minute, which is the difference between trying a
+   * parameter and deciding to try it tomorrow. It is a different model, not a
+   * cheaper view of the same one: the area budget is read off a coarser shell,
+   * so it ends 8 km smaller, and the fits it reports are its own -- the Pacific
+   * measured 2367 km across where the full run says 2980, and North America
+   * against Africa 696 km where the full run closes it. Use it to decide which
+   * way a parameter moves things, never for a number worth quoting.
+   *
+   * Seven would need wider corner indices than the per-frame topology writes;
+   * `shared/topology.ts` throws rather than wrap.
+   */
+  subdivision: subdivision(),
   /** Working resolution for the age and height rasters. */
   gridWidth: 2048,
   gridHeight: 1024,

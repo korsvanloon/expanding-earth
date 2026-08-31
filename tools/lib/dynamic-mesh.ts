@@ -114,6 +114,37 @@ export class DynamicMesh {
     return into
   }
 
+  /**
+   * Whether u and v share an edge.
+   *
+   * The same question as asking whether v is in the ring of u, without building
+   * the ring: this is asked once per candidate flip, and a set of six entries
+   * allocated a hundred thousand times a pass is a set built and thrown away
+   * twenty million times over a run.
+   */
+  adjacent(u: number, v: number): boolean {
+    // A point is not in its own ring, and every face around it names it, so
+    // without this the scan would report every point adjacent to itself. The
+    // one caller has already ruled the case out; the next one might not.
+    if (u === v) return false
+    for (const f of this.incident[u]) {
+      const i = f * 3
+      if (this.faceVerts[i] === v || this.faceVerts[i + 1] === v || this.faceVerts[i + 2] === v) {
+        return true
+      }
+    }
+    return false
+  }
+
+  /** The corner of f that is neither a nor b, or -1 if it has no such corner. */
+  cornerOpposite(f: number, a: number, b: number): number {
+    for (let k = 0; k < 3; k++) {
+      const u = this.faceVerts[f * 3 + k]
+      if (u !== a && u !== b) return u
+    }
+    return -1
+  }
+
   /** The faces along the edge ab, of which a closed surface has exactly two. */
   facesAlong(a: number, b: number, into: number[]): number[] {
     into.length = 0
@@ -176,10 +207,17 @@ export class DynamicMesh {
       for (const end of [a, b]) {
         for (const f of this.incident[end]) {
           if (f === along[0] || f === along[1]) continue
-          const v = [this.faceVerts[f * 3], this.faceVerts[f * 3 + 1], this.faceVerts[f * 3 + 2]]
-          const p = v.map((u) =>
-            u === a || u === b ? [mx, my, mz] : [pos[u * 3], pos[u * 3 + 1], pos[u * 3 + 2]])
-          if (!outward(p[0], p[1], p[2])) return false
+          const u0 = this.faceVerts[f * 3], u1 = this.faceVerts[f * 3 + 1]
+          const u2 = this.faceVerts[f * 3 + 2]
+          const moved = (u: number) => u === a || u === b
+          if (!outward(
+            moved(u0) ? mx : pos[u0 * 3], moved(u0) ? my : pos[u0 * 3 + 1],
+            moved(u0) ? mz : pos[u0 * 3 + 2],
+            moved(u1) ? mx : pos[u1 * 3], moved(u1) ? my : pos[u1 * 3 + 1],
+            moved(u1) ? mz : pos[u1 * 3 + 2],
+            moved(u2) ? mx : pos[u2 * 3], moved(u2) ? my : pos[u2 * 3 + 1],
+            moved(u2) ? mz : pos[u2 * 3 + 2],
+          )) return false
         }
       }
     }
@@ -197,33 +235,37 @@ export class DynamicMesh {
    * come into contact, and the one that used to be between them has gone. It is
    * a fault, drawn where the mesh says one is needed.
    */
-  canFlip(a: number, b: number, pos: Float64Array, along: number[], ring: Set<number>): number[] | null {
+  canFlip(a: number, b: number, pos: Float64Array, along: number[]): number[] | null {
     if (!this.vertexAlive[a] || !this.vertexAlive[b]) return null
     this.facesAlong(a, b, along)
     if (along.length !== 2) return null
-    const opposite = along.map((f) => {
-      for (let k = 0; k < 3; k++) {
-        const u = this.faceVerts[f * 3 + k]
-        if (u !== a && u !== b) return u
-      }
-      return -1
-    })
-    const [c, d] = opposite
+    const c = this.cornerOpposite(along[0], a, b)
+    const d = this.cornerOpposite(along[1], a, b)
     if (c < 0 || d < 0 || c === d) return null
     // Already joined: flipping would put two triangles on the same edge.
-    this.ring(c, ring)
-    if (ring.has(d)) return null
+    if (this.adjacent(c, d)) return null
     // A vertex needs at least three neighbours to stay part of a surface.
     if (this.incident[a].size <= 3 || this.incident[b].size <= 3) return null
 
-    const p = (u: number) => [pos[u * 3], pos[u * 3 + 1], pos[u * 3 + 2]]
-    const pa = p(a), pb = p(b), pc = p(c), pd = p(d)
-    if (!outward(pc, pd, pa) || !outward(pd, pc, pb)) return null
+    const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2]
+    const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2]
+    const cx = pos[c * 3], cy = pos[c * 3 + 1], cz = pos[c * 3 + 2]
+    const dx = pos[d * 3], dy = pos[d * 3 + 1], dz = pos[d * 3 + 2]
+    if (
+      !outward(cx, cy, cz, dx, dy, dz, ax, ay, az) ||
+      !outward(dx, dy, dz, cx, cy, cz, bx, by, bz)
+    ) return null
     // Only when it makes the pair of triangles rounder. The measure is the
     // smallest angle in the pair, which is what goes to zero as a triangle
     // turns into a needle.
-    const before = Math.min(quality(pa, pb, pc), quality(pb, pa, pd))
-    const after = Math.min(quality(pc, pd, pa), quality(pd, pc, pb))
+    const before = Math.min(
+      quality(ax, ay, az, bx, by, bz, cx, cy, cz),
+      quality(bx, by, bz, ax, ay, az, dx, dy, dz),
+    )
+    const after = Math.min(
+      quality(cx, cy, cz, dx, dy, dz, ax, ay, az),
+      quality(dx, dy, dz, cx, cy, cz, bx, by, bz),
+    )
     // Either the pair gets rounder, or the neighbourhoods get more even without
     // the pair getting worse. Six neighbours is what a triangulation of a
     // surface wants on average, and evening the count out is what stops one
@@ -411,18 +453,25 @@ export function collapseVanished(
 
 /** A triangle's roundness, for sorting the worst to the front. */
 function worstAngle(mesh: DynamicMesh, pos: Float64Array, f: number): number {
-  const p = (k: number) => {
-    const v = mesh.faceVerts[f * 3 + k] * 3
-    return [pos[v], pos[v + 1], pos[v + 2]]
-  }
-  return quality(p(0), p(1), p(2))
+  const a = mesh.faceVerts[f * 3] * 3
+  const b = mesh.faceVerts[f * 3 + 1] * 3
+  const c = mesh.faceVerts[f * 3 + 2] * 3
+  return quality(
+    pos[a], pos[a + 1], pos[a + 2],
+    pos[b], pos[b + 1], pos[b + 2],
+    pos[c], pos[c + 1], pos[c + 2],
+  )
 }
 
-function outward(a: number[], b: number[], c: number[]): boolean {
-  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
-  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]
+function outward(
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  cx: number, cy: number, cz: number,
+): boolean {
+  const ux = bx - ax, uy = by - ay, uz = bz - az
+  const vx = cx - ax, vy = cy - ay, vz = cz - az
   const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
-  return nx * a[0] + ny * a[1] + nz * a[2] > 0
+  return nx * ax + ny * ay + nz * az > 0
 }
 
 /**
@@ -433,12 +482,16 @@ function outward(a: number[], b: number[], c: number[]): boolean {
  * eighty thousand triangles, two hundred times, and three arc-cosines a call
  * was enough to stop the run finishing.
  */
-function quality(a: number[], b: number[], c: number[]): number {
-  const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
-  const vx = c[0] - a[0], vy = c[1] - a[1], vz = c[2] - a[2]
+function quality(
+  ax: number, ay: number, az: number,
+  bx: number, by: number, bz: number,
+  cx: number, cy: number, cz: number,
+): number {
+  const ux = bx - ax, uy = by - ay, uz = bz - az
+  const vx = cx - ax, vy = cy - ay, vz = cz - az
   const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
   const twiceArea = Math.hypot(nx, ny, nz)
-  const wx = c[0] - b[0], wy = c[1] - b[1], wz = c[2] - b[2]
+  const wx = cx - bx, wy = cy - by, wz = cz - bz
   const sides =
     ux * ux + uy * uy + uz * uz + vx * vx + vy * vy + vz * vz + wx * wx + wy * wy + wz * wz
   return sides > 0 ? (2 * Math.sqrt(3) * twiceArea) / sides : 0
@@ -471,7 +524,6 @@ function easeDeadCrust(
   passes: number,
 ): number {
   const along: number[] = []
-  const ring = new Set<number>()
   let flipped = 0
   for (let pass = 0; pass < passes; pass++) {
     let did = 0
@@ -481,7 +533,7 @@ function easeDeadCrust(
         const a = mesh.faceVerts[f * 3 + k]
         const b = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
         if (a < 0 || b < 0) continue
-        const found = mesh.canFlip(a, b, pos, along, ring)
+        const found = mesh.canFlip(a, b, pos, along)
         if (!found) continue
         // Both triangles the flip touches have to be dead. One live one and the
         // flip is a fault invented in crust that has to answer for its shape.
@@ -515,22 +567,33 @@ export function retriangulate(
   breaksBelow = 1,
 ): number {
   const along: number[] = []
-  const ring = new Set<number>()
+  const order: number[] = []
+  const roundness = new Float64Array(mesh.faceCount)
   let flipped = 0
   for (let pass = 0; pass < passes; pass++) {
     let did = 0
     // Worst first. Sweeping in face order spends the pass on triangles that
     // were nearly fine and leaves the needles for a pass that never comes.
-    const order: number[] = []
-    for (let f = 0; f < mesh.faceCount; f++) if (mesh.faceAlive[f]) order.push(f)
-    order.sort((x, y) => worstAngle(mesh, pos, x) - worstAngle(mesh, pos, y))
+    //
+    // The measure is taken once per triangle rather than inside the comparator.
+    // Nothing moves during a sort, so both give the same order -- but a sort of
+    // thirty-five thousand triangles asks its comparator half a million times,
+    // and measuring there meant a million measurements a pass instead of thirty
+    // thousand. Over the run that was a billion.
+    order.length = 0
+    for (let f = 0; f < mesh.faceCount; f++) {
+      if (!mesh.faceAlive[f]) continue
+      order.push(f)
+      roundness[f] = worstAngle(mesh, pos, f)
+    }
+    order.sort((x, y) => roundness[x] - roundness[y])
     for (const f of order) {
       if (!mesh.faceAlive[f]) continue
       for (let k = 0; k < 3; k++) {
         const a = mesh.faceVerts[f * 3 + k]
         const b = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
         if (a < 0 || b < 0) continue
-        const found = mesh.canFlip(a, b, pos, along, ring)
+        const found = mesh.canFlip(a, b, pos, along)
         if (!found) continue
         // A flip is a fault: two pieces of rock that were not touching come
         // into contact and the edge between them is born at whatever length it
