@@ -153,7 +153,11 @@ function main() {
     SURFACE_MAPS.map((m) => [m.file, uri('image/jpeg', shrinkTexture(m.file))]),
   )
 
-  const html = `<title>Expanding Earth</title>
+  // The artifact host supplies a charset, but this file is also opened straight
+  // off disk, and there UTF-8 is guessed at rather than declared -- which turned
+  // the play button's triangle into three bytes of mojibake.
+  const html = `<meta charset="utf-8">
+<title>Expanding Earth</title>
 <style>
 ${readFileSync(resolve(DIST, 'assets', css), 'utf8')}
 /* The artifact host composites the page over a ground it paints itself, so
