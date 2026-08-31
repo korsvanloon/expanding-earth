@@ -32,10 +32,16 @@ Cross-tabulating it against the bathymetry in `height-map.jpg` gives:
 | dated, above sea level — mask bleed | 0.2% |
 
 So 94.8% of the map is internally consistent and the real hole is 2.8%. What
-that hole does to the answer is what matters: counting it as continent gives
-R(200 Ma) = 4135 km, counting it as ocean gives 4001 km. **The entire ambiguity
-is worth about 3% of the radius.** Three classification variants are carried
-through the pipeline and shown as the band on the radius chart.
+that hole does to the answer is what matters:
+
+<!-- from-the-run: bounds -->
+Counting it as continent gives R(200 Ma) = 4042 km, counting it as ocean gives 3905 km &mdash; the entire ambiguity is worth 3.5% of the radius.
+<!-- /from-the-run -->
+
+Three classification variants are carried through the pipeline and shown as the
+band on the radius chart. Only one of them is ever solved, so how much the fits,
+the folding and the strain depend on that choice is not known &mdash; see Known
+weaknesses.
 
 The grey ramp is calibrated on one identifiable landmark: the oldest value, 254,
 sits at 34 degrees N, 21 degrees E in the Herodotus Basin of the eastern
@@ -49,18 +55,32 @@ agrees with the same measurement taken at full raster resolution to within 1.1%.
 
 Nowhere. No plate map is used and none is needed.
 
-Remove the crust younger than *t* and the shell disconnects by itself: the
-mid-ocean ridges are where the youngest crust is, so they are the first thing to
-go. Fracture zones and transform faults appear in the age grid as sharp steps —
-sea floor of very different ages lying side by side — and edges across a step of
-more than 20 Ma are treated as faults the crust may slide along. The blocks that
-move as units are the connected components that remain. There are about 90 of
-them through most of the run.
+Remove the crust younger than *t* and the shell closes by itself: the mid-ocean
+ridges are where the youngest crust is, so they are the first thing to go, and
+their edges are collapsed out of the mesh rather than stretched. Where two
+pieces then have to slide past one another the triangulation is redrawn, and
+that is allowed only in crust weak enough to fault — sea floor and thinned
+margins redraw, a shield has to carry the deformation instead. The blocks that
+move as units are read back out of the resulting motion: points whose velocity
+one rotation explains to within a few km/Myr.
 
-Continental crust is deliberately left out of the step test. A passive margin
-such as the Brazilian coast puts undated continent against 120 Ma ocean, an
-enormous apparent step that is not a plate boundary at all — the two ride
-together, and cutting there would be wrong.
+<!-- from-the-run: blocks -->
+The run finds 125 blocks at its most divided and 2 at 200 Ma.
+<!-- /from-the-run -->
+
+Two blocks at 200 Ma is not a result to be pleased with. It is the failure mode
+this solver was built to avoid — one rigid sheet, which cannot change curvature
+without absurd strain — and it is not yet known whether that is Pangaea
+assembling or the closure welding what it should have left apart. The
+bare-sphere figure that would settle it is measured where it cannot fail; see
+Known weaknesses.
+
+An earlier version cut the shell wherever the age field stepped by more than
+20 Ma, treating fracture zones and transform faults as faults the crust could
+slide along, with continental crust left out of the test so that a passive
+margin like the Brazilian coast — undated continent against 120 Ma ocean — was
+not mistaken for a plate boundary. That rule is gone; the strength test on
+redrawn edges does the same work without needing a threshold in Ma.
 
 ## The integration
 
@@ -94,74 +114,96 @@ lets rigid blocks meet at an angle instead, the way the gores of a globe do.
 
 ## What it reports about itself
 
-Three numbers per frame, none of them tuned:
+Four numbers per frame, none of them tuned:
 
-- **unaccounted for** — how much of the sphere is still occupied by crust that
-  did not exist yet. It should be zero; whatever is left is surface the
-  reconstruction has failed to explain.
-- **folded through itself** — the area of triangles whose winding has flipped,
-  meaning crust has been driven through crust.
+- **bare sphere** — how much of the sphere no surviving crust covers. It should
+  be zero; whatever is left is surface the reconstruction has failed to
+  account for. This document described it backwards for a long time, as sphere
+  *occupied* by crust that did not exist yet, and it is also the one figure
+  here that is not currently trustworthy — see Known weaknesses.
+- **covered twice** — how much of the sphere lies under more than one triangle
+  at once, which a merely crumpled shell does as readily as a folded one.
+- **inside out** — the share of the rock whose outward face points at the core.
+  Reported apart from the overlap because edge-length springs cannot see it: a
+  triangle and its mirror image measure the same.
 - **strain** — how much the model has to deform the crust, from the area change
-  of each triangle against its present-day area.
+  of each triangle against its present-day area, split by how strong that crust
+  is.
 
-| time | radius | unaccounted | folded | strain in cratons | strain in weak crust |
-|---|---|---|---|---|---|
-| 5 Ma | 6285 km | 1.7% | 0.9% | 0.0% | 4.2% |
-| 30 Ma | 5770 km | 4.4% | 3.8% | 0.3% | 13.2% |
-| 60 Ma | 5257 km | 6.6% | 6.2% | 0.5% | 17.8% |
-| 120 Ma | 4460 km | 8.1% | 8.5% | 1.1% | 22.8% |
-| 200 Ma | 4006 km | 8.6% | 9.1% | 1.6% | 26.0% |
+<!-- from-the-run: reports -->
+| time | radius | bare sphere | covered twice | inside out | craton strain | weak strain |
+|---|---|---|---|---|---|---|
+| 5 Ma | 6272 km | 0.00% | 0.01% | 0.00% | 0.06% | 1.2% |
+| 30 Ma | 5728 km | 0.00% | 0.01% | 0.00% | 0.21% | 5.2% |
+| 60 Ma | 5197 km | 0.00% | 0.01% | 0.02% | 0.29% | 7.4% |
+| 120 Ma | 4373 km | 0.00% | 0.06% | 0.14% | 0.50% | 9.6% |
+| 200 Ma | 3905 km | 0.00% | 0.50% | 0.42% | 0.70% | 17.1% |
+<!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
 couple of percent of rigid all the way back, and the deformation the model
 cannot avoid has moved into thin necks, shelves and island arcs, which is where
-it belongs. Whether 26% is tolerable there is a separate question, and the
-answer is probably not everywhere.
+it belongs. Whether that much is tolerable there is a separate question, and
+the answer is probably not everywhere.
 
 ### Whether it lands where it should
 
-| pair | should be touching by | still apart |
-|---|---|---|
-| South America - Africa | 180 Ma | 4305 km |
-| Australia - Antarctica | 100 Ma | 3708 km |
-| India - Africa | 120 Ma | 5366 km |
-| Greenland - North America | 60 Ma | 3626 km |
-| North America - Africa | 190 Ma | 7197 km |
+<!-- from-the-run: fits -->
+| pair | should be touching by | apart then | closest anywhere in the run |
+|---|---|---|---|
+| South America &ndash; Africa | 180 Ma | 0 km | 0 km at 120 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 71 km | 21 km at 165 Ma |
+| India &ndash; Africa | 120 Ma | 96 km | 79 km at 105 Ma |
+| Greenland &ndash; North America | 60 Ma | 0 km | 0 km at 10 Ma |
+| North America &ndash; Africa | 190 Ma | 96 km | 94 km at 180 Ma |
+| Antarctica &ndash; South America | watched, not scored | &mdash; | 0 km at 120 Ma |
+| Australia &ndash; North America | watched, not scored | &mdash; | 2689 km at 200 Ma |
+<!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
 Expanding Earth agree on. Reconstructions puzzled together by hand are
 deliberately excluded: whether Australia or Antarctica ends up against the west
 coast of South America is something the model should be allowed to answer.
 
-Nothing on that list is close enough yet. Measured against the previous
-solver these distances have roughly halved and the continents now travel two to
-five thousand kilometres instead of standing still, but the assembly is not
-Pangaea.
+Read that table with more suspicion than its numbers invite. It reports the
+closest approach between two continents, and a closest approach is not a fit:
+one corner brushing another reads as zero while the margins alongside it are
+nowhere near nesting, which is exactly what South America against Africa does
+in the shipped run. The number says the two touched somewhere; it says nothing
+about whether the coastlines match. Judge the assembly by looking at it.
+
+The distances are also less certain than a figure in kilometres suggests. Two
+runs of the same model that differ only in the last bit of a floating-point
+length -- one using `Math.hypot`, one using the square root of the sum of
+squares -- disagree by up to 300 km after 200 Myr, because the solver decides
+discrete things along the way and a last-bit difference can tip one of them.
+These are three-digit numbers at best.
 
 ## The other reading of the same number
 
 Hold the radius at today's value and the same crust budget cannot cover the
-sphere: at 200 Ma it falls short by 60%. On a non-expanding Earth that shortfall
+sphere.
+
+<!-- from-the-run: shortfall -->
+At 200 Ma it falls short by 62%.
+<!-- /from-the-run -->
+
+On a non-expanding Earth that shortfall
 is not a gap — it is the area subduction has to have destroyed. The same
 measurement is the case for expansion or the measure of subduction, depending on
 which you already believe. The model does not settle that, and does not pretend
 to.
 
-## Cutting the shell into fragments
+## Cutting the shell into fragments, and why it is gone
 
-The shell is cut along its weak crust and each fragment held rigid, so pieces
-slide and ride over one another instead of deforming -- an orange peel put back
-on a smaller orange cracks, it does not stretch. Fractures stay closed while the
-crust across them still exists and release exactly where it has gone, which is
-when a rift opens.
+An earlier pipeline cut the shell along its weak crust and held each fragment
+rigid, so pieces slid and rode over one another instead of deforming — an orange
+peel put back on a smaller orange cracks, it does not stretch. Weak crust alone
+left only ten fragments, and a rigid piece thousands of kilometres across cannot
+lie on a sphere of different curvature, so oversized fragments were cut down
+further. Sweeping the target size gave the finding worth keeping:
 
-Weak crust alone leaves only ten fragments, and a rigid piece thousands of
-kilometres across cannot lie on a sphere of different curvature: the misfit
-grows with the square of its size. So oversized fragments are cut down further,
-following weak crust where there is any. How far to take that is a real trade,
-and the sweep is worth recording:
-
-| target size | fragments | unaccounted | folded | strain | S America - Africa at 180 Ma |
+| target size | fragments | uncovered | folded | strain | S America – Africa at 180 Ma |
 |---|---|---|---|---|---|
 | weak crust only | 10 | 25.3% | 2.2% | 1.6% | 5126 km |
 | 2500 km | 30 | 20.9% | 1.1% | 0.8% | 2298 km |
@@ -171,32 +213,66 @@ and the sweep is worth recording:
 | 500 km | 654 | 7.1% | 0.7% | 0.0% | 5741 km |
 
 Closure and strain both keep improving as the pieces get smaller, and both are
-misleading at the bottom of the table: a mosaic of 500 km tiles can take any
-shape at all, so its near-zero strain says nothing about whether continents are
-rigid. The fits to known geology are the honest guide, and they do not improve
-monotonically -- they are best in the middle. 1200 km is the default.
+misleading at the bottom: a mosaic of 500 km tiles can take any shape at all, so
+its near-zero strain says nothing about whether continents are rigid. The fits
+to known geology are the honest guide, and they do not improve monotonically —
+they are best in the middle. That is the lesson: a diagnostic that improves
+without limit as you add freedom is not measuring what you think it is.
 
-At that setting South America sits 1117 km from Africa at 180 Ma, against 9276
-km today, which is much the best result this project has produced for the fit
-everything else is judged by.
+The mechanism itself has been replaced. This solver collapses dead crust out of
+the mesh rather than pre-cutting the shell, and it threw an error on any cut
+mesh handed to it, so the cutting had been unreachable for some time; the code
+and its knobs have been deleted rather than left to describe a path that could
+not run. **The table above belongs to that older pipeline and is not comparable
+with the figures in this document.**
 
 ## Known weaknesses
 
-- **The crust does not tile.** Roughly 15% of the sphere is left uncovered, and
-  it is spread between fragments rather than concentrated at ridges, so the
-  reconstruction reads as a cracked eggshell rather than continents on an ocean.
-  The gaps are drawn as fresh sea floor, which is what the model says was there,
-  but they are the model failing and the figure is reported rather than hidden.
+- **Whether the crust tiles is not currently known.** An earlier solver left
+  roughly 15% of the sphere uncovered, spread between fragments rather than
+  concentrated at ridges, so the reconstruction read as a cracked eggshell
+  rather than continents on an ocean. The shipped run reports 0.00%, and that
+  is not the good news it looks like: the measurement is taken at points where
+  it cannot fail (see below). The honest statement is that the figure is
+  unmeasured, not that it is zero.
 
-- **The northern hemisphere assembles badly.** Gondwana comes together
-  reasonably -- Australia, Antarctica, South America and Africa all converge --
-  but North America and Eurasia do not. Letting the conjugate-margin fronts run
-  without limit closes 4.5% better and does Gondwana well, yet sends North
-  America and Eurasia to opposite sides of the planet, because at 200 Ma the
-  fronts cross the whole Pacific at once and the line where they meet is an
-  artefact of the shape of the hole rather than a ridge. Limiting their reach to
-  about 660 km removes that pathology at the cost of closure. Neither setting is
-  right; the pairing needs to follow isochrons rather than graph distance.
+- **Only one of the three classifications is ever solved.** The 2.8% of the
+  globe the age grid leaves undated is handled three ways, and all three radius
+  curves are computed and drawn as the band on the chart — but the
+  reconstruction is only ever run on one of them, `nearest-age`, and there is no
+  switch to run the others. So the ambiguity has been quantified through the
+  radius and nowhere else: whether the fits, the folding or the strain would
+  survive treating that deep water as continent instead is simply unknown. A run
+  now takes minutes, so this is affordable to answer and has not been.
+
+- **The fit scorecard is not a fit.** It reports the smallest distance between
+  two continents, so one corner brushing another scores zero while the margins
+  beside it are nowhere near nesting — which is what South America against
+  Africa does in the shipped run, and it looks wrong on the globe while reading
+  0 km in the table. Whatever replaces it has to compare the shapes of the
+  margins, not their nearest points.
+
+- **The bare-sphere figure is measured where it cannot fail.** Coverage is
+  tested by asking a fixed set of directions whether any live triangle lies
+  that way. Those directions are the vertices of a subdivision-5 icosphere and
+  the shell is a subdivision-6 one, so all 10,242 of them fall exactly on a
+  mesh vertex -- a point six triangles share. The test asks "is there crust
+  here?" only at the places where crust is hardest to miss, which is why it
+  reads exactly 0.00% at every frame while this document long claimed 15% of
+  the sphere was uncovered. The overlap figure has the same problem from the
+  other side: it reads 1.84% at the present day, where an untouched icosphere
+  must be 0. Until the probes are moved off the vertices, neither number is
+  evidence of anything, and the closure claim rests on nothing.
+
+- **The conjugate-margin pairing is gone, and with it a known pathology.**
+  Letting the fronts run without limit closed better and did Gondwana well, yet
+  sent North America and Eurasia to opposite sides of the planet, because at
+  200 Ma the fronts crossed the whole Pacific at once and the line where they
+  met was an artefact of the shape of the hole rather than a ridge. Limiting
+  their reach to about 660 km removed that at the cost of closure, and neither
+  setting was right. The mechanism has since been replaced by collapsing dead
+  crust out of the mesh outright. Whether the northern hemisphere assembles any
+  better for it has not been re-measured.
 - **Strain is dominated by the solver, not the geology.** The strain view shows
   a cellular pattern a few cells across that is an artefact of the relaxation
   finding a locally uneven solution. Moving from edge-length to area-based

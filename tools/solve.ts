@@ -2,22 +2,33 @@
  * Stage 2: reconstruct where the crust was, by simulation rather than by
  * hand-authored keyframes.
  *
- * We integrate backwards from today, the only moment we actually know. The
- * shell is a single closed triangulation the whole way; nothing is ever added
- * or deleted. What changes is how big each piece of it is allowed to be:
+ * We integrate backwards from today, the only moment we actually know. Each
+ * one-million-year step does three things:
  *
- *   - crust that already existed at time t keeps its present-day size, because
- *     rock does not stretch;
- *   - crust that did not exist yet is un-created, its rest length faded to
- *     nothing over TAU_MA;
+ *   - crust that had not been made yet is taken out of the mesh, by collapsing
+ *     its edges: the two triangles along an edge go and its ends become one
+ *     point. Run forwards that is a ridge splitting a point in two and making
+ *     sea floor between the halves, which is what a ridge does;
+ *   - the surviving crust is carried along the spreading field, read off the
+ *     age gradient at the isochron that is disappearing;
  *   - the sphere it all sits on shrinks to R(t), which is not a free parameter
  *     but follows from the area budget.
  *
- * Run backwards this closes the mid-ocean ridges like zips and drags the
- * continents together. Run forwards it is sea-floor spreading. Nothing in here
- * knows what a plate is: the blocks that move as units are simply whatever
- * stays connected once the young crust is gone, so the plate boundaries fall
- * out of the magnetic anomaly pattern rather than being drawn by hand.
+ * Then the springs are relaxed, so the ocean closes like a zip and drags the
+ * continents together. Nothing in here knows what a plate is: the blocks that
+ * move as units are whatever still moves as one, read back out of the motion
+ * afterwards.
+ *
+ * What is NOT here, because the comments used to say it was. There is no
+ * tension-only spring across crust that does not exist yet, and no pairing of
+ * conjugate margins: both were tried, and the mesh collapsing the dead crust
+ * outright does the same job without them. Nor is there any rule that cuts the
+ * shell where the age field steps -- the only thing that lets one piece slide
+ * past another is a redrawn triangle edge, and only in crust weak enough to
+ * fault. The reasoning that made the earlier version work is still worth
+ * keeping: letting vanished crust push as well as pull welded the blocks either
+ * side into one rigid sheet, and a sheet that large cannot change its curvature
+ * without absurd strain, which is why those runs reported 20% everywhere.
  *
  * The residual that relaxation cannot remove is not numerical noise, it is
  * Gauss's Theorema Egregium. A curved shell cannot be laid on a sphere of
@@ -37,7 +48,6 @@ import {
   FIT_TARGETS,
   PERMANENT_MA,
   REGIONS,
-  crustScale,
   sampleCurve,
   type FrameDiagnostics,
   type Meta,
@@ -53,40 +63,11 @@ import { buildIcosphere } from './lib/icosphere.js'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(ROOT, 'public/data')
 
-/**
- * Resolution of the bucket queue that orders the seam fronts by age. One bucket
- * per third of a million years is finer than the age grid can resolve.
- */
-const AGE_BUCKETS = 1024
-
 const CONFIG = {
   /** Integration step, Myr. Small enough that each step is a small nudge. */
   stepMa: 1,
   /** Gauss-Seidel sweeps per step. */
   sweeps: Number(process.env.SWEEPS ?? 40),
-  /**
-   * Crust that does not exist yet pulls, but never pushes.
-   *
-   * The pull is what actually moves the continents: an ocean that has not
-   * opened yet draws its two margins together across however many cells of
-   * vanished sea floor lie between them, which is the only thing that can close
-   * an Atlantic. Letting it push as well is what wrecked earlier versions of
-   * this solver -- it welded the blocks either side into one rigid sheet, and a
-   * sheet that large cannot change its curvature without absurd strain, which
-   * is why they reported 20%. Tension-only transmits the drift without ever
-   * transmitting rigidity.
-   */
-  unbornStiffness: Number(process.env.UNBORN_K ?? 0.6),
-  /**
-   * How much of a plate's move in a step comes from shutting its oceans rather
-   * than from following the spreading field.
-   *
-   * The field says which way the crust travels; the conjugate margins say what
-   * it has to end up against. Both are needed -- the field alone drives motion
-   * but never closes anything, and margins alone close beautifully while turning
-   * the continent one way and then back.
-   */
-  seamShare: Number(process.env.SEAM_SHARE ?? 0.7),
   /**
    * How wide a band of isochrons the spreading field is read from, Myr.
    *
@@ -96,8 +77,6 @@ const CONFIG = {
    * gives the fit enough points to pin a rotation down.
    */
   flowWindowMa: Number(process.env.FLOW_WINDOW ?? 14),
-  /** Set to 0 to turn the spreading field off, for comparison. */
-  flowGain: Number(process.env.FLOW_GAIN ?? 1),
   /**
    * How much of the previous step's rotation a plate keeps.
    *
@@ -140,17 +119,6 @@ const CONFIG = {
   /** The fastest half-spreading rate believed, km/Myr. */
   maxRate: Number(process.env.MAX_RATE ?? 200),
   /**
-   * How many partners one margin point may be paired with in a step.
-   *
-   * Not unlimited: across a wide ocean every point on one flank can see a great
-   * many on the other, and taking them all buries the one crossing that matters
-   * under a cloud of near-duplicates. A small budget lets a margin hold on to
-   * more than the single best partner without that.
-   */
-  seamPairsPerPoint: Number(process.env.SEAM_PAIRS ?? 1),
-  /** Smoothing passes that settle not-yet-created crust into the leftover gap. */
-  unbornSmoothing: Number(process.env.SMOOTH ?? 30),
-  /**
    * How hard each vertex is pulled back onto the sphere of radius R(t).
    *
    * Deliberately soft. A piece of the present-day sphere cannot lie on a
@@ -162,29 +130,6 @@ const CONFIG = {
    * where the model demands the crust buckled.
    */
   radialStiffness: Number(process.env.RADIAL_K ?? 0.35),
-  /**
-   * An age jump this large between neighbouring sea floor is not a gradient, it
-   * is a cut: fracture zones and transform faults show up in the age grid as
-   * sharp discontinuities. Treating them as faults the crust may slide along
-   * lets the shell break into realistic blocks instead of behaving as one
-   * welded sheet, and it finds those boundaries from the data rather than from
-   * a hand-drawn plate map.
-   */
-  faultThresholdMa: Number(process.env.FAULT_MA ?? 20),
-  faultStiffness: Number(process.env.FAULT_K ?? 0.05),
-  /**
-   * The least a fragment holds on to any of its crust, however weak.
-   *
-   * Rigidity alone runs down to 0.05 for ridge basalt, and crust held that
-   * loosely does not merely crumple, it folds back over itself: a seventh of
-   * the shell ended up on top of another part of it. A floor keeps the weakest
-   * crust deformable without letting it stop being a surface.
-   */
-  holdFloor: Number(process.env.HOLD_FLOOR ?? 0.3),
-  /** How long sea floor takes to cool into something a plate can carry, Myr. */
-  coolMa: Number(process.env.COOL_MA ?? 25),
-  /** The most a piece of continental crust is believed to have been stretched. */
-  maxStretch: Number(process.env.MAX_STRETCH ?? 2.5),
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,
 }
@@ -835,18 +780,15 @@ function findPlates(
   // plates themselves travel -- and a rotation cannot explain a radial move at
   // all, so leaving it in makes every point look like its own plate.
   const velocity = new Float64Array(vertexCount * 3)
-  const here = new Float64Array(vertexCount * 3)
   for (let v = 0; v < vertexCount; v++) {
     if (!mesh.vertexAlive[v]) continue
     const now = length3(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
     const then = length3(before[v * 3], before[v * 3 + 1], before[v * 3 + 2]) || 1
     for (let c = 0; c < 3; c++) {
       const u = pos[v * 3 + c] / now
-      here[v * 3 + c] = u * now
       velocity[v * 3 + c] = ((u - before[v * 3 + c] / then) * now) / dtMa
     }
   }
-  void here
 
   const claimed = new Int32Array(vertexCount).fill(-1)
   const ring = new Set<number>()
@@ -1183,14 +1125,6 @@ function inside(
   }
   return sign !== 0
 }
-
-
-// --- topology --------------------------------------------------------------
-
-
-
-
-
 
 
 /**

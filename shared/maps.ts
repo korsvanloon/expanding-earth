@@ -40,9 +40,9 @@ export const SURFACE_MAPS: SurfaceMap[] = [
   },
   {
     id: 'age-source',
-    label: 'Age data',
+    label: 'Age grid (the source data)',
     file: 'textures/crustal-age-map.jpg',
-    note: 'The sea-floor age grid this model is built from, riding on the crust',
+    note: 'The sea-floor age grid the whole model is built from, riding along on the crust it dates',
   },
 ]
 

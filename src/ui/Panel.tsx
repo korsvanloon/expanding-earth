@@ -33,6 +33,25 @@ export function Panel({ data }: { data: Dataset }) {
     surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
+  /**
+   * One control for what the globe is painted with, where there used to be two.
+   *
+   * The two were not independent: picking a surface map did nothing at all
+   * unless the mode happened to be `surface`, so the panel offered a choice
+   * that silently had no effect. They are one question -- what am I looking at
+   * -- so they are one list, grouped by whether the answer is data carried
+   * along or something the reconstruction worked out.
+   */
+  const painting = mode === 'surface' ? `surface:${surfaceMap}` : mode
+  const paint = (value: string) => {
+    const [chosen, map] = value.split(':')
+    setMode(chosen as ViewMode)
+    if (map) setSurfaceMap(map)
+  }
+  const paintingNote = mode === 'surface'
+    ? SURFACE_MAPS.find((m) => m.id === surfaceMap)?.note
+    : MODES.find((m) => m.id === mode)?.hint
+
   const { meta } = data
   const end = meta.endTimeMa
   const times = meta.diagnostics.map((d) => d.timeMa)
@@ -40,8 +59,9 @@ export function Panel({ data }: { data: Dataset }) {
   const gravity = surfaceGravity(radius)
 
   const pick = (get: (i: number) => number) => valueAt(meta.diagnostics.map((_, i) => get(i)), times, timeMa)
-  const unclosed = pick((i) => meta.diagnostics[i].gapFraction)
-  const folded = pick((i) => meta.diagnostics[i].overlapFraction)
+  const bare = pick((i) => meta.diagnostics[i].gapFraction)
+  const doubled = pick((i) => meta.diagnostics[i].overlapFraction)
+  const folded = pick((i) => meta.diagnostics[i].foldFraction)
   const strain = pick((i) => meta.diagnostics[i].medianStrain)
   const blocks = pick((i) => meta.diagnostics[i].blockCount)
   const subduction = pick((i) => meta.fixedRadiusDiagnostics[i].gapFraction)
@@ -68,16 +88,25 @@ export function Panel({ data }: { data: Dataset }) {
       </div>
 
       <label className="field">
-        <span>Colour by</span>
-        <select value={mode} onChange={(e) => setMode(e.target.value as ViewMode)}>
-          {MODES.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.label}
-            </option>
-          ))}
+        <span>Show</span>
+        <select value={painting} onChange={(e) => paint(e.target.value)}>
+          <optgroup label="Today&rsquo;s surface, carried along with the crust">
+            {SURFACE_MAPS.map((m) => (
+              <option key={m.id} value={`surface:${m.id}`}>
+                {m.label}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="What the reconstruction worked out">
+            {MODES.filter((m) => m.id !== 'surface').map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.label}
+              </option>
+            ))}
+          </optgroup>
         </select>
       </label>
-      <p className="caption">{MODES.find((m) => m.id === mode)?.hint}</p>
+      <p className="caption">{paintingNote}</p>
 
       <label className="field">
         <span>Hold still</span>
@@ -94,17 +123,6 @@ export function Panel({ data }: { data: Dataset }) {
         A viewpoint, not a change to the model. Spread the motion evenly over every plate and a
         continent that travelled thousands of kilometres looks like it hardly moved.
       </p>
-      <label className="field">
-        <span>Surface map</span>
-        <select value={surfaceMap} onChange={(e) => setSurfaceMap(e.target.value)}>
-          {SURFACE_MAPS.map((m) => (
-            <option key={m.id} value={m.id} title={m.note}>
-              {m.label}
-            </option>
-          ))}
-        </select>
-      </label>
-      <p className="caption">{SURFACE_MAPS.find((m) => m.id === surfaceMap)?.note}</p>
       <label className="toggle">
         <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
         Graticule (fixed to the crust)
@@ -145,8 +163,9 @@ export function Panel({ data }: { data: Dataset }) {
         <Chart
           times={times}
           series={[
-            { values: meta.diagnostics.map((d) => 100 * d.gapFraction), color: '#e0a355', label: 'unaccounted for' },
-            { values: meta.diagnostics.map((d) => 100 * d.overlapFraction), color: '#d3685f', label: 'folded through itself' },
+            { values: meta.diagnostics.map((d) => 100 * d.gapFraction), color: '#e0a355', label: 'bare sphere' },
+            { values: meta.diagnostics.map((d) => 100 * d.overlapFraction), color: '#d3685f', label: 'covered twice' },
+            { values: meta.diagnostics.map((d) => 100 * d.foldFraction), color: '#b98cd0', label: 'inside out' },
             { values: meta.diagnostics.map((d) => 100 * d.medianStrain), color: '#6fbf9f', label: 'median strain' },
           ]}
           currentMa={timeMa}
@@ -155,10 +174,12 @@ export function Panel({ data }: { data: Dataset }) {
         />
         <p className="caption">
           At {timeMa.toFixed(0)} Ma the reconstruction leaves{' '}
-          <strong>{(100 * unclosed).toFixed(1)}%</strong> of the sphere covered by crust that did
-          not exist yet, and folds <strong>{(100 * folded).toFixed(1)}%</strong> of the crust that
-          did exist back through itself. These are the model failing, reported rather than tuned
-          away.
+          <strong>{(100 * bare).toFixed(2)}%</strong> of the sphere with no crust on it at all,
+          covers <strong>{(100 * doubled).toFixed(2)}%</strong> of it twice over, and turns{' '}
+          <strong>{(100 * folded).toFixed(2)}%</strong> of the rock inside out. These are the model
+          failing, reported rather than tuned away. Read the bare figure with suspicion: every
+          direction it asks happens to fall on a triangle corner, where crust is hardest to miss,
+          so it reads lower than the truth &mdash; how much lower is not yet known.
         </p>
       </section>
 
@@ -252,8 +273,10 @@ function Method({ data }: { data: Dataset }) {
       <h3>Where the plates come from</h3>
       <p>
         Nowhere. No plate map is used. Take away the crust younger than <em>t</em> and the shell
-        falls apart on its own along the ridges; sharp steps in the age field cut it further along
-        fracture zones. The blocks are whatever stays connected.
+        closes along the ridges on its own; where two pieces have to slide past each other the
+        triangulation is redrawn, and it is allowed to do that only in crust weak enough to fault.
+        The blocks are whatever still moves as one, read back out of the motion afterwards rather
+        than assumed.
       </p>
 
       <h3>What to distrust</h3>
@@ -270,6 +293,17 @@ function Method({ data }: { data: Dataset }) {
           The depth-age fit used to date those holes only reaches r² ={' '}
           {meta.depthAgeFit.r2.toFixed(2)} against this height map, so it is a weak inference. The
           solved run uses interpolation from dated neighbours instead.
+        </li>
+        <li>
+          The bare-sphere figure is measured by asking a fixed set of directions whether any crust
+          lies that way &mdash; and every one of those directions is a corner of the mesh, shared
+          by six triangles. It is sampled where it cannot fail, so a reading of zero is not
+          evidence the crust tiles.
+        </li>
+        <li>
+          The fit scorecard reports the closest approach between two continents, which is not the
+          same as a fit: one corner brushing another reads as 0 km while the margins alongside it
+          are nowhere near nesting. Look at the shapes, not only the number.
         </li>
         <li>
           Rigid crust cannot lie on a sphere of different curvature — Gauss's Theorema Egregium — so

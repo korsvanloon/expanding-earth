@@ -20,7 +20,7 @@ import { fileURLToPath } from 'node:url'
 import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
-import { CORE_TYPES, CRUST_RIGIDITY, CRUST_TYPES, type CrustType } from '../shared/crust.js'
+import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
@@ -68,34 +68,6 @@ export const CONFIG = {
   landFraction: 0.292,
   /** Fraction of the globe underlain by continental crust including margins. */
   continentalFraction: 0.41,
-  /**
-   * Fragments larger than this across are cut down further.
-   *
-   * A rigid piece cannot lie on a sphere of different curvature, and the misfit
-   * grows with the square of its size: at 200 Ma a 1500 km piece is out by
-   * 1.4%, a 2500 km piece by 3.9%, a 5000 km piece by 15.6%. Cutting the shell
-   * only along its weak crust leaves pieces far bigger than that, so the extra
-   * cuts here are a discretisation of deformation the crust would otherwise
-   * have to take up continuously -- the gores a globe maker cuts, not faults
-   * anyone has mapped. They follow weak crust wherever there is any.
-   */
-  /**
-   * The smallest patch of strong crust that gets to be a fragment of its own,
-   * as a fraction of the sphere. About a hundred thousand square kilometres --
-   * low enough to admit Madagascar, Cuba, Iceland and the Canadian islands.
-   *
-   * Nothing sets an upper size. Real blocks are wildly unequal: Africa and
-   * North America are single slabs thousands of kilometres across, and what
-   * comes off them are chips. An earlier version cut every fragment down to a
-   * uniform 1200 km, which made a mosaic of same-sized tiles no continent could
-   * be recognised in. Where a fragment ends should follow from where the crust
-   * is weak, and from nothing else.
-   */
-  /** Kept for comparison; the solver closes the mesh up instead. */
-  cutIntoFragments: process.env.CUT_FRAGMENTS === '1',
-  minCoreFraction: Number(process.env.CORE_FRAC ?? 0.00003),
-  /** How steeply weak crust repels a fragment boundary; see splitIntoFragments. */
-  breakBias: Number(process.env.BREAK_BIAS ?? 2),
   endTimeMa: 200,
   radiusStepMa: 1,
   frameStepMa: 5,
@@ -220,20 +192,23 @@ function main() {
   // solver and the viewer are looking at the same ones.
   const islands = findIslands(mesh.indices, crust.rigidity, faceArea, faceCount, vertexCount)
 
-  const split = CONFIG.cutIntoFragments
-    ? splitIntoFragments(mesh, crust.type, crust.rigidity, solvedFaceAges, faceArea)
-    : {
-        positions: Float32Array.from(mesh.positions),
-        indices: Uint32Array.from(mesh.indices),
-        faceFragment: new Uint16Array(faceCount),
-        vertexFragment: Uint16Array.from(islands.vertexIsland, (id) => id + 1),
-        origin: Uint32Array.from({ length: vertexCount }, (_, v) => v),
-        cutPairs: new Uint32Array(0),
-        fragmentCount: 1,
-      }
+  // The shell as one piece. An earlier pipeline cut it into fragments along its
+  // weak crust and handed the solver fracture constraints to hold them together;
+  // this solver closes the mesh up instead and threw on any cut mesh it was
+  // given, so the cutting had been unreachable for a while. `cutPairs` stays in
+  // mesh.bin as an empty array to keep the file's shape.
+  const shell = {
+    positions: Float32Array.from(mesh.positions),
+    indices: Uint32Array.from(mesh.indices),
+    faceFragment: new Uint16Array(faceCount),
+    vertexFragment: Uint16Array.from(islands.vertexIsland, (id) => id + 1),
+    origin: Uint32Array.from({ length: vertexCount }, (_, v) => v),
+    cutPairs: new Uint32Array(0),
+    fragmentCount: 1,
+  }
 
   mkdirSync(OUT, { recursive: true })
-  writeMesh(resolve(OUT, 'mesh.bin'), split, solvedFaceAges, crust)
+  writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, crust)
 
   const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'> = {
     version: 1,
@@ -252,7 +227,7 @@ function main() {
     // this number. Leaving the icosphere's count here left the viewer reading
     // the frames with too short a stride: the duplicated vertices had no
     // position at all and the shell tore open along the cuts.
-    vertexCount: split.positions.length / 3,
+    vertexCount: shell.positions.length / 3,
     faceCount,
     maxAgeMa: CONFIG.maxAgeMa,
     depthAgeFit,
@@ -534,223 +509,8 @@ function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
   return { rigidity, type, thickness }
 }
 
-/**
- * Cut the shell into fragments along its weak crust, and give each fragment its
- * own copy of the vertices it shares with its neighbours.
- *
- * This is the orange-peel picture made literal. A peel put back on a smaller
- * orange does not stretch; it cracks where it is thin and the pieces ride over
- * one another. Up to now the mesh was a single fixed triangulation, so the only
- * way it could take up the change in curvature was by deforming -- 25% of
- * compression in places, and triangles drawn out into needles that smear the
- * land across them. Once the vertices are duplicated, no triangle spans a
- * fracture: fragments are free to slide past and over each other, and what used
- * to be strain becomes overlap, which is what thrust faulting is.
- *
- * A fragment is unthinned continental crust plus the sea floor nearest to it.
- * Thinned margins, island arcs and stretched crust are left out of the cores on
- * purpose, so Panama, the Bering shelf, the Sinai and the Indonesian arcs fall
- * on fracture lines rather than welding continents together.
- */
-function splitIntoFragments(
-  mesh: { positions: Float64Array; indices: Uint32Array },
-  crustType: Uint8Array,
-  rigidity: Float32Array,
-  faceAges: Float32Array,
-  faceArea: Float64Array,
-) {
-  const faceCount = mesh.indices.length / 3
-  const vertexCount = mesh.positions.length / 3
-  const coreTypes = new Set<CrustType>(CORE_TYPES)
-
-  const neighbours = buildFaceAdjacency(mesh.indices, faceCount)
-  const isCore = new Uint8Array(faceCount)
-  for (let f = 0; f < faceCount; f++) {
-    isCore[f] = coreTypes.has(CRUST_TYPES[crustType[f]] as CrustType) ? 1 : 0
-  }
-
-  const parent = new Int32Array(faceCount)
-  for (let f = 0; f < faceCount; f++) parent[f] = f
-  const find = (x: number): number => {
-    while (parent[x] !== x) x = parent[x] = parent[parent[x]]
-    return x
-  }
-  for (let f = 0; f < faceCount; f++) {
-    if (!isCore[f]) continue
-    for (const n of neighbours[f]) {
-      if (!isCore[n]) continue
-      const a = find(f)
-      const b = find(n)
-      if (a !== b) parent[a] = b
-    }
-  }
-
-  // A continent is worth being a fragment; a stray triangle is not. Set low
-  // enough to admit the chips -- Madagascar, Cuba, Iceland, the Canadian
-  // islands -- because those are exactly the pieces that break off a big block
-  // and have to travel on their own.
-  const MIN_CORE_AREA = CONFIG.minCoreFraction * 4 * Math.PI
-  const coreArea = new Map<number, number>()
-  for (let f = 0; f < faceCount; f++) {
-    if (isCore[f]) coreArea.set(find(f), (coreArea.get(find(f)) ?? 0) + faceArea[f])
-  }
-  const fragmentId = new Map<number, number>()
-  for (const [root, area] of [...coreArea].sort((a, b) => b[1] - a[1])) {
-    if (area >= MIN_CORE_AREA) fragmentId.set(root, fragmentId.size)
-  }
-
-  // Everything else joins the nearest core across the mesh. Distance is
-  // divided by strength, so a front runs cheaply through a craton and stalls in
-  // weak crust, which puts the boundaries where the shell would actually break.
-  const faceFragment = new Int32Array(faceCount).fill(-1)
-  const distance = new Float64Array(faceCount).fill(Infinity)
-  const centre = (f: number) => {
-    let x = 0, y = 0, z = 0
-    for (let k = 0; k < 3; k++) {
-      const v = mesh.indices[f * 3 + k] * 3
-      x += mesh.positions[v]; y += mesh.positions[v + 1]; z += mesh.positions[v + 2]
-    }
-    const length = Math.hypot(x, y, z) || 1
-    return [x / length, y / length, z / length] as const
-  }
-  const centres = Array.from({ length: faceCount }, (_, f) => centre(f))
-  const arc = (a: number, b: number) =>
-    Math.acos(
-      Math.min(1, Math.max(-1,
-        centres[a][0] * centres[b][0] + centres[a][1] * centres[b][1] + centres[a][2] * centres[b][2])),
-    )
-  // Distance divided by strength, and steeply: a front runs almost free
-  // through a craton and all but stops in a thinned margin, so the boundary
-  // between two fragments settles on the weakest crust available rather than
-  // halfway between their cores. At the first power the strength barely had a
-  // vote and boundaries came out straight across the middle of the Atlantic and
-  // clean through northern South America. Squared, they follow the belts the
-  // crustal strength map draws round every continent, and every join on the
-  // scorecard closes to within sixty kilometres instead of within three
-  // hundred. Cubed is sharper still and costs more coverage than it buys.
-  const cost = (a: number, b: number) => arc(a, b) / Math.max(rigidity[b], 0.05) ** CONFIG.breakBias
-  const frontier: [number, number][] = []
-  for (let f = 0; f < faceCount; f++) {
-    const id = isCore[f] ? fragmentId.get(find(f)) : undefined
-    if (id === undefined) continue
-    faceFragment[f] = id
-    distance[f] = 0
-    frontier.push([0, f])
-  }
-  while (frontier.length) {
-    const [d, f] = frontier.shift()!
-    if (d > distance[f]) continue
-    for (const n of neighbours[f]) {
-      const next = d + cost(f, n)
-      if (next >= distance[n]) continue
-      distance[n] = next
-      faceFragment[n] = faceFragment[f]
-      let i = frontier.length
-      while (i > 0 && frontier[i - 1][0] > next) i--
-      frontier.splice(i, 0, [next, n])
-    }
-  }
-
-  const count = fragmentId.size
-
-  // Duplicate every vertex that more than one fragment uses.
-  const copyOf = new Map<number, number>()
-  const origin: number[] = []
-  const indices = new Uint32Array(faceCount * 3)
-  for (let f = 0; f < faceCount; f++) {
-    for (let k = 0; k < 3; k++) {
-      const v = mesh.indices[f * 3 + k]
-      const key = v * 4096 + faceFragment[f]
-      let copy = copyOf.get(key)
-      if (copy === undefined) {
-        copy = origin.length
-        origin.push(v)
-        copyOf.set(key, copy)
-      }
-      indices[f * 3 + k] = copy
-    }
-  }
-
-  // Every fracture is closed until it opens. Cutting the mesh removed the
-  // shared vertices that held neighbouring fragments together, and nothing
-  // replaced them, so the shell fell apart into loose shards; these pairs put
-  // the join back as a constraint the solver can release exactly where the
-  // crust between the two sides no longer exists.
-  const copiesOf = new Map<number, number[]>()
-  origin.forEach((v, copy) => {
-    const list = copiesOf.get(v)
-    if (list) list.push(copy)
-    else copiesOf.set(v, [copy])
-  })
-  const cutPairs: number[] = []
-  for (const copies of copiesOf.values()) {
-    for (let i = 1; i < copies.length; i++) cutPairs.push(copies[i - 1], copies[i])
-  }
-
-  const positions = new Float32Array(origin.length * 3)
-  const vertexFragment = new Uint16Array(origin.length)
-  for (let i = 0; i < origin.length; i++) {
-    positions[i * 3] = mesh.positions[origin[i] * 3]
-    positions[i * 3 + 1] = mesh.positions[origin[i] * 3 + 1]
-    positions[i * 3 + 2] = mesh.positions[origin[i] * 3 + 2]
-  }
-  for (let f = 0; f < faceCount; f++) {
-    for (let k = 0; k < 3; k++) vertexFragment[indices[f * 3 + k]] = faceFragment[f]
-  }
-
-  void faceAges
-  // What the pieces actually came out as, largest first: a reconstruction made
-  // of one-size blocks is a reconstruction of nothing in particular.
-  const areaOf = new Float64Array(count)
-  for (let f = 0; f < faceCount; f++) if (faceFragment[f] >= 0) areaOf[faceFragment[f]] += faceArea[f]
-  const across = [...areaOf]
-    .sort((a, b) => b - a)
-    .map((a) => Math.round(2 * R0_KM * Math.asin(Math.sqrt(a / (4 * Math.PI)))))
-  console.log(
-    `  fragment size across, km: ${across.slice(0, 12).join(' ')}` +
-      `${across.length > 12 ? ` ... ${across[across.length - 1]}` : ''}`,
-  )
-  console.log(
-    `  ${count} fragments; mesh grew from ${vertexCount} to ${origin.length} vertices, ` +
-      `joined by ${cutPairs.length / 2} fracture constraints`,
-  )
-  return {
-    positions,
-    indices,
-    faceFragment: Uint16Array.from(faceFragment),
-    vertexFragment,
-    // Which vertex of the uncut mesh each copy came from. Cutting disconnects
-    // the two sides of every ocean, so anything that needs to know what used to
-    // lie against what -- finding conjugate margins, above all -- has to work
-    // through the original connectivity rather than the cut one.
-    origin: Uint32Array.from(origin),
-    cutPairs: Uint32Array.from(cutPairs),
-    fragmentCount: count,
-  }
-}
 
 
-function buildFaceAdjacency(indices: Uint32Array, faceCount: number): number[][] {
-  const edges = new Map<number, number[]>()
-  const vertexCount = indices.reduce((m, v) => Math.max(m, v), 0) + 1
-  for (let f = 0; f < faceCount; f++) {
-    for (let k = 0; k < 3; k++) {
-      const a = indices[f * 3 + k]
-      const b = indices[f * 3 + ((k + 1) % 3)]
-      const key = Math.min(a, b) * vertexCount + Math.max(a, b)
-      const found = edges.get(key)
-      if (found) found.push(f)
-      else edges.set(key, [f])
-    }
-  }
-  const out: number[][] = Array.from({ length: faceCount }, () => [])
-  for (const faces of edges.values()) {
-    if (faces.length !== 2) continue
-    out[faces[0]].push(faces[1])
-    out[faces[1]].push(faces[0])
-  }
-  return out
-}
 
 function computeFaceAreas(positions: Float64Array, indices: Uint32Array): Float64Array {
   const out = new Float64Array(indices.length / 3)
@@ -806,33 +566,47 @@ function radiusCurve(
   return curve
 }
 
+/**
+ * The shell as mesh.bin carries it. `cutPairs` is always empty now; it stays in
+ * the format so the file's layout does not change under readers of it.
+ */
+interface Shell {
+  positions: Float32Array
+  indices: Uint32Array
+  faceFragment: Uint16Array
+  vertexFragment: Uint16Array
+  origin: Uint32Array
+  cutPairs: Uint32Array
+  fragmentCount: number
+}
+
 function writeMesh(
   path: string,
-  split: ReturnType<typeof splitIntoFragments>,
+  shell: Shell,
   faceAges: Float32Array,
   crust: { rigidity: Float32Array; type: Uint8Array; thickness: Float32Array },
 ) {
   const header = new Uint32Array([
-    split.positions.length / 3,
-    split.indices.length / 3,
-    split.fragmentCount,
-    split.cutPairs.length / 2,
+    shell.positions.length / 3,
+    shell.indices.length / 3,
+    shell.fragmentCount,
+    shell.cutPairs.length / 2,
   ])
   writeFileSync(
     path,
     Buffer.concat([
       Buffer.from(header.buffer),
-      Buffer.from(split.positions.buffer),
-      Buffer.from(split.indices.buffer),
+      Buffer.from(shell.positions.buffer),
+      Buffer.from(shell.indices.buffer),
       Buffer.from(faceAges.buffer),
       Buffer.from(crust.rigidity.buffer),
       Buffer.from(crust.thickness.buffer),
       // Four-byte arrays first: a Uint32Array cannot start on an odd offset,
       // and the byte-wide sections below would push it off alignment.
-      Buffer.from(split.origin.buffer),
-      Buffer.from(split.cutPairs.buffer),
-      Buffer.from(split.faceFragment.buffer),
-      Buffer.from(split.vertexFragment.buffer),
+      Buffer.from(shell.origin.buffer),
+      Buffer.from(shell.cutPairs.buffer),
+      Buffer.from(shell.faceFragment.buffer),
+      Buffer.from(shell.vertexFragment.buffer),
       Buffer.from(crust.type.buffer),
     ]),
   )

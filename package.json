@@ -6,13 +6,14 @@
   "description": "A data-driven Expanding Earth reconstruction: the planet's radius is derived from the seafloor age grid, and the continents are moved by a physical solver rather than by hand-authored keyframes.",
   "packageManager": "pnpm@11.24.0",
   "scripts": {
-    "data": "tsx tools/run.ts",
+    "data": "tsx tools/run.ts && tsx tools/write-docs.ts",
     "dev": "pnpm run data && vite",
     "build": "pnpm run data && tsc -b && vite build",
     "preview": "vite preview",
     "artifact": "pnpm run build && tsx tools/build-artifact.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.tools.json",
-    "test": "vitest run"
+    "test": "vitest run",
+    "docs": "tsx tools/write-docs.ts"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.6",

@@ -31,13 +31,18 @@ A(t) = area of all crust already present at t      (from the age grid)
 R(t) = sqrt( A(t) / 4pi )
 ```
 
-which gives R(200 Ma) = 4006 km, 63% of today.
+which gives
+
+<!-- from-the-run: radius -->
+R(200 Ma) = 3905 km, 61.3% of today.
+<!-- /from-the-run -->
 
 Nothing tells the model what a plate is. Take away the crust younger than *t*
-and the shell falls apart on its own along the mid-ocean ridges; sharp steps in
-the age field cut it further along fracture zones. The blocks that move as units
-are simply whatever stays connected, so the plate boundaries come out of the
-magnetic anomaly pattern.
+and the shell closes on its own along the mid-ocean ridges, and where two
+pieces have to slide past each other the triangulation is redrawn — but only in
+crust weak enough to fault. The blocks that move as units are read back out of
+the resulting motion rather than assumed, so the plate boundaries come out of
+the magnetic anomaly pattern.
 
 Five surface maps are selectable, all of which ride along with the crust. The
 last of them paints the sea-floor age grid the model is built from, which makes
@@ -71,11 +76,12 @@ pnpm blocks by default and vite needs to build.
 | | |
 |---|---|
 | `pnpm dev` | generate data if stale, then serve |
-| `pnpm data` | rebuild the reconstruction (~3 min) |
+| `pnpm data` | rebuild the reconstruction and the figures in these docs (~3 min) |
 | `SUBDIV=5 pnpm data` | coarse draft for tweaking (~40 s) |
 | `pnpm build` | production build |
 | `pnpm artifact` | build a single self-contained HTML file |
-| `pnpm test` | unit tests |
+| `pnpm docs` | rewrite the generated figures from the run on disk |
+| `pnpm test` | unit tests, and whether the docs match the run |
 | `pnpm typecheck` | app and pipeline |
 
 ## A necessary disclaimer

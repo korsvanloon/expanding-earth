@@ -32,12 +32,21 @@ export interface FrameDiagnostics {
   timeMa: number
   radiusKm: number
   /**
-   * Fraction of the sphere still taken up by crust that did not exist yet.
-   * If the reconstruction closes perfectly this goes to zero; whatever is left
-   * is the model failing to account for the surface, stated plainly.
+   * Fraction of the sphere no surviving crust covers -- bare sky.
+   *
+   * Measured by asking a fixed set of directions whether any live triangle lies
+   * that way, because summing triangle areas cannot answer it: a sheet folded
+   * over itself in one place and short in another adds to exactly the right
+   * total while covering neither. If the reconstruction closes perfectly this
+   * goes to zero; whatever is left is the model failing to account for the
+   * surface, stated plainly.
+   *
+   * This said the opposite until it was read against `tiling` in
+   * tools/solve.ts, which computes `1 - covered / probes`. Anything reading
+   * this as "crust that should not be there" was reading it backwards.
    */
   gapFraction: number
-  /** Fraction of the sphere in triangles the solver has folded over. */
+  /** Fraction of the sphere covered by more than one triangle at once. */
   overlapFraction: number
   /**
    * Fraction of the live crust lying inside out.
@@ -100,7 +109,18 @@ export interface Meta {
   scorecard: { a: string; b: string; joinedByMa: number; note: string; separationKm: number[] }[]
 
   diagnostics: FrameDiagnostics[]
-  /** Same, for a control run with the radius held at R0 (plate tectonics null model). */
+  /**
+   * The same frames read against a sphere that never grew -- arithmetic, not a
+   * second solve.
+   *
+   * `gapFraction` here is `1 - (R(t)/R0)^2`: how far the crust that existed at
+   * time t falls short of covering today's sphere. That is a statement about
+   * the area budget and needs no reconstruction, which is why it is computed
+   * rather than solved. The remaining fields are carried over or set to zero
+   * because nothing measured them; do not read `overlapFraction` or
+   * `rmsStrain` from this array. Calling it a control run, as this comment did,
+   * promised a plate-tectonic null model that has never been run.
+   */
   fixedRadiusDiagnostics: FrameDiagnostics[]
 }
 

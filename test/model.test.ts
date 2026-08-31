@@ -4,7 +4,8 @@ import { DynamicMesh, collapseVanished, retriangulate } from '../tools/lib/dynam
 import {
   applyTopology, readTopology, topologyDelta, writeTopology,
 } from '../shared/topology'
-import { crustScale, sampleCurve, MIN_SCALE, TAU_MA } from '../shared/model'
+import { crustScale, sampleCurve, MIN_SCALE, TAU_MA, type Meta } from '../shared/model'
+import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import { resolve } from 'node:path'
@@ -156,6 +157,31 @@ describe('the built dataset', () => {
     expect(meta.faceCount).toBe(faceCount)
     expect(statSync(resolve(data, 'frames.bin')).size).toBe(meta.frameCount * vertexCount * 3 * 2)
     expect(statSync(resolve(data, 'strain.bin')).size).toBe(meta.frameCount * vertexCount)
+  })
+
+  // MODEL.md once described a 4006 km Earth at 200 Ma with about ninety plates
+  // and 8.6% of the sphere unaccounted for, against a shipped run of 3905 km,
+  // two blocks and a coverage figure of zero. Every one of those numbers had
+  // been true of some earlier solver. Prose gets updated when the model
+  // changes; tables of measurements do not, so they are generated -- and this
+  // fails until they have been.
+  it.runIf(present)('quotes the run it ships with, in every document', () => {
+    const meta = JSON.parse(readFileSync(resolve(data, 'meta.json'), 'utf8')) as Meta
+    const blocks = runBlocks(meta)
+    for (const name of ['README.md', 'MODEL.md']) {
+      const text = readFileSync(resolve(import.meta.dirname, '..', name), 'utf8')
+      for (const asked of blocksIn(text)) {
+        expect(Object.keys(blocks), `${name} asks for an unknown block`).toContain(asked)
+      }
+      expect(fillBlocks(text, blocks), `${name} is stale; run pnpm docs`).toBe(text)
+    }
+  })
+
+  it.runIf(present)('has a generated block for every figure worth drifting', () => {
+    const readme = readFileSync(resolve(import.meta.dirname, '../README.md'), 'utf8')
+    const model = readFileSync(resolve(import.meta.dirname, '../MODEL.md'), 'utf8')
+    expect(blocksIn(readme)).toContain('radius')
+    expect(blocksIn(model)).toEqual(expect.arrayContaining(['blocks', 'reports', 'fits']))
   })
 })
 
