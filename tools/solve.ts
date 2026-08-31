@@ -562,12 +562,30 @@ function main() {
   for (const target of FIT_TARGETS) {
     const km = separation.get(`${target.a}|${target.b}`) ?? []
     const step = meta.frameStepMa
-    const atJoin = km[Math.min(km.length - 1, Math.round(target.joinedByMa / step))]
+    // A watched pair has no time it should have met; read it at the end.
+    const watched = target.joinedByMa === 0
+    const when = watched ? endTimeMa : target.joinedByMa
+    const at = km[Math.min(km.length - 1, Math.round(when / step))]
     console.log(
       `  ${(target.a + ' - ' + target.b).padEnd(30)} ` +
         `now ${km[0].toFixed(0).padStart(6)} km   ` +
-        `at ${String(target.joinedByMa).padStart(3)} Ma ${atJoin.toFixed(0).padStart(6)} km` +
-        `   (should be touching)`,
+        `at ${String(when).padStart(3)} Ma ${at.toFixed(0).padStart(6)} km` +
+        `   ${watched ? '(watched, not scored)' : '(should be touching)'}`,
+    )
+  }
+  console.log('[solve] where each continent ended up, against where it sits today:')
+  for (const region of REGIONS) {
+    const seen = track.get(region.id)
+    if (!seen) continue
+    const place = (p: number[]) => {
+      const [u, w] = directionToUv(p[0], p[1], p[2])
+      return [(w - 0.5) * 180, (u - 0.5) * 360] as const
+    }
+    const [lat0, lon0] = place(seen.first)
+    const [lat1, lon1] = place(seen.last)
+    console.log(
+      `  ${region.label.padEnd(18)} ${lat0.toFixed(0).padStart(4)} deg  ${lon0.toFixed(0).padStart(5)} deg ` +
+        `  ->  ${lat1.toFixed(0).padStart(4)} deg  ${lon1.toFixed(0).padStart(5)} deg `,
     )
   }
   console.log('[solve] how straight each continent walked (1.0 is a single smooth move):')

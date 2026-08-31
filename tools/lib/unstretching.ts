@@ -12,6 +12,28 @@ import { CRUST_TYPES, type CrustType } from '../../shared/crust.js'
  */
 const STRETCHED: CrustType[] = ['EXCT', 'COMA']
 
+/**
+ * The crust ECM1 reads as having been piled up: mountain belts and the arcs
+ * behind them.
+ *
+ * The same argument as for stretching, run the other way. A shield is forty
+ * kilometres thick; the Andes and the Himalaya are fifty to seventy, and they
+ * are thick because they were shortened. Crust conserves its volume, so a belt
+ * now sixty kilometres thick covered half again as much ground before it was
+ * shortened, and run backwards it has to spread out again -- the knuckle
+ * unbending.
+ *
+ * This is also what the sea floor between the mountains needs. Two fifths of
+ * the ocean triangles are drawn out into needles because the crust there is
+ * being squeezed and has nowhere to go, and redrawing which piece lies against
+ * which cannot help with that. What compressed crust does in the ground is get
+ * thicker, and this is the model finally saying so.
+ */
+const SHORTENED: CrustType[] = ['ORON', 'COAR']
+
+/** The most a mountain belt is believed to have been shortened. */
+const MAX_SHORTENING = Number(process.env.MAX_SHORTENING ?? 1.6)
+
 /** The most a piece of continental crust is believed to have been stretched. */
 const MAX_STRETCH = Number(process.env.MAX_STRETCH ?? 2.5)
 
@@ -46,6 +68,7 @@ export function unstretching(
   crustType?: Uint8Array,
 ) {
   const stretched = new Set<CrustType>(STRETCHED)
+  const shortened = new Set<CrustType>(SHORTENED)
   // Unextended continental crust, read off the model rather than assumed: the
   // median thickness of the shields and platforms, which are the crust nothing
   // has pulled on.
@@ -57,7 +80,15 @@ export function unstretching(
   const stretch = new Float32Array(faceCount).fill(1)
   for (let f = 0; f < faceCount; f++) {
     if (faceAges[f] < PERMANENT_MA || thickness[f] <= 0) continue
-    if (crustType && !stretched.has(CRUST_TYPES[crustType[f]] as CrustType)) continue
+    const type = crustType ? (CRUST_TYPES[crustType[f]] as CrustType) : undefined
+    if (type && shortened.has(type)) {
+      // Thicker than unextended crust, so it covered more ground before it was
+      // piled up. Capped, because the thickest cells in a one-degree grid are
+      // as likely to be the grid as the rock.
+      stretch[f] = Math.max(1 / MAX_SHORTENING, Math.min(1, reference / thickness[f]))
+      continue
+    }
+    if (type && !stretched.has(type)) continue
     // Capped: past about two and a half the crust is no longer a stretched
     // continent but the start of an ocean, and ECM1's thinnest cells are as
     // likely to be the grid being a degree across as they are to be real.
@@ -117,10 +148,15 @@ export function unstretching(
   for (let f = 0; f < faceCount; f++) if (riftMa[f] < 0) riftMa[f] = 0
 
   let thinned = 0
-  for (let f = 0; f < faceCount; f++) if (stretch[f] > 1.05) thinned++
+  let piled = 0
+  for (let f = 0; f < faceCount; f++) {
+    if (stretch[f] > 1.05) thinned++
+    if (stretch[f] < 0.95) piled++
+  }
   console.log(
     `[solve] unextended continental crust ${reference.toFixed(0)} km; ` +
-      `${((100 * thinned) / faceCount).toFixed(1)}% of the shell reads as stretched`,
+      `${((100 * thinned) / faceCount).toFixed(1)}% of the shell reads as stretched, ` +
+      `${((100 * piled) / faceCount).toFixed(1)}% as piled up`,
   )
   return { stretch, riftMa }
 }

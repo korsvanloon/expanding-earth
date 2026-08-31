@@ -167,10 +167,16 @@ export function Panel({ data }: { data: Dataset }) {
         <table className="scorecard">
           <tbody>
             {meta.scorecard.map((fit) => {
-              const index = Math.min(
-                fit.separationKm.length - 1,
-                Math.round(fit.joinedByMa / meta.frameStepMa),
-              )
+              const watched = fit.joinedByMa === 0
+              // A watched pair has no time it should have met, so it is read at
+              // the end of the run and never coloured: colouring it would be
+              // scoring the model against a guess.
+              const index = watched
+                ? fit.separationKm.length - 1
+                : Math.min(
+                    fit.separationKm.length - 1,
+                    Math.round(fit.joinedByMa / meta.frameStepMa),
+                  )
               const km = fit.separationKm[index] ?? 0
               const now = fit.separationKm[0] ?? 0
               return (
@@ -178,8 +184,8 @@ export function Panel({ data }: { data: Dataset }) {
                   <th>
                     {label(fit.a)} – {label(fit.b)}
                   </th>
-                  <td>{fit.joinedByMa} Ma</td>
-                  <td className={km < 300 ? 'good' : km < 1000 ? 'fair' : 'poor'}>
+                  <td>{watched ? `${meta.endTimeMa} Ma` : `${fit.joinedByMa} Ma`}</td>
+                  <td className={watched ? 'watched' : km < 300 ? 'good' : km < 1000 ? 'fair' : 'poor'}>
                     {Math.round(km)} km
                   </td>
                   <td className="was">was {Math.round(now)}</td>
@@ -189,7 +195,10 @@ export function Panel({ data }: { data: Dataset }) {
           </tbody>
         </table>
         <p className="caption">
-          Pairs whose former adjacency is independently supported, and the closest approach still
+          The first five are pairs whose former adjacency is independently supported. The last two
+          are watched rather than scored: where Antarctica and Australia end up as the Pacific
+          shuts is the open question here, and the hand-assembled reconstructions that answer it
+          are not evidence. Shown is the closest approach still
           between them at the time they should be touching -- the gap between their nearest
           coasts, not between their centres, which stay thousands of kilometres apart even when two
           continents are pressed against each other. Reconstructions puzzled together by hand are

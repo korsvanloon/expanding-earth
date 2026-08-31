@@ -89,6 +89,9 @@ code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px;
 .scorecard td.good { color: #6fbf9f; }
 .scorecard td.fair { color: #e0a355; }
 .scorecard td.poor { color: #d3685f; }
+/* Watched, not scored: no verdict colour, because there is nothing to check it
+   against. */
+.scorecard td.watched { color: var(--text); }
 .scorecard td.was { color: var(--muted); font-size: 10.5px; }
 
 .method-toggle {

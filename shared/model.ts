@@ -164,7 +164,14 @@ export const REGIONS: Region[] = [
 export interface FitTarget {
   a: string
   b: string
-  /** They should be in contact at and before this time. */
+  /**
+   * They should be in contact at and before this time, or 0 for a pair that is
+   * only being watched. Some of the most interesting things the model has to
+   * say are about joins nobody can independently check -- where Antarctica goes
+   * as the Pacific closes, above all -- and those must not be scored, because
+   * scoring them would be scoring the model against a guess. They are reported
+   * with no target beside them, as readings.
+   */
   joinedByMa: number
   note: string
 }
@@ -175,6 +182,17 @@ export const FIT_TARGETS: FitTarget[] = [
   { a: 'india', b: 'africa', joinedByMa: 120, note: 'India still sat against Madagascar and Africa' },
   { a: 'greenland', b: 'north-america', joinedByMa: 60, note: 'The Labrador Sea had not opened' },
   { a: 'north-america', b: 'africa', joinedByMa: 190, note: 'North-west Africa against eastern North America' },
+  // Watched, not scored. Where Antarctica and Australia end up as the Pacific
+  // shuts is the open question in this reconstruction, and hand-assembled
+  // Expanding Earth maps put them somewhere the evidence cannot confirm.
+  {
+    a: 'antarctica', b: 'south-america', joinedByMa: 0,
+    note: 'Watched: does Antarctica swing up the west side of South America, or stay on the pole?',
+  },
+  {
+    a: 'australia', b: 'north-america', joinedByMa: 0,
+    note: 'Watched: how far across the Pacific does Australia come?',
+  },
 ]
 
 /** Geological periods, for the timeline ruler. Ages in Ma. */
