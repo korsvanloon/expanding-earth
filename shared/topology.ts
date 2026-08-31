@@ -37,6 +37,16 @@ export const FACE_REMOVED = 0xffff
  * `was` is updated in place to `now`, so calling this once per frame against
  * the same array gives the sequence of deltas.
  */
+/**
+ * The most points a delta can name.
+ *
+ * Corners are written as sixteen-bit indices, which is ample for subdivision 6
+ * and its forty-one thousand points but would wrap silently at subdivision 7.
+ * Wrapping here would not throw: it would quietly rewire the mesh, which is
+ * exactly the class of bug this file exists to have fixed once.
+ */
+export const MOST_POINTS = FACE_REMOVED
+
 export function topologyDelta(
   was: Uint16Array,
   now: ArrayLike<number>,
@@ -49,6 +59,11 @@ export function topologyDelta(
   for (let f = 0; f < faceCount; f++) {
     const i = f * 3
     const live = alive[f] === 1
+    if (live && (now[i] >= MOST_POINTS || now[i + 1] >= MOST_POINTS || now[i + 2] >= MOST_POINTS)) {
+      throw new Error(
+        `mesh has more than ${MOST_POINTS} points; widen the corner indices in shared/topology.ts`,
+      )
+    }
     const a = live ? now[i] : FACE_REMOVED
     const b = live ? now[i + 1] : FACE_REMOVED
     const c = live ? now[i + 2] : FACE_REMOVED

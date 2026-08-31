@@ -120,8 +120,13 @@ export function Globe({ data }: { data: Dataset }) {
     () => sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations),
     [data, buffers, rotations],
   )
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- retopo reads refs
-  useMemo(() => retopo(), [data, buffers, geometry])
+  useMemo(() => {
+    // A new dataset brings new buffers, so whatever frame was drawn into the
+    // old ones says nothing about what is in these.
+    drawnFrame.current = -1
+    retopo()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- retopo reads refs
+  }, [data, buffers, geometry])
 
   useFrame(({ camera }, delta) => {
     const { playing, speed } = useStore.getState()

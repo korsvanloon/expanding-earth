@@ -351,3 +351,11 @@ describe('carrying the triangulation with the frames', () => {
     }
   })
 })
+
+describe('the topology format', () => {
+  it('refuses a mesh with more points than its indices can name', () => {
+    const was = new Uint16Array(3)
+    const now = [0, 1, 70000]
+    expect(() => topologyDelta(was, now, 1, Uint8Array.of(1))).toThrow(/more than/)
+  })
+})
