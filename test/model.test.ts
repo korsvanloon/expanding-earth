@@ -6,6 +6,7 @@ import {
 } from '../shared/topology'
 import { crustScale, sampleCurve, MIN_SCALE, TAU_MA, type Meta } from '../shared/model'
 import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
+import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import { resolve } from 'node:path'
@@ -133,6 +134,95 @@ describe('sphere mapping', () => {
     expect(at(-10, 55)).toBeLessThan(255) // its mirror, the Indian Ocean
     expect(at(-80, 0)).toBe(255) // Antarctica, so north and south are not swapped
     expect(at(0, -25)).toBeLessThan(20) // Mid-Atlantic Ridge, young crust
+  })
+})
+
+describe('measuring coverage', () => {
+  // The measure this whole model is judged by, and until now it could not be
+  // tested because it lived inside the solver. It reported 0.00% uncovered at
+  // every frame of every run -- taken for the crust tiling perfectly -- while
+  // reporting 1.84% covered twice at the present day, where an untouched
+  // icosphere must be exactly 0. Both came from the same cause: every probe
+  // direction was a vertex of the mesh.
+  const shell = (subdivision: number) => {
+    const { positions, indices } = buildIcosphere(subdivision)
+    const mesh = new DynamicMesh(positions.length / 3, indices.length / 3, indices)
+    return { mesh, pos: Float64Array.from(positions, (v) => v * 6371) }
+  }
+  const measure = (mesh: DynamicMesh, pos: Float64Array, count = 20000) => {
+    const probes = probeDirections(count)
+    return coverage(pos, mesh, mesh.faceCount, probes, probeCells(probes), cellBuckets())
+  }
+
+  it('keeps its probes off the mesh entirely', () => {
+    // The bug in one assertion. A probe on a vertex sits in two of the three
+    // edge planes of every triangle around it, so the inside test decides on a
+    // single edge and answers with whatever a rounding error says.
+    const { positions } = buildIcosphere(6)
+    const seen = new Set<string>()
+    const key = (x: number, y: number, z: number) =>
+      `${x.toFixed(9)},${y.toFixed(9)},${z.toFixed(9)}`
+    for (let i = 0; i < positions.length; i += 3) {
+      seen.add(key(positions[i], positions[i + 1], positions[i + 2]))
+    }
+    const probes = probeDirections(20000)
+    let onAVertex = 0
+    for (let p = 0; p < probes.length; p += 3) {
+      if (seen.has(key(probes[p], probes[p + 1], probes[p + 2]))) onAVertex++
+    }
+    expect(onAVertex).toBe(0)
+    // And the old probe set, for the record: every last one of them.
+    const old = buildIcosphere(5).positions
+    let wereOnAVertex = 0
+    for (let p = 0; p < old.length; p += 3) {
+      if (seen.has(key(old[p], old[p + 1], old[p + 2]))) wereOnAVertex++
+    }
+    expect(wereOnAVertex).toBe(old.length / 3)
+  })
+
+  it('reports a perfect tiling as perfect, at every resolution', () => {
+    for (const subdivision of [2, 3, 4, 5]) {
+      const { mesh, pos } = shell(subdivision)
+      const { gapFraction, overlapFraction, boundaryHits } = measure(mesh, pos)
+      expect(gapFraction, `subdivision ${subdivision} left sky bare`).toBe(0)
+      expect(overlapFraction, `subdivision ${subdivision} covered sky twice`).toBe(0)
+      expect(boundaryHits, `subdivision ${subdivision} had probes on an edge`).toBe(0)
+    }
+  })
+
+  it('sees a hole the size of the hole', () => {
+    const { mesh, pos } = shell(4)
+    // Take out one triangle of 5120. Its share of the sphere is 1/5120, and a
+    // measure that cannot see a missing triangle cannot see a missing ocean.
+    mesh.faceAlive[1234] = 0
+    const { gapFraction, overlapFraction } = measure(mesh, pos, 200000)
+    expect(gapFraction).toBeGreaterThan(0.5 / mesh.faceCount)
+    expect(gapFraction).toBeLessThan(2 / mesh.faceCount)
+    expect(overlapFraction).toBe(0)
+  })
+
+  it('sees crust lying on crust', () => {
+    const { mesh, pos } = shell(4)
+    // A real fold, not a flattening: reflect one corner across the great circle
+    // through the other two, so the triangle lands on top of the neighbour it
+    // shares that edge with. Nothing has been removed, so this is the case the
+    // overlap figure exists for -- and the case that reading it off summed
+    // areas would miss entirely, since the areas still add up.
+    const a = mesh.faceVerts[1234 * 3]
+    const b = mesh.faceVerts[1234 * 3 + 1]
+    const c = mesh.faceVerts[1234 * 3 + 2]
+    const nx = pos[b * 3 + 1] * pos[c * 3 + 2] - pos[b * 3 + 2] * pos[c * 3 + 1]
+    const ny = pos[b * 3 + 2] * pos[c * 3] - pos[b * 3] * pos[c * 3 + 2]
+    const nz = pos[b * 3] * pos[c * 3 + 1] - pos[b * 3 + 1] * pos[c * 3]
+    const length = Math.sqrt(nx * nx + ny * ny + nz * nz)
+    const [ux, uy, uz] = [nx / length, ny / length, nz / length]
+    const along = pos[a * 3] * ux + pos[a * 3 + 1] * uy + pos[a * 3 + 2] * uz
+    pos[a * 3] -= 2 * along * ux
+    pos[a * 3 + 1] -= 2 * along * uy
+    pos[a * 3 + 2] -= 2 * along * uz
+
+    const { overlapFraction } = measure(mesh, pos, 200000)
+    expect(overlapFraction).toBeGreaterThan(0)
   })
 })
 

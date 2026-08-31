@@ -133,11 +133,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.00% | 0.01% | 0.00% | 0.06% | 1.2% |
-| 30 Ma | 5728 km | 0.00% | 0.01% | 0.00% | 0.21% | 5.2% |
-| 60 Ma | 5197 km | 0.00% | 0.01% | 0.02% | 0.29% | 7.4% |
-| 120 Ma | 4373 km | 0.00% | 0.06% | 0.14% | 0.50% | 9.6% |
-| 200 Ma | 3905 km | 0.00% | 0.50% | 0.42% | 0.70% | 17.1% |
+| 5 Ma | 6272 km | 0.00% | 0.00% | 0.00% | 0.06% | 1.2% |
+| 30 Ma | 5728 km | 0.00% | 0.00% | 0.00% | 0.21% | 5.2% |
+| 60 Ma | 5197 km | 0.00% | 0.00% | 0.02% | 0.29% | 7.4% |
+| 120 Ma | 4373 km | 0.00% | 0.03% | 0.14% | 0.50% | 9.6% |
+| 200 Ma | 3905 km | 0.00% | 0.46% | 0.42% | 0.70% | 17.1% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -228,13 +228,17 @@ with the figures in this document.**
 
 ## Known weaknesses
 
-- **Whether the crust tiles is not currently known.** An earlier solver left
-  roughly 15% of the sphere uncovered, spread between fragments rather than
-  concentrated at ridges, so the reconstruction read as a cracked eggshell
-  rather than continents on an ocean. The shipped run reports 0.00%, and that
-  is not the good news it looks like: the measurement is taken at points where
-  it cannot fail (see below). The honest statement is that the figure is
-  unmeasured, not that it is zero.
+- **The crust tiles, and this is now evidence rather than an artefact.** An
+  earlier solver left roughly 15% of the sphere uncovered, spread between
+  fragments, so the reconstruction read as a cracked eggshell rather than
+  continents on an ocean. That is fixed, but the figure could not be trusted
+  either, because every probe direction was a vertex of the mesh — the one place
+  the test cannot fail. With a hundred thousand generic directions and a
+  measure that demonstrably sees a single missing triangle in five thousand, the
+  bare figure is 0.0000% at every frame, and the present-day overlap has gone
+  from 1.836% to exactly zero, which is what an untouched icosphere must read.
+  Collapsing dead crust out of the mesh instead of crumpling it into a corner
+  does what it was meant to do.
 
 - **Only one of the three classifications is ever solved.** The 2.8% of the
   globe the age grid leaves undated is handled three ways, and all three radius
@@ -251,18 +255,6 @@ with the figures in this document.**
   Africa does in the shipped run, and it looks wrong on the globe while reading
   0 km in the table. Whatever replaces it has to compare the shapes of the
   margins, not their nearest points.
-
-- **The bare-sphere figure is measured where it cannot fail.** Coverage is
-  tested by asking a fixed set of directions whether any live triangle lies
-  that way. Those directions are the vertices of a subdivision-5 icosphere and
-  the shell is a subdivision-6 one, so all 10,242 of them fall exactly on a
-  mesh vertex -- a point six triangles share. The test asks "is there crust
-  here?" only at the places where crust is hardest to miss, which is why it
-  reads exactly 0.00% at every frame while this document long claimed 15% of
-  the sphere was uncovered. The overlap figure has the same problem from the
-  other side: it reads 1.84% at the present day, where an untouched icosphere
-  must be 0. Until the probes are moved off the vertices, neither number is
-  evidence of anything, and the closure claim rests on nothing.
 
 - **The conjugate-margin pairing is gone, and with it a known pathology.**
   Letting the fronts run without limit closed better and did Gondwana well, yet

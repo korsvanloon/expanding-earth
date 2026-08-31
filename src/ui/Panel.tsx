@@ -177,9 +177,9 @@ export function Panel({ data }: { data: Dataset }) {
           <strong>{(100 * bare).toFixed(2)}%</strong> of the sphere with no crust on it at all,
           covers <strong>{(100 * doubled).toFixed(2)}%</strong> of it twice over, and turns{' '}
           <strong>{(100 * folded).toFixed(2)}%</strong> of the rock inside out. These are the model
-          failing, reported rather than tuned away. Read the bare figure with suspicion: every
-          direction it asks happens to fall on a triangle corner, where crust is hardest to miss,
-          so it reads lower than the truth &mdash; how much lower is not yet known.
+          failing, reported rather than tuned away. The bare figure is measured against a hundred
+          thousand directions spread over the sphere; it used to ask only the mesh&rsquo;s own
+          corners, where crust is hardest to miss, and meant nothing.
         </p>
       </section>
 
@@ -295,10 +295,10 @@ function Method({ data }: { data: Dataset }) {
           solved run uses interpolation from dated neighbours instead.
         </li>
         <li>
-          The bare-sphere figure is measured by asking a fixed set of directions whether any crust
-          lies that way &mdash; and every one of those directions is a corner of the mesh, shared
-          by six triangles. It is sampled where it cannot fail, so a reading of zero is not
-          evidence the crust tiles.
+          The bare-sphere figure is a count of directions, not a sum of areas &mdash; a shell
+          folded over in one place and short in another sums to the right total while covering
+          neither. Its resolution is one part in a hundred thousand of the sphere, so it can say
+          the crust tiles to a few thousandths of a percent and no finer.
         </li>
         <li>
           The fit scorecard reports the closest approach between two continents, which is not the

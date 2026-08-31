@@ -56,6 +56,7 @@ import { CRATON_RIGIDITY, WEAK_RIGIDITY } from '../shared/crust.js'
 import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topology.js'
 import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
+import { cellBuckets, coverage, probeCells, probeDirections } from './lib/coverage.js'
 import { unstretching } from './lib/unstretching.js'
 
 import { buildIcosphere } from './lib/icosphere.js'
@@ -269,21 +270,16 @@ function main() {
   )
   const stretchAt = (f: number, t: number) =>
     1 + (stretch[f] - 1) * (riftMa[f] > 0 ? Math.min(1, t / riftMa[f]) : 0)
+  let warnedBoundary = false
   const restAreaNow = new Float64Array(faceCount)
   /** What each of the three edges of a face should measure at the current step. */
   const edgeTarget = new Float64Array(faceCount * 3)
 
-  // A fixed set of directions to ask "is there any crust here?" of.
-  const probes = Float64Array.from(buildIcosphere(5).positions)
-  const probeCells = new Uint32Array(probes.length / 3)
-  for (let p = 0; p < probeCells.length; p++) {
-    const lat = Math.asin(Math.min(1, Math.max(-1, probes[p * 3 + 1])))
-    const lon = Math.atan2(probes[p * 3 + 2], probes[p * 3])
-    const row = Math.min(89, Math.floor(((lat + Math.PI / 2) / Math.PI) * 90))
-    const col = Math.min(179, Math.floor(((lon + Math.PI) / (2 * Math.PI)) * 180))
-    probeCells[p] = row * 180 + col
-  }
-  const cellFaces: number[][] = Array.from({ length: 90 * 180 }, () => [])
+  // A fixed set of directions to ask "is there any crust here?" of. Not the
+  // mesh's own vertices, which is what they used to be; see tools/lib/coverage.ts.
+  const probes = probeDirections(Number(process.env.PROBES ?? 100000))
+  const cells = probeCells(probes)
+  const buckets = cellBuckets()
 
   const frames: Int16Array[] = []
   const strains: Uint8Array[] = []
@@ -397,10 +393,20 @@ function main() {
     strains.push(
       perVertexStrain(strain, mesh.faceVerts, restAreaNow, faceCount, vertexCount, mesh.faceAlive),
     )
+    const tiled = coverage(pos, mesh, faceCount, probes, cells, buckets)
+    // Should be impossible; said out loud rather than trusted, because when the
+    // probes did sit on the mesh this went wrong in total silence.
+    if (tiled.boundaryHits > 0 && !warnedBoundary) {
+      warnedBoundary = true
+      console.log(
+        `[solve] WARNING: ${tiled.boundaryHits} probes landed exactly on a triangle edge at ` +
+          `${t} Ma; the coverage figures are not reliable. See tools/lib/coverage.ts.`,
+      )
+    }
     diagnostics.push({
       timeMa: t,
       radiusKm: radiusAt(t),
-      ...tiling(pos, mesh, faceCount, probes, probeCells, cellFaces),
+      ...tiled,
       ...foldedShare(pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount),
       ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, mesh.faceAlive),
       reliefKm: relief(pos, vertexCount, radiusAt(t)),
@@ -1026,105 +1032,7 @@ function driveByField(
   }
 }
 
-/**
- * Does the surviving crust cover the sphere it is supposed to?
- *
- * This is the whole reconstruction in one number now. The crust that exists at
- * time t has a known area and the sphere it has to lie on has a known area, and
- * the radius curve was derived from exactly that equality -- so if the model is
- * working they match, and any shortfall is crust the reconstruction could not
- * get to fit. There is no longer any such thing as area occupied by crust that
- * does not exist: that crust has been closed away rather than crumpled into a
- * corner, which is what the old gap figure was really measuring.
- */
-function tiling(
-  pos: Float64Array, mesh: DynamicMesh, faceCount: number, probes: Float64Array,
-  cells: Uint32Array, cellFaces: number[][],
-) {
-  // Which triangles could possibly cover which part of the sky. A triangle is
-  // about a degree across to start with and a few degrees once its neighbours
-  // have closed away, so a two-degree grid keeps a handful in each cell.
-  for (const list of cellFaces) list.length = 0
-  const cellOf = (x: number, y: number, z: number) => {
-    const length = length3(x, y, z) || 1
-    const lat = Math.asin(Math.min(1, Math.max(-1, y / length)))
-    const lon = Math.atan2(z / length, x / length)
-    const row = Math.min(GRID_ROWS - 1, Math.floor(((lat + Math.PI / 2) / Math.PI) * GRID_ROWS))
-    const col = Math.min(GRID_COLS - 1, Math.floor(((lon + Math.PI) / (2 * Math.PI)) * GRID_COLS))
-    return [row, col] as const
-  }
-  for (let f = 0; f < faceCount; f++) {
-    if (!mesh.faceAlive[f]) continue
-    let rowLo = GRID_ROWS, rowHi = -1
-    let colLo = GRID_COLS, colHi = -1
-    for (let k = 0; k < 3; k++) {
-      const v = mesh.faceVerts[f * 3 + k] * 3
-      const [row, col] = cellOf(pos[v], pos[v + 1], pos[v + 2])
-      rowLo = Math.min(rowLo, row); rowHi = Math.max(rowHi, row)
-      colLo = Math.min(colLo, col); colHi = Math.max(colHi, col)
-    }
-    // A triangle straddling the date line, or one wrapped round a pole, has a
-    // meaningless column range; give it the whole row rather than losing it.
-    const wraps = colHi - colLo > GRID_COLS / 2 || rowLo === 0 || rowHi === GRID_ROWS - 1
-    for (let row = Math.max(0, rowLo - 1); row <= Math.min(GRID_ROWS - 1, rowHi + 1); row++) {
-      if (wraps) {
-        for (let col = 0; col < GRID_COLS; col++) cellFaces[row * GRID_COLS + col].push(f)
-      } else {
-        for (let col = Math.max(0, colLo - 1); col <= Math.min(GRID_COLS - 1, colHi + 1); col++) {
-          cellFaces[row * GRID_COLS + col].push(f)
-        }
-      }
-    }
-  }
 
-  const probeCount = probes.length / 3
-  let covered = 0
-  let doubled = 0
-  const unit = [0, 0, 0]
-  for (let p = 0; p < probeCount; p++) {
-    const dx = probes[p * 3], dy = probes[p * 3 + 1], dz = probes[p * 3 + 2]
-    let hits = 0
-    for (const f of cellFaces[cells[p]]) {
-      const a = mesh.faceVerts[f * 3] * 3
-      const b = mesh.faceVerts[f * 3 + 1] * 3
-      const c = mesh.faceVerts[f * 3 + 2] * 3
-      if (inside(pos, a, b, c, dx, dy, dz, unit)) hits++
-    }
-    if (hits > 0) covered++
-    if (hits > 1) doubled++
-  }
-  return {
-    // What is actually asked of the model: does the crust that existed then
-    // cover the sphere it had to lie on? Summing the triangles' areas does not
-    // answer that -- a sheet folded over itself somewhere and short somewhere
-    // else adds up to exactly the right total while covering neither. This
-    // counts the sky directly, and it is the number to judge the model by.
-    gapFraction: 1 - covered / probeCount,
-    overlapFraction: doubled / probeCount,
-  }
-}
-
-const GRID_ROWS = 90
-const GRID_COLS = 180
-
-/** Whether a direction falls inside a spherical triangle, either way up. */
-function inside(
-  pos: Float64Array, a: number, b: number, c: number,
-  dx: number, dy: number, dz: number, unit: number[],
-) {
-  let sign = 0
-  for (const [i, j] of [[a, b], [b, c], [c, a]] as const) {
-    unit[0] = pos[i + 1] * pos[j + 2] - pos[i + 2] * pos[j + 1]
-    unit[1] = pos[i + 2] * pos[j] - pos[i] * pos[j + 2]
-    unit[2] = pos[i] * pos[j + 1] - pos[i + 1] * pos[j]
-    const side = unit[0] * dx + unit[1] * dy + unit[2] * dz
-    if (side === 0) continue
-    const s = side > 0 ? 1 : -1
-    if (sign === 0) sign = s
-    else if (sign !== s) return false
-  }
-  return sign !== 0
-}
 
 
 /**
