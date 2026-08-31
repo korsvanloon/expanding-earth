@@ -1,5 +1,5 @@
 import { PERIODS } from '@shared/model'
-import { clock, useStore } from '@/store'
+import { clock, setTimeMa, useStore } from '@/store'
 import { useClockTime } from './useClockTime'
 
 const SPEEDS = [5, 15, 40, 100]
@@ -10,7 +10,7 @@ export function Timeline({ endMa }: { endMa: number }) {
 
   const toggle = () => {
     // Starting from the present would play nothing, so rewind first.
-    if (!playing && clock.timeMa <= 0.5) clock.timeMa = endMa
+    if (!playing && clock.timeMa <= 0.5) setTimeMa(endMa)
     setPlaying(!playing)
   }
 
@@ -41,7 +41,7 @@ export function Timeline({ endMa }: { endMa: number }) {
           step={0.25}
           value={endMa - timeMa}
           onChange={(e) => {
-            clock.timeMa = endMa - Number(e.target.value)
+            setTimeMa(endMa - Number(e.target.value))
             setPlaying(false)
           }}
         />

@@ -1,17 +1,20 @@
-import { useFrame, useLoader } from '@react-three/fiber'
+import { useFrame, useLoader, useThree } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
 import { buildIndex, sampleFrame, type Dataset } from '@/data'
 import { buildReferenceRotations } from '@/frames'
-import { clock, useStore } from '@/store'
+import { clock, onClockMoved, useStore } from '@/store'
 import { fragmentShader, vertexShader } from './shaders'
 
 const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, islands: 4 } as const
 
 /** How much of the crust survives in the mesh view. Enough to read, not to hide. */
 const GLASS_OPACITY = 1
+
+/** Reused rather than allocated per frame; the light is nudged about this axis. */
+const UP = new THREE.Vector3(0, 1, 0)
 
 export function Globe({ data }: { data: Dataset }) {
   const material = useRef<THREE.ShaderMaterial>(null)
@@ -101,7 +104,16 @@ export function Globe({ data }: { data: Dataset }) {
   // Which frame's triangulation is currently in the index buffer. Replaying the
   // deltas costs a fraction of a millisecond, but it is per frame, not per
   // animation tick, so it is only done when the frame actually moves.
+  // Anything that changes what the globe should look like has to ask for a
+  // frame, because the canvas no longer draws on its own: the clock when it is
+  // scrubbed, and every control that feeds a uniform.
+  const invalidate = useThree((state) => state.invalidate)
+  useEffect(() => onClockMoved(invalidate), [invalidate])
+  useEffect(() => invalidate(), [invalidate, mode, showGrid, showMesh, surfaceMap, referenceFrame, data])
+
   const drawnFrame = useRef(-1)
+  /** The clock reading the vertex buffers currently hold. */
+  const sampledTime = useRef(Number.NaN)
   const retopo = () => {
     const frame = Math.min(
       Math.round(clock.timeMa / data.meta.frameStepMa),
@@ -124,11 +136,12 @@ export function Globe({ data }: { data: Dataset }) {
     // A new dataset brings new buffers, so whatever frame was drawn into the
     // old ones says nothing about what is in these.
     drawnFrame.current = -1
+    sampledTime.current = Number.NaN
     retopo()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- retopo reads refs
   }, [data, buffers, geometry])
 
-  useFrame(({ camera }, delta) => {
+  useFrame(({ camera, invalidate }, delta) => {
     const { playing, speed } = useStore.getState()
     if (playing) {
       // Playback runs the way history does: from the deep past towards today.
@@ -137,12 +150,22 @@ export function Globe({ data }: { data: Dataset }) {
         clock.timeMa = 0
         useStore.getState().setPlaying(false)
       }
+      // The canvas draws on request, so a moving globe has to keep asking.
+      invalidate()
     }
 
     retopo()
-    sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations)
-    geometry.attributes.position.needsUpdate = true
-    geometry.attributes.aStrain.needsUpdate = true
+    // Interpolating forty thousand vertices and handing both buffers back to
+    // the GPU is the expensive part of a frame, and it is pure waste when the
+    // timeline has not moved: the same positions were uploaded sixty times a
+    // second to a globe standing still. Orbiting still redraws -- the light
+    // follows the camera -- it just redraws what is already there.
+    if (clock.timeMa !== sampledTime.current) {
+      sampledTime.current = clock.timeMa
+      sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations)
+      geometry.attributes.position.needsUpdate = true
+      geometry.attributes.aStrain.needsUpdate = true
+    }
     if (material.current) {
       material.current.uniforms.uMap.value = map
       material.current.uniforms.uTimeMa.value = clock.timeMa
@@ -153,7 +176,7 @@ export function Globe({ data }: { data: Dataset }) {
       // lit, but the sphere still reads as a sphere.
       material.current.uniforms.uLight.value
         .copy(camera.position)
-        .applyAxisAngle(new THREE.Vector3(0, 1, 0), 0.4)
+        .applyAxisAngle(UP, 0.4)
         .normalize()
     }
   })

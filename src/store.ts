@@ -11,6 +11,29 @@ export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'islands'
  */
 export const clock = { timeMa: 0 }
 
+let wake: (() => void) | null = null
+
+/**
+ * Let the renderer be told when the clock moves.
+ *
+ * The canvas only draws when something asks it to -- a globe nobody is touching
+ * should cost nothing, and it used to cost a full redraw and three quarters of a
+ * megabyte of buffer uploads sixty times a second. That means every write to
+ * the clock from outside the render loop has to say so, which is why they go
+ * through `setTimeMa` rather than assigning to the field.
+ */
+export function onClockMoved(fn: () => void): () => void {
+  wake = fn
+  return () => {
+    if (wake === fn) wake = null
+  }
+}
+
+export function setTimeMa(ma: number): void {
+  clock.timeMa = ma
+  wake?.()
+}
+
 interface State {
   playing: boolean
   /** Myr of model time per second of wall clock. */

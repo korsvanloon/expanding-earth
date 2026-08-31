@@ -9,7 +9,17 @@ export function Scene({ data }: { data: Dataset }) {
   return (
     // A near plane close to the camera is what wrecks depth precision, and the
     // globe is never nearer than the orbit limit below, so it can sit well out.
-    <Canvas camera={{ position: [0.6, 1.2, 3.2], fov: 42, near: 0.4, far: 40 }} dpr={[1, 2]}>
+    // Drawn on request rather than continuously. A globe standing still with
+    // nobody touching it should cost nothing, and it used to cost a full redraw
+    // of eighty thousand triangles and three quarters of a megabyte of buffer
+    // uploads sixty times a second, for as long as the tab was open. Everything
+    // that changes the picture now asks for a frame: playback from inside the
+    // loop, the clock through `onClockMoved`, the controls by themselves.
+    <Canvas
+      frameloop="demand"
+      camera={{ position: [0.6, 1.2, 3.2], fov: 42, near: 0.4, far: 40 }}
+      dpr={[1, 2]}
+    >
       <color attach="background" args={['#05070c']} />
       <Stars radius={40} depth={30} count={3000} factor={3} fade speed={0} />
       <Suspense fallback={null}>
