@@ -39,6 +39,17 @@ export interface FrameDiagnostics {
   gapFraction: number
   /** Fraction of the sphere in triangles the solver has folded over. */
   overlapFraction: number
+  /**
+   * Fraction of the live crust lying inside out.
+   *
+   * Reported separately from the overlap because the two are measured
+   * differently and mean different things. Overlap asks how much of the sky is
+   * covered twice, which a merely crumpled shell does as readily as a folded
+   * one. This asks how much of the rock has its outward face pointing at the
+   * core -- a thing real crust never does, and a thing edge-length springs
+   * cannot see, since a triangle and its mirror image measure the same.
+   */
+  foldFraction: number
   /** Area-weighted RMS of (current edge length / present-day edge length) - 1. */
   rmsStrain: number
   /** Signed mean of the same. Negative means the model demands compression. */

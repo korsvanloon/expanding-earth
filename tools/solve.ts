@@ -43,6 +43,7 @@ import {
   type Meta,
 } from '../shared/model.js'
 import { CRATON_RIGIDITY, WEAK_RIGIDITY } from '../shared/crust.js'
+import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topology.js'
 import { directionToUv } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
 import { unstretching } from './lib/unstretching.js'
@@ -123,6 +124,15 @@ const CONFIG = {
   smallestPlate: Number(process.env.SMALLEST_PLATE ?? 60),
   /** How hard an island is pulled back to its own shape, per sweep. */
   islandHold: Number(process.env.ISLAND_HOLD ?? 0.35),
+  /**
+   * How much of its proper size a triangle must keep, wound the right way,
+   * before the orientation barrier stops pushing. A barrier, not a shape: the
+   * springs decide what a triangle looks like, this only decides which side of
+   * the shell it lies on. Low enough that badly sheared sea floor can still be
+   * squashed nearly flat, high enough to stay clear of zero, where the
+   * gradient that pushes a fold back out has vanished along with the area.
+   */
+  foldMargin: Number(process.env.FOLD_MARGIN ?? 0.08),
   /** How many rounds of redrawing slivers per step. */
   flipPasses: Number(process.env.FLIP_PASSES ?? 6),
   /** Smoothing passes over the age field before differentiating it. */
@@ -389,6 +399,19 @@ function main() {
     }
   }
 
+  /**
+   * The triangulation as the frames have recorded it so far. Collapses and
+   * flips move it away from mesh.bin's index array from the first step, so the
+   * connectivity has to travel with the frames or the viewer draws a mesh that
+   * stopped being true two hundred million years ago. See shared/topology.ts.
+   */
+  const drawnTopology = Uint16Array.from(indices)
+  const topologyDeltas: TopologyDelta[] = []
+  const recordTopology = () =>
+    topologyDeltas.push(
+      topologyDelta(drawnTopology, mesh.faceVerts, faceCount, mesh.faceAlive),
+    )
+
   const record = (t: number) => {
     const closest = (a: string, b: string) => {
       const one = regionVertices.get(a) ?? []
@@ -423,6 +446,7 @@ function main() {
     for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
     const strain = faceStrain(pos, mesh.faceVerts, restAreaNow, faceCount, mesh.faceAlive)
     frames.push(quantise(pos, vertexCount))
+    recordTopology()
     strains.push(
       perVertexStrain(strain, mesh.faceVerts, restAreaNow, faceCount, vertexCount, mesh.faceAlive),
     )
@@ -430,6 +454,7 @@ function main() {
       timeMa: t,
       radiusKm: radiusAt(t),
       ...tiling(pos, mesh, faceCount, probes, probeCells, cellFaces),
+      ...foldedShare(pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount),
       ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, mesh.faceAlive),
       reliefKm: relief(pos, vertexCount, radiusAt(t)),
       blockCount: plateReport.count,
@@ -443,6 +468,8 @@ function main() {
   const endTimeMa = CONFIG.endMa ?? meta.endTimeMa
   let refusedTotal = 0
   let flippedTotal = 0
+  let easedTotal = 0
+  let foldedNow = 0
   for (let t = CONFIG.stepMa; t <= endTimeMa; t += CONFIG.stepMa) {
     const rPrev = radiusAt(t - CONFIG.stepMa)
     const rNext = radiusAt(t)
@@ -452,8 +479,9 @@ function main() {
     for (let i = 0; i < vertexCount * 3; i++) pos[i] *= shrink
 
     // Un-make the crust that had not been made yet.
-    const closed = collapseVanished(mesh, faceAges, pos, t)
+    const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
     refusedTotal += closed.refused
+    easedTotal += closed.eased
     settleCollapsed()
 
     driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
@@ -483,6 +511,10 @@ function main() {
           pos[j] += cx; pos[j + 1] += cy; pos[j + 2] += cz
         }
       }
+      unfold(
+        pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext,
+        CONFIG.foldMargin,
+      )
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
       holdIslands(
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
@@ -490,6 +522,9 @@ function main() {
       )
     }
     relaxToSphere(pos, vertexCount, rNext, 1)
+    foldedNow = unfold(
+      pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
+    )
     // Redraw whatever the move has left as slivers, then settle again: a
     // triangulation that has stopped describing the crust well is one nudge
     // from turning inside out.
@@ -509,6 +544,7 @@ function main() {
           `points=${String(mesh.liveVertices).padStart(5)}  ` +
           `bare=${(100 * d.gapFraction).toFixed(2)}%  ` +
           `doubled=${(100 * d.overlapFraction).toFixed(2)}%  ` +
+          `folded=${(100 * d.foldFraction).toFixed(2)}%  ` +
           `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%  ` +
           `plates=${String(plateReport.count).padStart(3)}` +
           ` (biggest ${plateReport.biggest.slice(0, 3).map((x) => `${(100 * x).toFixed(0)}%`).join(' ')})`,
@@ -517,8 +553,10 @@ function main() {
   }
   console.log(
     `[solve] ${((Date.now() - started) / 1000).toFixed(1)}s; ` +
+      `${foldedNow} triangles still being pushed back out at the last step, ` +
       `${vertexCount - mesh.liveVertices} of ${vertexCount} points closed away, ` +
       `${refusedTotal} collapses refused to keep the surface whole, ` +
+      `${easedTotal} edges redrawn inside dying crust to let the closure carry on, ` +
       `${flippedTotal} edges redrawn`,
   )
   if (mesh.eulerCharacteristic() !== 2) {
@@ -542,6 +580,8 @@ function main() {
     diagnostics[0].blockCount = diagnostics[1].blockCount
   }
   const plateBuffer = Buffer.concat(plates.map((p) => Buffer.from(p.buffer)))
+  const topologyBuffer = Buffer.from(writeTopology(topologyDeltas))
+  writeFileSync(resolve(OUT, 'topology.bin'), topologyBuffer)
   writeFileSync(resolve(OUT, 'frames.bin'), frameBuffer)
   writeFileSync(resolve(OUT, 'strain.bin'), strainBuffer)
   writeFileSync(resolve(OUT, 'plates.bin'), plateBuffer)
@@ -602,6 +642,9 @@ function main() {
     )
   }
   console.log(
+    `[solve] connectivity changed on ` +
+      `${topologyDeltas.reduce((n, d) => n + d.faces.length, 0)} triangle-frames, ` +
+      `${(topologyBuffer.length / 1e6).toFixed(1)} MB\n` +
     `[solve] wrote ${frames.length} frames ` +
       `(${(frameBuffer.byteLength / 1e6).toFixed(1)} MB + ${(strainBuffer.byteLength / 1e6).toFixed(1)} MB)`,
   )
@@ -1335,6 +1378,98 @@ function buildVertexAdjacency(indices: Uint32Array, vertexCount: number) {
 // --- numerics --------------------------------------------------------------
 
 /** Move every vertex a fraction `stiffness` of the way onto the sphere. */
+/**
+ * Push any triangle that has turned inside out back the right way round.
+ *
+ * The face springs only know edge lengths, and a triangle has exactly the same
+ * three edge lengths as its own mirror image -- so folding one through an edge
+ * costs the springs nothing, and once it is folded there is no force anywhere
+ * in the model that unfolds it. That is a ratchet, and it was running: by
+ * 200 Ma an eighth of the shell was lying inside out, and it never healed at
+ * any step. A folded patch also cannot pass motion on, so the crust that
+ * should have travelled piled up against it instead -- which is why the mesh
+ * managed to be torn open across the South Atlantic and stacked twenty deep a
+ * few hundred kilometres away at the same time.
+ *
+ * The measure is the signed volume of the tetrahedron from the centre of the
+ * Earth out to the triangle, positive exactly when the corners still wind the
+ * way the icosphere wound them. A triangle of area A sitting on a sphere of
+ * radius r spans six times a volume of 2*A*r, so asking for a small fraction
+ * of that keeps the barrier clear of zero, where a barrier is no use: at zero
+ * the triangle is already flat and the gradient that would push it back has
+ * gone with it.
+ */
+/**
+ * How much of the live crust is lying inside out, by area.
+ *
+ * The sign of the tetrahedron from the centre of the Earth to the triangle,
+ * which is what the area measure elsewhere throws away: solidAngle takes the
+ * absolute value of its numerator, so a folded triangle reports a perfectly
+ * healthy positive area and every strain figure in the run believed it.
+ */
+function foldedShare(
+  pos: Float64Array, faceVerts: Int32Array, alive: Uint8Array,
+  restAreaNow: Float64Array, faceCount: number,
+) {
+  let folded = 0
+  let total = 0
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const a = faceVerts[f * 3] * 3
+    const b = faceVerts[f * 3 + 1] * 3
+    const c = faceVerts[f * 3 + 2] * 3
+    const gax = pos[b + 1] * pos[c + 2] - pos[b + 2] * pos[c + 1]
+    const gay = pos[b + 2] * pos[c] - pos[b] * pos[c + 2]
+    const gaz = pos[b] * pos[c + 1] - pos[b + 1] * pos[c]
+    total += restAreaNow[f]
+    if (pos[a] * gax + pos[a + 1] * gay + pos[a + 2] * gaz < 0) folded += restAreaNow[f]
+  }
+  return { foldFraction: total > 0 ? folded / total : 0 }
+}
+
+function unfold(
+  pos: Float64Array,
+  faceVerts: Int32Array,
+  alive: Uint8Array,
+  restAreaNow: Float64Array,
+  faceCount: number,
+  r: number,
+  margin: number,
+) {
+  let caught = 0
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const a = faceVerts[f * 3] * 3
+    const b = faceVerts[f * 3 + 1] * 3
+    const c = faceVerts[f * 3 + 2] * 3
+    const ax = pos[a], ay = pos[a + 1], az = pos[a + 2]
+    const bx = pos[b], by = pos[b + 1], bz = pos[b + 2]
+    const cx = pos[c], cy = pos[c + 1], cz = pos[c + 2]
+    // The determinant and its gradients at once: d(det)/da is b x c, and the
+    // other two follow by rotating the three corners.
+    const gax = by * cz - bz * cy, gay = bz * cx - bx * cz, gaz = bx * cy - by * cx
+    const det = ax * gax + ay * gay + az * gaz
+    const want = 2 * margin * restAreaNow[f] * r
+    if (det >= want) continue
+    const gbx = cy * az - cz * ay, gby = cz * ax - cx * az, gbz = cx * ay - cy * ax
+    const gcx = ay * bz - az * by, gcy = az * bx - ax * bz, gcz = ax * by - ay * bx
+    const norm =
+      gax * gax + gay * gay + gaz * gaz +
+      gbx * gbx + gby * gby + gbz * gbz +
+      gcx * gcx + gcy * gcy + gcz * gcz
+    if (norm < 1e-12) continue
+    // One Newton step on the constraint, shared between the three corners in
+    // proportion to how much each one can shift it. Deeply folded ground needs
+    // several, which it gets: this runs once per sweep.
+    const l = (want - det) / norm
+    pos[a] += l * gax; pos[a + 1] += l * gay; pos[a + 2] += l * gaz
+    pos[b] += l * gbx; pos[b + 1] += l * gby; pos[b + 2] += l * gbz
+    pos[c] += l * gcx; pos[c + 1] += l * gcy; pos[c + 2] += l * gcz
+    caught++
+  }
+  return caught
+}
+
 function relaxToSphere(pos: Float64Array, vertexCount: number, r: number, stiffness: number) {
   for (let i = 0; i < vertexCount; i++) {
     const x = pos[i * 3]

@@ -1,4 +1,7 @@
 import { R0_KM, sampleCurve, type Meta } from '@shared/model'
+import {
+  type TopologyDelta, applyTopology, readTopology,
+} from '@shared/topology'
 import type { InlineData } from '@/assets'
 import { asset, inlineData } from '@/assets'
 
@@ -31,6 +34,16 @@ export interface Dataset {
   plates: Uint8Array
   /** Which island of strong crust each vertex belongs to; 0 for none. */
   islands: Uint16Array
+  /**
+   * How the triangulation changes from one frame to the next.
+   *
+   * The mesh redraws itself as it goes: a collapse renames the corners of
+   * every triangle round the point it swallows, and a flip swaps a diagonal.
+   * mesh.bin holds the triangulation as it is today, which is where playback
+   * ends, so every frame before it needs its own -- delivered as the change
+   * since the frame before, since only a few thousand triangles move each time.
+   */
+  topology: TopologyDelta[]
   /** How strongly the crust at each vertex resists deformation. */
   rigidity: Float32Array
   /** Crustal thickness in km at each vertex, from ECM1. */
@@ -40,9 +53,22 @@ export interface Dataset {
   radiusKm: number[]
 }
 
+/**
+ * Walk the deltas up to `frame` and write the triangles that exist there.
+ *
+ * Wrapped rather than used directly so the viewer names the dataset it is
+ * reading; the format itself lives in shared/topology.ts.
+ */
+export function buildIndex(
+  data: Dataset, frame: number, working: Int32Array, out: Uint32Array,
+): number {
+  return applyTopology(data.indices, data.topology, frame, working, out)
+}
+
 export async function loadDataset(): Promise<Dataset> {
   const inline = inlineData()
-  const { meta, mesh, frames, strain, plates } = inline ? await inline : await fetchDataset()
+  const { meta, mesh, frames, strain, plates, topology } =
+    inline ? await inline : await fetchDataset()
 
   const [vertexCount, faceCount, , cutPairCount] = new Uint32Array(mesh, 0, 4)
   let offset = 16
@@ -108,6 +134,7 @@ export async function loadDataset(): Promise<Dataset> {
     strain: new Uint8Array(strain),
     plates: new Uint8Array(plates),
     islands: vertexIsland,
+    topology: readTopology(topology, faceCount),
     rigidity: vertexRigidity,
     thickness: vertexThickness,
     crustType: vertexType,
@@ -116,14 +143,15 @@ export async function loadDataset(): Promise<Dataset> {
 }
 
 async function fetchDataset(): Promise<InlineData> {
-  const [meta, mesh, frames, strain, plates] = await Promise.all([
+  const [meta, mesh, frames, strain, plates, topology] = await Promise.all([
     fetch(asset('data/meta.json')).then((r) => r.json() as Promise<Meta>),
     fetch(asset('data/mesh.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/frames.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/strain.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/plates.bin')).then((r) => r.arrayBuffer()),
+    fetch(asset('data/topology.bin')).then((r) => r.arrayBuffer()),
   ])
-  return { meta, mesh, frames, strain, plates }
+  return { meta, mesh, frames, strain, plates, topology }
 }
 
 export const radiusAt = (data: Dataset, timeMa: number) =>

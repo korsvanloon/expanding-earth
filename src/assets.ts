@@ -14,6 +14,7 @@ export interface InlineData {
   frames: ArrayBuffer
   strain: ArrayBuffer
   plates: ArrayBuffer
+  topology: ArrayBuffer
 }
 
 declare global {

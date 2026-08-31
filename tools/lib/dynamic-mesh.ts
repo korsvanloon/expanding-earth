@@ -47,6 +47,11 @@ export interface CollapseResult {
   collapsed: number
   /** Edges that were dead but could not be collapsed without tearing. */
   refused: number
+  /**
+   * Edges redrawn inside dead crust to let a stalled closure carry on. High
+   * where a whole ocean has to disappear at once, which is the Pacific.
+   */
+  eased: number
 }
 
 export class DynamicMesh {
@@ -337,14 +342,18 @@ export function collapseVanished(
   faceAge: Float32Array,
   pos: Float64Array,
   timeMa: number,
+  /** Needed to redraw the connectivity between passes; see easeDeadCrust. */
+  restEdge: Float64Array,
 ): CollapseResult {
   const ringA = new Set<number>()
   const ringB = new Set<number>()
   const along: number[] = []
   let collapsed = 0
   let refused = 0
+  let eased = 0
 
-  for (let pass = 0; pass < 12; pass++) {
+  for (let pass = 0; pass < 24; pass++) {
+    const before = refused
     // Every edge with dead crust on both sides, youngest crust first.
     const candidates: { a: number; b: number; age: number }[] = []
     const seen = new Set<number>()
@@ -390,9 +399,14 @@ export function collapseVanished(
       collapsed++
       did++
     }
-    if (!did) break
+    // A pass that refused collapses has run into its own neighbour cap rather
+    // than into live crust, and another identical pass would refuse the same
+    // ones again. Redrawing the dead crust's connectivity first gives the next
+    // pass somewhere to put the neighbours.
+    if (refused > before) eased += easeDeadCrust(mesh, pos, restEdge, faceAge, timeMa, Number(process.env.EASE_PASSES ?? 2))
+    if (!did && refused === before) break
   }
-  return { collapsed, refused }
+  return { collapsed, refused, eased }
 }
 
 /** A triangle's roundness, for sorting the worst to the front. */
@@ -428,6 +442,59 @@ function quality(a: number[], b: number[], c: number[]): number {
   const sides =
     ux * ux + uy * uy + uz * uz + vx * vx + vy * vy + vz * vz + wx * wx + wy * wy + wz * wz
   return sides > 0 ? (2 * Math.sqrt(3) * twiceArea) / sides : 0
+}
+
+/**
+ * Redraw the connectivity inside crust that is about to not exist, so that the
+ * closure can keep going.
+ *
+ * A collapse hands the survivor both neighbourhoods at once, so its neighbour
+ * count climbs with every one it absorbs, and the cap that stops a point
+ * becoming a thirty-armed hub also stops the closure dead. Over a small patch
+ * that costs a triangle or two. Over the Pacific, where almost every square
+ * kilometre of sea floor postdates 180 Ma, it halts the closure while most of
+ * the ocean is still in the mesh -- and what cannot be removed is dragged out
+ * across the hole instead. That is what the huge triangles spanning the
+ * Pacific are: crust the model itself says had not been made yet, stretched
+ * over the ocean it was supposed to make room by leaving.
+ *
+ * A flip in dead crust is free in a way a flip in live crust never is. That
+ * rock is about to be gone, so no surviving triangle's rest shape is touched
+ * and no fault is invented in anything that will still be there afterwards.
+ */
+function easeDeadCrust(
+  mesh: DynamicMesh,
+  pos: Float64Array,
+  restEdge: Float64Array,
+  faceAge: Float32Array,
+  timeMa: number,
+  passes: number,
+): number {
+  const along: number[] = []
+  const ring = new Set<number>()
+  let flipped = 0
+  for (let pass = 0; pass < passes; pass++) {
+    let did = 0
+    for (let f = 0; f < mesh.faceCount; f++) {
+      if (!mesh.faceAlive[f] || faceAge[f] >= timeMa) continue
+      for (let k = 0; k < 3; k++) {
+        const a = mesh.faceVerts[f * 3 + k]
+        const b = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
+        if (a < 0 || b < 0) continue
+        const found = mesh.canFlip(a, b, pos, along, ring)
+        if (!found) continue
+        // Both triangles the flip touches have to be dead. One live one and the
+        // flip is a fault invented in crust that has to answer for its shape.
+        if (faceAge[found[2]] >= timeMa || faceAge[found[3]] >= timeMa) continue
+        mesh.flip(a, b, found[0], found[1], found[2], found[3], restEdge, pos)
+        flipped++
+        did++
+        break
+      }
+    }
+    if (!did) break
+  }
+  return flipped
 }
 
 /**

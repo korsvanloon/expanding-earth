@@ -22,6 +22,9 @@ import { fileURLToPath } from 'node:url'
 import { gzipSync } from 'node:zlib'
 import jpeg from 'jpeg-js'
 import type { Meta } from '../shared/model.js'
+import {
+  FACE_REMOVED, type TopologyDelta, readTopology, topologyDelta, writeTopology,
+} from '../shared/topology.js'
 import { SURFACE_MAPS } from '../shared/maps.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -42,12 +45,67 @@ const FRAME_STRIDE = 2
 const TEXTURE_WIDTH = 1024
 const TEXTURE_QUALITY = 82
 
+/**
+ * Re-cut the connectivity changes for a thinned frame list.
+ *
+ * A delta only means anything against the frame before it, so dropping every
+ * other frame cannot drop their deltas: what they carried has to be folded into
+ * the next frame that survives. Replaying the whole sequence and re-diffing
+ * against the last kept frame does that, and a triangle that changed twice in
+ * between becomes one entry rather than two.
+ */
+function thinTopology(
+  deltas: TopologyDelta[],
+  kept: number[],
+  faceCount: number,
+  /** Today's triangulation, which is what both ends replay from. */
+  indices: Uint32Array,
+) {
+  const now = Uint16Array.from(indices)
+  const asKept = Uint16Array.from(indices)
+  const alive = new Uint8Array(faceCount).fill(1)
+  const out: TopologyDelta[] = []
+  let previous = -1
+  for (const frame of kept) {
+    for (let i = previous + 1; i <= frame && i < deltas.length; i++) {
+      const { faces, verts } = deltas[i]
+      for (let k = 0; k < faces.length; k++) {
+        now[faces[k] * 3] = verts[k * 3]
+        now[faces[k] * 3 + 1] = verts[k * 3 + 1]
+        now[faces[k] * 3 + 2] = verts[k * 3 + 2]
+      }
+    }
+    previous = frame
+    for (let f = 0; f < faceCount; f++) alive[f] = now[f * 3] === FACE_REMOVED ? 0 : 1
+    out.push(topologyDelta(asKept, now, faceCount, alive))
+  }
+  return Buffer.from(writeTopology(out))
+}
+
 function main() {
   const meta = JSON.parse(readFileSync(resolve(DATA, 'meta.json'), 'utf8')) as Meta
   const mesh = readFileSync(resolve(DATA, 'mesh.bin'))
   const frames = new Int16Array(readFileSync(resolve(DATA, 'frames.bin')).buffer)
   const strain = readFileSync(resolve(DATA, 'strain.bin'))
   const plates = readFileSync(resolve(DATA, 'plates.bin'))
+  const topologyFile = readFileSync(resolve(DATA, 'topology.bin'))
+  const topology = readTopology(
+    topologyFile.buffer.slice(
+      topologyFile.byteOffset, topologyFile.byteOffset + topologyFile.byteLength,
+    ) as ArrayBuffer,
+    meta.faceCount,
+  )
+  // mesh.bin's header is the authority on its own shape; the index array sits
+  // straight after the vertex directions.
+  const [meshVertexCount, meshFaceCount] = new Uint32Array(
+    mesh.buffer, mesh.byteOffset, 4,
+  )
+  const meshIndices = new Uint32Array(
+    mesh.buffer.slice(
+      mesh.byteOffset + 16 + meshVertexCount * 12,
+      mesh.byteOffset + 16 + meshVertexCount * 12 + meshFaceCount * 12,
+    ),
+  )
 
   const kept: number[] = []
   for (let f = 0; f < meta.frameCount; f += FRAME_STRIDE) kept.push(f)
@@ -83,6 +141,7 @@ function main() {
     frames: gzipSync(deltaSplit(thinnedFrames, stride, kept.length), { level: 9 }),
     strain: gzipSync(Buffer.from(thinnedStrain), { level: 9 }),
     plates: gzipSync(Buffer.from(thinnedPlates), { level: 9 }),
+      topology: gzipSync(thinTopology(topology, kept, meta.faceCount, meshIndices), { level: 9 }),
   }
 
   const bundle = readdirSync(resolve(DIST, 'assets'))
@@ -117,8 +176,8 @@ window.__DATA__ = (async () => {
   };
   const P = ${JSON.stringify(Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, v.toString('base64')])))};
   const meta = JSON.parse(new TextDecoder().decode(await gunzip(P.meta)));
-  const [mesh, frames, strain, plates] = await Promise.all(
-    [gunzip(P.mesh), gunzip(P.frames), gunzip(P.strain), gunzip(P.plates)]);
+  const [mesh, frames, strain, plates, topology] = await Promise.all(
+    [gunzip(P.mesh), gunzip(P.frames), gunzip(P.strain), gunzip(P.plates), gunzip(P.topology)]);
 
   // Undo the byte-plane split, then the per-frame differencing. Int16Array
   // wraps on overflow exactly as the differencing did, so the running sum
@@ -133,7 +192,7 @@ window.__DATA__ = (async () => {
   }
   return {
     meta, mesh: mesh.buffer, frames: out.buffer,
-    strain: strain.buffer, plates: plates.buffer,
+    strain: strain.buffer, plates: plates.buffer, topology: topology.buffer,
   };
 })();
 </script>

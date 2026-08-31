@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
-import { sampleFrame, type Dataset } from '@/data'
+import { buildIndex, sampleFrame, type Dataset } from '@/data'
 import { buildReferenceRotations } from '@/frames'
 import { clock, useStore } from '@/store'
 import { fragmentShader, vertexShader } from './shaders'
@@ -50,6 +50,13 @@ export function Globe({ data }: { data: Dataset }) {
     return {
       positions: new Float32Array(count * 3),
       strain: new Float32Array(count),
+      // Which triangles exist, rebuilt whenever the frame changes. The mesh
+      // redraws itself as it runs -- points are swallowed, diagonals swapped --
+      // so the triangulation is per-frame data like the positions are, not a
+      // fixed thing set once at load. Drawing the fixed one was what put folds
+      // in the shell and stretched single triangles across the Pacific.
+      working: new Int32Array(data.indices.length),
+      index: new Uint32Array(data.indices.length),
     }
   }, [data])
 
@@ -66,7 +73,9 @@ export function Globe({ data }: { data: Dataset }) {
     g.setAttribute('aDir', new THREE.BufferAttribute(data.dirs, 3))
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
-    g.setIndex(new THREE.BufferAttribute(data.indices, 1))
+    g.setIndex(
+      new THREE.BufferAttribute(buffers.index, 1).setUsage(THREE.DynamicDrawUsage),
+    )
     // The globe never leaves the unit sphere, and recomputing this every frame
     // over forty thousand moving vertices is work for nothing.
     g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 1)
@@ -89,11 +98,30 @@ export function Globe({ data }: { data: Dataset }) {
     [data],
   )
 
+  // Which frame's triangulation is currently in the index buffer. Replaying the
+  // deltas costs a fraction of a millisecond, but it is per frame, not per
+  // animation tick, so it is only done when the frame actually moves.
+  const drawnFrame = useRef(-1)
+  const retopo = () => {
+    const frame = Math.min(
+      Math.round(clock.timeMa / data.meta.frameStepMa),
+      data.meta.frameCount - 1,
+    )
+    if (frame === drawnFrame.current) return
+    drawnFrame.current = frame
+    const count = buildIndex(data, frame, buffers.working, buffers.index)
+    const index = geometry.getIndex()
+    if (index) index.needsUpdate = true
+    geometry.setDrawRange(0, count)
+  }
+
   // Fill the buffers before the first render, so nothing is drawn at the origin.
   useMemo(
     () => sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations),
     [data, buffers, rotations],
   )
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- retopo reads refs
+  useMemo(() => retopo(), [data, buffers, geometry])
 
   useFrame(({ camera }, delta) => {
     const { playing, speed } = useStore.getState()
@@ -106,6 +134,7 @@ export function Globe({ data }: { data: Dataset }) {
       }
     }
 
+    retopo()
     sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations)
     geometry.attributes.position.needsUpdate = true
     geometry.attributes.aStrain.needsUpdate = true

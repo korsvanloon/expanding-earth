@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import { buildIcosphere, sphericalTriangleArea } from '../tools/lib/icosphere'
 import { DynamicMesh, collapseVanished, retriangulate } from '../tools/lib/dynamic-mesh'
+import {
+  applyTopology, readTopology, topologyDelta, writeTopology,
+} from '../shared/topology'
 import { crustScale, sampleCurve, MIN_SCALE, TAU_MA } from '../shared/model'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
@@ -183,7 +186,7 @@ describe('the collapsing mesh', () => {
       age[f] = Math.abs(y / 3) * 200
     }
     for (const t of [20, 60, 100, 140, 180]) {
-      collapseVanished(mesh, age, pos, t)
+      collapseVanished(mesh, age, pos, t, restOf(mesh, pos))
       expect(mesh.eulerCharacteristic()).toBe(2)
       expect(mesh.liveFaces).toBe(2 * mesh.liveVertices - 4)
     }
@@ -194,7 +197,7 @@ describe('the collapsing mesh', () => {
     const { mesh, pos } = build(3)
     const age = new Float32Array(mesh.faceCount)
     for (let f = 0; f < mesh.faceCount; f++) age[f] = f % 3 === 0 ? 1e9 : 10
-    collapseVanished(mesh, age, pos, 100)
+    collapseVanished(mesh, age, pos, 100, restOf(mesh, pos))
     for (let f = 0; f < mesh.faceCount; f++) {
       if (age[f] >= 1e9) expect(mesh.faceAlive[f]).toBe(1)
     }
@@ -203,12 +206,25 @@ describe('the collapsing mesh', () => {
   it('leads every collapsed vertex to a survivor', () => {
     const { mesh, pos } = build(2)
     const age = new Float32Array(mesh.faceCount).fill(10)
-    collapseVanished(mesh, age, pos, 100)
+    collapseVanished(mesh, age, pos, 100, restOf(mesh, pos))
     for (let v = 0; v < mesh.vertexCount; v++) {
       expect(mesh.vertexAlive[mesh.survivor(v)]).toBe(1)
     }
   })
 })
+
+/** Present edge lengths as rest lengths, which is what they are at t = 0. */
+function restOf(mesh: DynamicMesh, pos: Float64Array) {
+  const rest = new Float64Array(mesh.faceCount * 3)
+  for (let f = 0; f < mesh.faceCount; f++) {
+    for (let k = 0; k < 3; k++) {
+      const a = mesh.faceVerts[f * 3 + k] * 3
+      const b = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
+      rest[f * 3 + k] = Math.hypot(pos[a] - pos[b], pos[a + 1] - pos[b + 1], pos[a + 2] - pos[b + 2])
+    }
+  }
+  return rest
+}
 
 describe('redrawing edges', () => {
   it('keeps the mesh a sphere and never loses a triangle', () => {
@@ -239,6 +255,99 @@ describe('redrawing edges', () => {
     for (let f = 0; f < faceCount; f++) {
       const [a, b, c] = [mesh.faceVerts[f * 3], mesh.faceVerts[f * 3 + 1], mesh.faceVerts[f * 3 + 2]]
       expect(new Set([a, b, c]).size).toBe(3)
+    }
+  })
+})
+
+describe('carrying the triangulation with the frames', () => {
+  /**
+   * The bug this guards against is not subtle once you can see it, and it was
+   * invisible for a long time: the solver's mesh redraws itself as it runs, and
+   * the viewer was reading the index array written before the run started. A
+   * stale mixture of two triangulations is not a triangulation, and it showed
+   * up as folded crust and as single triangles stretched across the Pacific.
+   */
+  it('replays to exactly the triangulation the solver had', () => {
+    const { positions, indices } = buildIcosphere(3)
+    const pos = new Float64Array(positions)
+    const mesh = new DynamicMesh(positions.length / 3, indices.length / 3, indices)
+    const rest = restOf(mesh, pos)
+    const age = new Float32Array(mesh.faceCount)
+    for (let f = 0; f < mesh.faceCount; f++) {
+      let y = 0
+      for (let k = 0; k < 3; k++) y += pos[mesh.faceVerts[f * 3 + k] * 3 + 1]
+      age[f] = Math.abs(y / 3) * 200
+    }
+
+    const drawn = Uint16Array.from(indices)
+    const deltas = []
+    const frames: { verts: Int32Array; alive: Uint8Array }[] = []
+    for (const t of [0, 40, 80, 120, 160, 200]) {
+      collapseVanished(mesh, age, pos, t, rest)
+      retriangulate(mesh, pos, rest, 3)
+      deltas.push(topologyDelta(drawn, mesh.faceVerts, mesh.faceCount, mesh.faceAlive))
+      frames.push({ verts: Int32Array.from(mesh.faceVerts), alive: Uint8Array.from(mesh.faceAlive) })
+    }
+
+    // Round-tripped through the file format, not just held in memory: the
+    // encoding is where a per-face index silently becomes a per-vertex one.
+    const bytes = writeTopology(deltas)
+    const reread = readTopology(
+      bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer,
+      mesh.faceCount,
+    )
+    expect(reread.length).toBe(deltas.length)
+
+    const working = new Int32Array(indices.length)
+    const out = new Uint32Array(indices.length)
+    for (const [i, frame] of frames.entries()) {
+      const count = applyTopology(indices, reread, i, working, out)
+      const wanted: number[] = []
+      for (let f = 0; f < mesh.faceCount; f++) {
+        if (!frame.alive[f]) continue
+        wanted.push(frame.verts[f * 3], frame.verts[f * 3 + 1], frame.verts[f * 3 + 2])
+      }
+      expect(count).toBe(wanted.length)
+      expect([...out.subarray(0, count)]).toEqual(wanted)
+    }
+  })
+
+  it('draws a closed surface at every frame it replays', () => {
+    const { positions, indices } = buildIcosphere(3)
+    const pos = new Float64Array(positions)
+    const mesh = new DynamicMesh(positions.length / 3, indices.length / 3, indices)
+    const rest = restOf(mesh, pos)
+    const age = new Float32Array(mesh.faceCount)
+    for (let f = 0; f < mesh.faceCount; f++) age[f] = (f % 40) * 5
+
+    const drawn = Uint16Array.from(indices)
+    const deltas = []
+    for (const t of [0, 50, 100, 150, 200]) {
+      collapseVanished(mesh, age, pos, t, rest)
+      deltas.push(topologyDelta(drawn, mesh.faceVerts, mesh.faceCount, mesh.faceAlive))
+    }
+    const working = new Int32Array(indices.length)
+    const out = new Uint32Array(indices.length)
+    for (let i = 0; i < deltas.length; i++) {
+      const count = applyTopology(indices, deltas, i, working, out)
+      // Every triangle drawn has three different corners, and every edge is
+      // shared by exactly two of them. That is what makes it a surface, and it
+      // is exactly what the stale index array stopped being.
+      const edges = new Map<number, number>()
+      for (let k = 0; k < count; k += 3) {
+        const v = [out[k], out[k + 1], out[k + 2]]
+        expect(new Set(v).size).toBe(3)
+        for (let e = 0; e < 3; e++) {
+          const a = Math.min(v[e], v[(e + 1) % 3])
+          const b = Math.max(v[e], v[(e + 1) % 3])
+          const key = a * mesh.vertexCount + b
+          edges.set(key, (edges.get(key) ?? 0) + 1)
+        }
+      }
+      for (const shared of edges.values()) expect(shared).toBe(2)
+      const faces = count / 3
+      const points = new Set(out.subarray(0, count)).size
+      expect(points - edges.size + faces).toBe(2)
     }
   })
 })
