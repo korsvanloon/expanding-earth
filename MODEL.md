@@ -51,6 +51,60 @@ that reading is wrong, every date in the model scales with it.
 As an independent check, the radius curve derived from the 81,920-triangle mesh
 agrees with the same measurement taken at full raster resolution to within 1.1%.
 
+## What the crust is made of
+
+Two datasets say what the shell is, as against where it is.
+
+ECM1 gives a crustal type and a thickness for every square degree, and the model
+reads strength off the type: shields and platforms are the strongest crust there
+is, orogens and thinned margins the weakest. That is the field the solver holds
+the continents together with. Its limit is its resolution &mdash; one name per
+square degree, out of eleven &mdash; so it calls the whole Canadian Shield one
+thing and cannot see the suture through the middle of it.
+
+The vertical gravity gradient can. It is the second derivative of the geoid,
+derived from satellite altimetry, and it responds to density contrasts a few
+kilometres down: a fracture zone, a failed rift, a buried suture and a mountain
+root all show up in it. `data-src/vgg.grid` holds it at a tenth of a degree,
+covering 98.5% of the globe by area &mdash; everything but the ice caps above
+about 81 degrees, where the altimetry stops. Over land as much as over sea,
+which is the point: this is the one structure map the model has that does not
+run out at the coastline.
+
+What the model reads off it is not the field but how fast it changes, in Eotvos
+per 100 km, over a disc the width of half a mesh spacing around every vertex.
+Flat means crust that has been left alone; busy means crust that has been worked.
+Against ECM1's own classification of the same ground:
+
+<!-- from-the-run: fabric -->
+| crustal type | roughness | within the type |
+|---|---|---|
+| Platform | 37 | 7 &ndash; 92 |
+| Basin | 45 | 19 &ndash; 139 |
+| Normal ocean | 53 | 18 &ndash; 145 |
+| Shield | 60 | 28 &ndash; 156 |
+| Extended crust | 60 | 7 &ndash; 224 |
+| Mid-ocean ridge | 62 | 22 &ndash; 154 |
+| Oceanic plateau | 78 | 23 &ndash; 201 |
+| Continental margin | 82 | 36 &ndash; 200 |
+| Island arc | 181 | 91 &ndash; 318 |
+| Orogen | 196 | 61 &ndash; 542 |
+| Continental arc | 307 | 142 &ndash; 627 |
+<!-- /from-the-run -->
+
+The medians separate by a factor of eight from a platform to a continental arc,
+in the order they should, which is the check that the grid is saying something
+real. The spread inside each type is the part that matters: an orogen runs from
+quiet to violent across its own extent, and no classification with eleven names
+in it can say which end of that range a given triangle is at.
+
+It is a measurement in the viewer &mdash; the *Crustal fabric* mode &mdash; and
+nothing else yet. Nothing in the solve depends on it. Using it to decide where
+deformation is allowed to go is the obvious next thing to try, and it is not
+tried here, because a strength field is a claim about the present strength of
+rock and this is a record of what has already happened to it. A shield reads
+rougher than a platform, and a shield is stronger.
+
 ## Where the plates come from
 
 Nowhere. No plate map is used and none is needed.

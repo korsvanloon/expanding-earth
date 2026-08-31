@@ -13,7 +13,7 @@ import { directionToUv } from '@shared/sphere'
 import { PERMANENT_MA } from '@shared/model'
 import { fragmentShader, vertexShader } from './shaders'
 
-const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, islands: 4 } as const
+const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, islands: 4, fabric: 5 } as const
 
 /** How much of the crust survives in the mesh view. Enough to read, not to hide. */
 const GLASS_OPACITY = 1
@@ -193,6 +193,7 @@ export function Globe({ data }: { data: Dataset }) {
     g.setAttribute('aDir', new THREE.BufferAttribute(data.dirs, 3))
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
+    g.setAttribute('aFabric', new THREE.BufferAttribute(data.gravityRoughness, 1))
     g.setIndex(
       new THREE.BufferAttribute(buffers.index, 1).setUsage(THREE.DynamicDrawUsage),
     )
@@ -331,6 +332,7 @@ export function Globe({ data }: { data: Dataset }) {
       ageMa: age >= PERMANENT_MA ? null : age,
       island: data.islands[vertex],
       block: data.plates[frame * data.vertexCount + vertex],
+      fabric: data.gravityRoughness[vertex],
       referenceFrame,
     }
     const { addPick, picks } = useStore.getState()

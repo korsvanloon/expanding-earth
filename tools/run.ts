@@ -35,6 +35,10 @@ const inputs = [
   ...sources('shared'),
   resolve(ROOT, 'public/textures/age-map.png'),
   resolve(ROOT, 'public/textures/height-map.jpg'),
+  // The datasets fetched by hand and committed: the crustal model and the
+  // gravity grid. Refetching one has to rebuild, for the same reason changing
+  // the code does.
+  ...readdirSync(resolve(ROOT, 'data-src')).map((name) => resolve(ROOT, 'data-src', name)),
 ]
 
 const mtime = (path: string) => {

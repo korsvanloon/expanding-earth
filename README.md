@@ -103,8 +103,10 @@ each one is the model being wrong, in kilometres. `MODEL.md` has the figures.
 ```
 tools/build-data.ts   age grid -> triangulated shell + radius curve
 tools/solve.ts        backward integration -> keyframes + diagnostics
+tools/fetch-grids.ts  fetch a global grid and commit it to data-src/
 shared/model.ts       the assumptions, shared by pipeline and app
 src/                  React + three.js viewer
+data-src/             datasets fetched by hand and committed, in compact form
 legacy/               the earlier hand-keyframed prototype, kept for reference
 ```
 
@@ -125,6 +127,7 @@ pnpm blocks by default and vite needs to build.
 | `pnpm build` | production build |
 | `pnpm artifact` | build a single self-contained HTML file |
 | `pnpm docs` | rewrite the generated figures from the run on disk |
+| `pnpm exec tsx tools/fetch-grids.ts vgg` | refetch a source grid into `data-src/` (rarely; it is committed) |
 | `pnpm test` | unit tests, and whether the docs match the run |
 | `pnpm typecheck` | app and pipeline |
 

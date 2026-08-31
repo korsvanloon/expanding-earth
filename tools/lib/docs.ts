@@ -12,6 +12,7 @@
  * Keep prose out of the marked blocks and numbers out of the prose.
  */
 import type { FrameDiagnostics, Meta } from '../../shared/model.js'
+import { CRUST_TYPE_LABELS, type CrustType } from '../../shared/crust.js'
 
 const OPEN = (name: string) => `<!-- from-the-run: ${name} -->`
 const CLOSE = '<!-- /from-the-run -->'
@@ -67,6 +68,14 @@ export function runBlocks(meta: Meta): Record<string, string> {
         + ' closest anywhere |',
       '|---|---|---|---|---|---|---|',
       ...fits,
+    ].join('\n'),
+
+    fabric: [
+      '| crustal type | roughness | within the type |',
+      '|---|---|---|',
+      ...meta.crustalFabric.map((row) =>
+        `| ${CRUST_TYPE_LABELS[row.type as CrustType] ?? row.type} | ${row.median.toFixed(0)} | `
+        + `${row.low.toFixed(0)} &ndash; ${row.high.toFixed(0)} |`),
     ].join('\n'),
 
     radius: `R(${meta.endTimeMa} Ma) = ${last.radiusKm.toFixed(0)} km, ` +

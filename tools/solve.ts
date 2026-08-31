@@ -177,6 +177,9 @@ function main() {
   offset += faceCount * 4
   const thickness = new Float32Array(buffer.buffer, offset, faceCount)
   offset += faceCount * 4
+  // The gravity gradient and its roughness, per vertex. Read by the viewer as
+  // the crustal fabric; nothing in the solve depends on them yet.
+  offset += vertexCount * 8
   offset += vertexCount * 4 // origin, which an uncut mesh does not need
   offset += faceCount * 2 // per-face fragment
   const vertexIsland = new Uint16Array(buffer.buffer, offset, vertexCount)

@@ -24,6 +24,11 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
     label: 'Crustal strength',
     hint: "ECM1's crustal type, read as strength: shields and platforms pale, thinned margins and island arcs dark. This is what decides where a fragment ends",
   },
+  {
+    id: 'fabric',
+    label: 'Crustal fabric',
+    hint: 'How fast the vertical gravity gradient changes: dark where the crust has been left alone, bright where it has been cut about. Fracture zones, sutures, failed rifts and mountain roots, at a tenth of a degree over land and sea alike',
+  },
 
 ]
 

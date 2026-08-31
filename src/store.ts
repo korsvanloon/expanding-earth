@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { DEFAULT_SURFACE_MAP } from '@shared/maps'
 
-export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'islands'
+export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'islands' | 'fabric'
 
 /**
  * A point of crust the user has picked off the globe.
@@ -24,6 +24,13 @@ export interface Pick {
   ageMa: number | null
   island: number
   block: number
+  /**
+   * How worked the crust is here, Eotvos per 100 km of the gravity gradient.
+   * A platform reads under 40, an orogen over 200. It is in a pick because it
+   * is the number that says whether a point is allowed to move relative to its
+   * neighbours, and picks are how expectations about points get written down.
+   */
+  fabric: number
   /** Which continent was being held still, if any, when it was read. */
   referenceFrame: string
 }
@@ -110,7 +117,7 @@ export function describePicks(picks: Pick[]): string {
       `#${p.vertex}  today (${place(p.todayLon, p.todayLat)})`
       + `  at ${p.timeMa.toFixed(0)} Ma (${place(p.thenLon, p.thenLat)})`
       + `  ${p.ageMa === null ? 'continental' : `sea floor ${p.ageMa.toFixed(0)} Ma`}`
-      + `  island ${p.island}  block ${p.block}`),
+      + `  island ${p.island}  block ${p.block}  fabric ${p.fabric.toFixed(0)}`),
   ].join('\n')
 }
 

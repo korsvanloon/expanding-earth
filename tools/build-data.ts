@@ -21,6 +21,8 @@ import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
+import { readGrid } from './lib/grid.js'
+import { fillGaps, sampleStructure } from './lib/structure.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
@@ -231,6 +233,12 @@ function main() {
     fragmentCount: 1,
   }
 
+  // --- what the crust is made of, at a tenth of a degree ------------------
+  //
+  // ECM1 says what kind of crust a square degree is; the gravity gradient says
+  // what has happened inside it. See tools/lib/structure.ts.
+  const structure = sampleGravityStructure(shell, crust.type)
+
   // --- the stretch marks -------------------------------------------------
   //
   // Which piece of crust was once against which, read out of the same age grid
@@ -323,7 +331,7 @@ function main() {
   )
   console.log(`  wrote ${drawn.length} tracks for drawing and every pair for measuring`)
 
-  writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, crust)
+  writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, crust, structure)
 
   const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'> = {
     version: 1,
@@ -332,6 +340,7 @@ function main() {
       { file: 'public/textures/age-map.png', note: 'Seafloor age grid, 8192x4096, grey 0-254 = 0-280 Ma, white = undated' },
       { file: 'public/textures/height-map.jpg', note: 'Topography/bathymetry, used to classify undated cells and to date them' },
       { file: 'data-src/ecm1.bin', note: 'ECM1 crustal model (Mooney et al. 2023), 1x1 degree crustal type and thickness' },
+      { file: 'data-src/vgg.grid', note: 'Vertical gravity gradient (Sandwell et al.), 3600x1800, Eotvos, land and sea' },
       { file: 'public/textures/color-map.jpg', note: 'Surface colour, rides along with the crust' },
     ],
     r0Km: R0_KM,
@@ -348,6 +357,7 @@ function main() {
     depthAgeFit,
     crustModels,
     solvedModel: CONFIG.solvedModel,
+    crustalFabric: structure.fabric,
     radiusStepMa: CONFIG.radiusStepMa,
     referenceRadiusKm,
     frameStepMa: CONFIG.frameStepMa,
@@ -625,6 +635,73 @@ function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
   return { rigidity, type, thickness }
 }
 
+/**
+ * The gravity gradient and its roughness at every vertex of the shell.
+ *
+ * Sampled per vertex rather than per triangle because that is how it will be
+ * used: the viewer interpolates vertex attributes across a face, and a solver
+ * that decides how far a point may move needs the number at the point. The disc
+ * is half the mesh spacing, so each vertex reads its own neighbourhood and the
+ * field is carried at the resolution the mesh can hold rather than at the
+ * grid's, which is ten times finer than any triangle here.
+ */
+function sampleGravityStructure(shell: Shell, crustType: Uint8Array) {
+  const grid = readGrid(readFileSync(resolve(ROOT, 'data-src/vgg.grid')))
+  const vertexCount = shell.positions.length / 3
+  // Mesh spacing: an icosphere of this many vertices covers 4*pi*R^2, so each
+  // vertex owns about that much of it, and the spacing is the width of that
+  // patch. Half of it is the disc that does not overlap its neighbours much.
+  const spacingKm = Math.sqrt((4 * Math.PI * R0_KM * R0_KM) / vertexCount)
+  const structure = sampleStructure(grid, shell.positions, vertexCount, spacingKm / 2, R0_KM)
+  const guessed = fillGaps(structure.value, shell.indices)
+  fillGaps(structure.roughness, shell.indices)
+
+  const sorted = Float64Array.from(structure.roughness).sort()
+  const at = (q: number) => sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]
+  console.log(
+    `[build-data] ${grid.units} over ${grid.width}x${grid.height} cells, ` +
+      `disc ${(spacingKm / 2).toFixed(0)} km:`,
+  )
+  console.log(
+    `  roughness per 100 km: median ${at(0.5).toFixed(0)}, ` +
+      `p90 ${at(0.9).toFixed(0)}, p99 ${at(0.99).toFixed(0)} ${grid.units.split(' ')[0]}`,
+  )
+  console.log(
+    `  ${guessed} of ${vertexCount} vertices (${((100 * guessed) / vertexCount).toFixed(1)}%) ` +
+      'sit beyond the altimetry and took their neighbours\' value',
+  )
+
+  // Whether this says anything ECM1 does not. If every crustal type came back
+  // with the same roughness the grid would be decoration; the point of printing
+  // it is that a shield and an orogen have to come out far apart, and that the
+  // spread *within* a type is what the classification cannot see.
+  const byType: number[][] = CRUST_TYPES.map(() => [])
+  for (let f = 0; f < crustType.length; f++) {
+    for (let k = 0; k < 3; k++) byType[crustType[f]].push(structure.roughness[shell.indices[f * 3 + k]])
+  }
+  const fabric = CRUST_TYPES.map((name, i) => ({
+    type: name as string,
+    median: quantile(byType[i], 0.5),
+    low: quantile(byType[i], 0.1),
+    high: quantile(byType[i], 0.9),
+  }))
+    .filter((_, i) => byType[i].length > 100)
+    .sort((a, b) => a.median - b.median)
+  console.log('  roughness by crustal type (median, and the tenth and ninetieth within it):')
+  for (const row of fabric) {
+    console.log(
+      `    ${row.type}  ${row.median.toFixed(0).padStart(4)}  ` +
+        `[${row.low.toFixed(0)} - ${row.high.toFixed(0)}]`,
+    )
+  }
+  return { ...structure, fabric }
+}
+
+function quantile(values: number[], q: number): number {
+  const sorted = Float64Array.from(values).sort()
+  return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]
+}
+
 
 
 
@@ -701,6 +778,7 @@ function writeMesh(
   shell: Shell,
   faceAges: Float32Array,
   crust: { rigidity: Float32Array; type: Uint8Array; thickness: Float32Array },
+  structure: { value: Float32Array; roughness: Float32Array },
 ) {
   const header = new Uint32Array([
     shell.positions.length / 3,
@@ -717,6 +795,8 @@ function writeMesh(
       Buffer.from(faceAges.buffer),
       Buffer.from(crust.rigidity.buffer),
       Buffer.from(crust.thickness.buffer),
+      Buffer.from(structure.value.buffer),
+      Buffer.from(structure.roughness.buffer),
       // Four-byte arrays first: a Uint32Array cannot start on an odd offset,
       // and the byte-wide sections below would push it off alignment.
       Buffer.from(shell.origin.buffer),

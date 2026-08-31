@@ -14,6 +14,9 @@ import {
 import { readTracks, writeTracks } from '../shared/tracks'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
+import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
+import { fillGaps, sampleStructure } from '../tools/lib/structure'
+import { R0_KM } from '../shared/model'
 import { resolve } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 
@@ -897,5 +900,133 @@ describe('the topology format', () => {
     const was = new Uint16Array(3)
     const now = [0, 1, 70000]
     expect(() => topologyDelta(was, now, 1, Uint8Array.of(1))).toThrow(/more than/)
+  })
+})
+
+describe('a grid of measurements', () => {
+  const grid = (width: number, height: number, fill: (c: number, r: number) => number): Grid => {
+    const samples = new Int16Array(width * height)
+    for (let r = 0; r < height; r++) for (let c = 0; c < width; c++) samples[r * width + c] = fill(c, r)
+    return { width, height, scale: 0.03125, offset: 100, units: 'vgg (Eotvos)', samples }
+  }
+
+  it('comes back out of a file exactly as it went in', () => {
+    const before = grid(37, 11, (c, r) => (c * 13 + r * 7) % 900 - 400)
+    const after = readGrid(writeGrid(before))
+    expect(after.width).toBe(before.width)
+    expect(after.height).toBe(before.height)
+    expect(after.units).toBe(before.units)
+    expect(after.scale).toBe(before.scale)
+    expect(after.offset).toBe(before.offset)
+    expect(Array.from(after.samples)).toEqual(Array.from(before.samples))
+  })
+
+  // The unit string is padded out to a multiple of four so the samples start on
+  // an even offset; a name whose length is not a multiple of four is the case
+  // that catches a padding rule applied on one side and not the other.
+  it('survives a unit name of any length', () => {
+    for (const units of ['m', 'Ma', 'vgg', 'Eotvos', 'metres above the geoid']) {
+      const before = grid(8, 4, (c) => c)
+      before.units = units
+      expect(readGrid(writeGrid(before)).units).toBe(units)
+    }
+  })
+
+  it('reads a flat field as flat and a step as rough', () => {
+    const dirs = new Float32Array([1, 0, 0])
+    const flat = sampleStructure(grid(720, 360, () => 100), dirs, 1, 300, R0_KM)
+    expect(flat.roughness[0]).toBeCloseTo(0, 6)
+
+    // A ramp of one sample per column. The grid runs 0.5 degrees to the cell,
+    // about 56 km at the equator, so a step of one sample -- 0.03125 Eotvos --
+    // per 56 km is 0.056 per 100 km.
+    const ramp = sampleStructure(grid(720, 360, (c) => c % 200), dirs, 1, 300, R0_KM)
+    expect(ramp.roughness[0]).toBeGreaterThan(0.04)
+    expect(ramp.roughness[0]).toBeLessThan(0.07)
+  })
+
+  // A cell of longitude is 56 km wide at the equator and 10 km at 80 degrees,
+  // so a field that steps by the same amount per cell really is changing six
+  // times faster per kilometre up there, and the measure has to say so. The
+  // ratio is the test: it comes out as one over the cosine of the latitude only
+  // if the gradient is divided by the width of the cell it was read across, at
+  // that cell's own latitude. Reading in cells instead would report the two as
+  // equal and call the whole Arctic featureless.
+  it('measures gradients per kilometre, not per cell', () => {
+    const ramp = grid(720, 360, (c) => c)
+    const lat = (80 * Math.PI) / 180
+    const dirs = Float32Array.from([
+      ...lonLatToDirection(0, 0), ...lonLatToDirection(0, lat),
+    ])
+    const seen = sampleStructure(ramp, dirs, 2, 200, R0_KM)
+    expect(seen.roughness[1] / seen.roughness[0]).toBeCloseTo(1 / Math.cos(lat), 0)
+  })
+
+  it('reports the vertices the survey never reached', () => {
+    const patchy = grid(720, 360, (_, r) => (r < 10 ? GRID_GAP : 100))
+    const pole = lonLatToDirection(0, (88 * Math.PI) / 180)
+    const dirs = Float32Array.from([...pole, ...lonLatToDirection(0, 0)])
+    const seen = sampleStructure(patchy, dirs, 2, 100, R0_KM)
+    expect(seen.unsurveyed).toBe(1)
+    expect(Number.isNaN(seen.value[0])).toBe(true)
+    expect(Number.isNaN(seen.value[1])).toBe(false)
+  })
+
+  // A hole in a field the solver reads is not a missing number, it is a number
+  // that turns everything it touches into NaN. Filling from the measured edge
+  // inwards says the honest thing instead: as far as anyone knows, like its
+  // neighbour.
+  it('fills a hole from the crust around it', () => {
+    // A strip of four vertices, holed in the middle: 0 - 1 - 2 - 3.
+    const field = Float32Array.from([10, NaN, NaN, 20])
+    const indices = Uint32Array.from([0, 1, 2, 1, 2, 3])
+    expect(fillGaps(field, indices)).toBe(2)
+    expect(field.every(Number.isFinite)).toBe(true)
+    expect(field[1]).toBeGreaterThan(9)
+    expect(field[2]).toBeLessThan(21)
+  })
+
+  it('leaves nothing NaN even when every neighbour is a hole too', () => {
+    const field = Float32Array.from([NaN, NaN, NaN])
+    fillGaps(field, Uint32Array.from([0, 1, 2]))
+    expect(field.every(Number.isFinite)).toBe(true)
+  })
+})
+
+describe('the gravity grid in the repository', () => {
+  const file = resolve(import.meta.dirname, '../data-src/vgg.grid')
+  const present = existsSync(file)
+
+  // The dataset is committed, so this is a check on the file itself rather than
+  // on anything computed: it is what the crustal fabric is read from, and a
+  // truncated or re-fetched-and-different file should fail here rather than
+  // show up as a globe that looks slightly wrong.
+  it.runIf(present)('covers the planet at a tenth of a degree, land included', () => {
+    const grid = readGrid(readFileSync(file))
+    expect([grid.width, grid.height]).toEqual([3600, 1800])
+    expect(grid.units).toBe('vgg (Eotvos)')
+
+    let covered = 0
+    let total = 0
+    for (let row = 0; row < grid.height; row++) {
+      const weight = Math.cos(Math.PI * (0.5 - (row + 0.5) / grid.height))
+      for (let column = 0; column < grid.width; column++) {
+        total += weight
+        if (grid.samples[row * grid.width + column] !== GRID_GAP) covered += weight
+      }
+    }
+    expect(covered / total).toBeGreaterThan(0.98)
+
+    // Land specifically. The altimetry stops at about 81 degrees and nowhere
+    // else, so a grid that only surveyed the sea would fail here while still
+    // passing the figure above.
+    const land: Array<[number, number]> = [
+      [-100, 40], [25, 55], [80, 25], [-60, -10], [20, 0], [135, -25],
+    ]
+    for (const [lon, lat] of land) {
+      const column = Math.floor(((lon + 180) / 360) * grid.width)
+      const row = Math.floor(((90 - lat) / 180) * grid.height)
+      expect(grid.samples[row * grid.width + column], `${lon}, ${lat}`).not.toBe(GRID_GAP)
+    }
   })
 })

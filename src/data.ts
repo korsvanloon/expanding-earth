@@ -59,6 +59,18 @@ export interface Dataset {
   thickness: Float32Array
   /** Crustal type index at each vertex; see shared/crust.ts CRUST_TYPES. */
   crustType: Uint8Array
+  /**
+   * The vertical gravity gradient at each vertex, Eotvos, and how fast it
+   * changes nearby, Eotvos per 100 km.
+   *
+   * The second is the useful one. It is a map of how worked the crust is --
+   * flat over a platform, violent over an orogen or a fracture zone -- at a
+   * tenth of a degree over land and sea alike, where the crustal classification
+   * this model has been using is one name per square degree. See
+   * tools/lib/structure.ts.
+   */
+  gravity: Float32Array
+  gravityRoughness: Float32Array
   radiusKm: number[]
 }
 
@@ -91,6 +103,12 @@ export async function loadDataset(): Promise<Dataset> {
   offset += faceCount * 4
   const faceThickness = new Float32Array(mesh, offset, faceCount)
   offset += faceCount * 4
+  // Already per vertex: the gravity grid is ten times finer than a triangle, so
+  // it was sampled at the points rather than averaged over the faces.
+  const gravityFabric = new Float32Array(mesh, offset, vertexCount)
+  offset += vertexCount * 4
+  const gravityRoughness = new Float32Array(mesh, offset, vertexCount)
+  offset += vertexCount * 4
   offset += vertexCount * 4 // origin vertex, needed only by the solver
   offset += cutPairCount * 8 // fracture constraints, needed only by the solver
   offset += faceCount * 2 // per-face fragment, unused
@@ -147,6 +165,8 @@ export async function loadDataset(): Promise<Dataset> {
     rigidity: vertexRigidity,
     thickness: vertexThickness,
     crustType: vertexType,
+    gravity: gravityFabric,
+    gravityRoughness,
     tracks: tracks ? readTracks(tracks) : undefined,
     radiusKm: meta.crustModels[0].radiusKm,
   }

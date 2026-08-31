@@ -159,6 +159,17 @@ export interface Meta {
   /** Calibration of the height map against the age grid; see tools/build-data.ts. */
   depthAgeFit: { slope: number; intercept: number; r2: number; sampleCount: number }
 
+  /**
+   * How worked each kind of crust is, from the vertical gravity gradient.
+   *
+   * Eotvos per 100 km, over the mesh's vertices grouped by ECM1's
+   * classification of them. It is here because it is the check on whether the
+   * gravity grid says anything the classification does not: the medians have to
+   * separate a platform from an orogen, and the spread inside each type is the
+   * part no classification can see. See tools/lib/structure.ts.
+   */
+  crustalFabric: { type: string; median: number; low: number; high: number }[]
+
   /** Crust-classification variants. The first entry is the one that was solved. */
   crustModels: CrustModel[]
   solvedModel: CrustModelId

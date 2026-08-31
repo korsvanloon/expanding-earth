@@ -4,12 +4,14 @@ in float aIsland;
 in float aAge;
 in float aStrain;
 in float aRigidity;
+in float aFabric;
 
 out vec3 vDir;
 out float vIsland;
 out float vAge;
 out float vStrain;
 out float vRigidity;
+out float vFabric;
 out vec3 vNormal;
 
 void main() {
@@ -18,6 +20,7 @@ void main() {
   vAge = aAge;
   vStrain = aStrain;
   vRigidity = aRigidity;
+  vFabric = aFabric;
   // The mesh is always a sphere, so the outward normal is just the position.
   vNormal = normalize(mat3(modelMatrix) * normalize(position));
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -30,7 +33,7 @@ precision highp float;
 uniform sampler2D uMap;
 uniform float uTimeMa;
 uniform float uMaxAgeMa;
-uniform int uMode;        // 0 surface, 1 crustal age, 2 strain
+uniform int uMode;        // 0 surface, 1 crustal age, 2 strain, 3 rigidity, 4 islands, 5 fabric
 uniform float uGrid;
 uniform vec3 uLight;
 /** Below 1 the shell turns to glass, so the mesh and the far side show through. */
@@ -41,6 +44,7 @@ in float vIsland;
 in float vAge;
 in float vStrain;
 in float vRigidity;
+in float vFabric;
 in vec3 vNormal;
 
 out vec4 fragColor;
@@ -131,6 +135,23 @@ vec3 islandRamp(float id) {
   return srgbToLinear(mix(vec3(0.55), c, 0.75));
 }
 
+/**
+ * How worked the crust is, from the gravity gradient. One hue, dark where the
+ * crust has been left alone and bright where it has been cut about, because
+ * this is a magnitude and not two things either side of a middle.
+ *
+ * The scale is logarithmic on purpose. Roughness runs from about 7 Eotvos per
+ * 100 km over a platform to over 600 along a continental arc, and on a linear
+ * ramp the whole ocean floor and every shield come out the same near-black.
+ */
+vec3 fabricRamp(float roughness) {
+  float t = clamp(log2(max(roughness, 4.0) / 8.0) / log2(512.0 / 8.0), 0.0, 1.0);
+  vec3 quiet = vec3(0.09, 0.11, 0.16);
+  vec3 middle = vec3(0.29, 0.42, 0.55);
+  vec3 busy = vec3(0.97, 0.87, 0.62);
+  return srgbToLinear(t < 0.55 ? mix(quiet, middle, t / 0.55) : mix(middle, busy, (t - 0.55) / 0.45));
+}
+
 /** Weak crust dark red through to rigid craton pale, so the necks stand out. */
 vec3 rigidityRamp(float r) {
   vec3 weak = vec3(0.62, 0.16, 0.20);
@@ -156,6 +177,8 @@ void main() {
     base = surface(vDir);
   } else if (uMode == 3) {
     base = rigidityRamp(vRigidity);
+  } else if (uMode == 5) {
+    base = fabricRamp(vFabric);
   } else if (uMode == 4) {
     // Crust belonging to no island is the ground that is free to deform, and
     // it is shown as the surface it is rather than as a blank, so the islands
