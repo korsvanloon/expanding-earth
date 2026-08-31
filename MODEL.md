@@ -149,15 +149,15 @@ the answer is probably not everywhere.
 ### Whether it lands where it should
 
 <!-- from-the-run: fits -->
-| pair | should be touching by | apart then | closest anywhere in the run |
-|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0 km | 0 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 71 km | 21 km at 165 Ma |
-| India &ndash; Africa | 120 Ma | 96 km | 79 km at 105 Ma |
-| Greenland &ndash; North America | 60 Ma | 0 km | 0 km at 10 Ma |
-| North America &ndash; Africa | 190 Ma | 96 km | 94 km at 180 Ma |
-| Antarctica &ndash; South America | watched, not scored | &mdash; | 0 km at 120 Ma |
-| Australia &ndash; North America | watched, not scored | &mdash; | 2689 km at 200 Ma |
+| pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
+|---|---|---|---|---|---|---|
+| South America &ndash; Africa | 180 Ma | 0% | 21% | +21 | 0 km | 0 km at 120 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 16% | +16 | 71 km | 21 km at 165 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 9% | +9 | 96 km | 79 km at 105 Ma |
+| Greenland &ndash; North America | 60 Ma | 38% | 36% | -2 | 0 km | 0 km at 10 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 9% | +9 | 96 km | 94 km at 180 Ma |
+| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 0 km | 0 km at 120 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2689 km | 2689 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -165,12 +165,25 @@ Expanding Earth agree on. Reconstructions puzzled together by hand are
 deliberately excluded: whether Australia or Antarctica ends up against the west
 coast of South America is something the model should be allowed to answer.
 
-Read that table with more suspicion than its numbers invite. It reports the
-closest approach between two continents, and a closest approach is not a fit:
-one corner brushing another reads as zero while the margins alongside it are
-nowhere near nesting, which is exactly what South America against Africa does
-in the shipped run. The number says the two touched somewhere; it says nothing
-about whether the coastlines match. Judge the assembly by looking at it.
+A fit is a length of coastline in contact, not a distance, and this table used
+to report only the distance. A closest approach of zero says the two touched
+somewhere; it says nothing about whether the margins nest. South America against
+Africa is exactly that case — 0 km apart with a fifth of the shorter margin
+against the other, and visibly wrong on the globe. Contact is counted where two
+margins come within 200 km, about two triangles of this mesh, below which the
+resolution cannot tell touching from adjacent.
+
+Two things in that table matter more than the levels.
+
+**Nothing here can reach 100%.** The west coast of South America can never lie
+against Africa, so only the part of a margin that faces the other continent is
+ever available. Read the gain, not the level.
+
+**One of the five scored fits proves nothing.** Greenland and North America are
+already in contact along 38% of Greenland's margin today and the run ends at
+36%, so no reconstruction can fail it. It has been carried as a success for a
+long time on the strength of a 0 km closest approach that was already 0 km
+before the solver started. There are four independent checks, not five.
 
 The distances are also less certain than a figure in kilometres suggests. Two
 runs of the same model that differ only in the last bit of a floating-point
@@ -249,12 +262,11 @@ with the figures in this document.**
   survive treating that deep water as continent instead is simply unknown. A run
   now takes minutes, so this is affordable to answer and has not been.
 
-- **The fit scorecard is not a fit.** It reports the smallest distance between
-  two continents, so one corner brushing another scores zero while the margins
-  beside it are nowhere near nesting — which is what South America against
-  Africa does in the shipped run, and it looks wrong on the globe while reading
-  0 km in the table. Whatever replaces it has to compare the shapes of the
-  margins, not their nearest points.
+- **The scorecard has one fewer check than it appears to.** Greenland against
+  North America is in contact along 38% of Greenland's margin today and 36% at
+  60 Ma, so it cannot be failed and never could be. Four of the five scored
+  fits are real tests. The measure itself is now a length of margin in contact
+  rather than a closest approach, which is what exposed this.
 
 - **The conjugate-margin pairing is gone, and with it a known pathology.**
   Letting the fronts run without limit closed better and did Gondwana well, yet

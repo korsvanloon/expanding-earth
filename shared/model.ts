@@ -106,7 +106,26 @@ export interface Meta {
   endTimeMa: number
 
   /** Distance in km between each scored pair, per recorded frame. */
-  scorecard: { a: string; b: string; joinedByMa: number; note: string; separationKm: number[] }[]
+  scorecard: {
+    a: string
+    b: string
+    joinedByMa: number
+    note: string
+    /** Closest approach between the two, per recorded frame. */
+    separationKm: number[]
+    /**
+     * How much of the shorter of the two margins lies against the other, as a
+     * fraction of it, per recorded frame.
+     *
+     * The closest approach on its own is not a fit and never was: one corner
+     * brushing another reads as 0 km while the coastlines beside it are
+     * thousands of kilometres from nesting, which is exactly what South America
+     * and Africa do in this model -- 0 km on the scorecard and visibly wrong on
+     * the globe. A fit is a length of margin in contact, so that is what this
+     * measures. Zero means they touch at a point or not at all.
+     */
+    matchedFraction: number[]
+  }[]
 
   diagnostics: FrameDiagnostics[]
   /**

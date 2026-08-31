@@ -41,12 +41,18 @@ export function runBlocks(meta: Meta): Record<string, string> {
     // are supposed to have been joined. The closest approach anywhere in the run
     // flatters it: a pair can brush past at the wrong time entirely and still
     // report zero, which is worth showing side by side rather than instead.
-    const due = s.joinedByMa > 0
-      ? `${(s.separationKm[Math.round(s.joinedByMa / meta.frameStepMa)] ?? NaN).toFixed(0)} km`
-      : '&mdash;'
+    const i = Math.min(
+      s.separationKm.length - 1,
+      Math.round((s.joinedByMa > 0 ? s.joinedByMa : meta.endTimeMa) / meta.frameStepMa),
+    )
+    const held = s.matchedFraction[i] ?? 0
+    const already = s.matchedFraction[0] ?? 0
+    const share = (x: number) => `${(100 * x).toFixed(0)}%`
     return `| ${name(s.a)} &ndash; ${name(s.b)} | ` +
-      `${s.joinedByMa > 0 ? `${s.joinedByMa} Ma` : 'watched, not scored'} | ` +
-      `${due} | ${closest.toFixed(0)} km at ${when} Ma |`
+      `${s.joinedByMa > 0 ? `${s.joinedByMa} Ma` : 'watched'} | ` +
+      `${share(already)} | ${share(held)} | ` +
+      `${(100 * (held - already) >= 0 ? '+' : '')}${(100 * (held - already)).toFixed(0)} | ` +
+      `${s.separationKm[i].toFixed(0)} km | ${closest.toFixed(0)} km at ${when} Ma |`
   })
 
   return {
@@ -57,8 +63,9 @@ export function runBlocks(meta: Meta): Record<string, string> {
     ].join('\n'),
 
     fits: [
-      '| pair | should be touching by | apart then | closest anywhere in the run |',
-      '|---|---|---|---|',
+      '| pair | joined by | margin in contact today | then | gain | apart then |'
+        + ' closest anywhere |',
+      '|---|---|---|---|---|---|---|',
       ...fits,
     ].join('\n'),
 

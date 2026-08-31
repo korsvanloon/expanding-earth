@@ -64,6 +64,17 @@ import { buildIcosphere } from './lib/icosphere.js'
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(ROOT, 'public/data')
 
+/**
+ * How near two margins have to be to count as in contact, km.
+ *
+ * A triangle is about a degree across, so a hundred kilometres is roughly one
+ * of them and this is two: below that a mesh at this resolution cannot say
+ * whether two coastlines are touching or merely adjacent. Not a tolerance
+ * chosen to flatter the fit -- raising it would inflate every figure at once,
+ * which is why it is stated here rather than tuned per pair.
+ */
+const CONTACT_KM = Number(process.env.CONTACT_KM ?? 200)
+
 const CONFIG = {
   /** Integration step, Myr. Small enough that each step is a small nudge. */
   stepMa: 1,
@@ -303,7 +314,34 @@ function main() {
     }
     regionVertices.set(region.id, list)
   }
+  /**
+   * The seaward edge of each continent: a point of permanent crust with a
+   * neighbour that is not permanent.
+   *
+   * The regions themselves are lat/lon rectangles intersected with continental
+   * crust, so their outlines are part coastline and part box edge. Asking which
+   * points have oceanic neighbours gets the coastline alone, which is the thing
+   * a fit is a fit between.
+   */
+  const regionMargin = new Map<string, number[]>()
+  for (const region of REGIONS) {
+    const margin: number[] = []
+    for (const v of regionVertices.get(region.id) ?? []) {
+      for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+        if (vertexAge[adjacency.neighbours[k]] < PERMANENT_MA) {
+          margin.push(v)
+          break
+        }
+      }
+    }
+    regionMargin.set(region.id, margin)
+  }
+  console.log(
+    `[solve] margins: ${REGIONS.map((r) => `${r.id} ${regionMargin.get(r.id)?.length ?? 0}`).join(', ')}`,
+  )
+
   const separation = new Map<string, number[]>()
+  const matched = new Map<string, number[]>()
 
   const track = new Map<string, { first: number[]; last: number[]; walked: number }>()
   const regionCentre = (id: string) => {
@@ -373,9 +411,52 @@ function main() {
       }
       return Math.acos(Math.min(1, Math.max(-1, best))) * radiusAt(t)
     }
+    /**
+     * How much of the shorter margin lies against the other one.
+     *
+     * Measured from the shorter of the two on purpose: the question for India
+     * against Africa is whether India's western margin lies along Africa, not
+     * whether most of Africa's coastline lies along India, which it never could.
+     * Points are counted rather than arc length measured -- a geodesic mesh
+     * spaces them near evenly, and collapse thins them without favouring one
+     * stretch of coast over another.
+     */
+    const matchedShare = (a: string, b: string) => {
+      const here = (regionMargin.get(a) ?? []).length <= (regionMargin.get(b) ?? []).length ? a : b
+      const there = here === a ? b : a
+      const mine = regionMargin.get(here) ?? []
+      const theirs = regionMargin.get(there) ?? []
+      if (!mine.length || !theirs.length) return 0
+      const r = radiusAt(t)
+      // A margin closer than this cannot be resolved by a mesh whose triangles
+      // are about a degree across, so anything nearer counts as in contact.
+      const touching = Math.cos(CONTACT_KM / r)
+      const seen = new Set<number>()
+      let count = 0
+      let close = 0
+      for (const v of mine) {
+        const p = mesh.survivor(v)
+        if (seen.has(p)) continue
+        seen.add(p)
+        count++
+        const i = p * 3
+        const pl = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+        const px = pos[i] / pl, py = pos[i + 1] / pl, pz = pos[i + 2] / pl
+        for (const w of theirs) {
+          const q = mesh.survivor(w) * 3
+          const ql = length3(pos[q], pos[q + 1], pos[q + 2]) || 1
+          if (px * (pos[q] / ql) + py * (pos[q + 1] / ql) + pz * (pos[q + 2] / ql) >= touching) {
+            close++
+            break
+          }
+        }
+      }
+      return count ? close / count : 0
+    }
     for (const target of FIT_TARGETS) {
       const key = `${target.a}|${target.b}`
       separation.set(key, [...(separation.get(key) ?? []), closest(target.a, target.b)])
+      matched.set(key, [...(matched.get(key) ?? []), matchedShare(target.a, target.b)])
     }
 
     const found = findPlates(
@@ -559,22 +640,29 @@ function main() {
       scorecard: FIT_TARGETS.map((target) => ({
         ...target,
         separationKm: separation.get(`${target.a}|${target.b}`) ?? [],
+        matchedFraction: matched.get(`${target.a}|${target.b}`) ?? [],
       })),
     } satisfies Meta),
   )
-  console.log('[solve] fit scorecard, closest approach:')
+  // Both numbers, because they disagree and the disagreement is the point: the
+  // closest approach can read zero on a pair that has only brushed at a corner,
+  // which is what a fit measured as a distance rather than as a length of margin
+  // has always been able to hide.
+  console.log('[solve] fit scorecard:')
   for (const target of FIT_TARGETS) {
     const km = separation.get(`${target.a}|${target.b}`) ?? []
+    const share = matched.get(`${target.a}|${target.b}`) ?? []
     const step = meta.frameStepMa
     // A watched pair has no time it should have met; read it at the end.
     const watched = target.joinedByMa === 0
     const when = watched ? endTimeMa : target.joinedByMa
-    const at = km[Math.min(km.length - 1, Math.round(when / step))]
+    const i = Math.min(km.length - 1, Math.round(when / step))
     console.log(
       `  ${(target.a + ' - ' + target.b).padEnd(30)} ` +
-        `now ${km[0].toFixed(0).padStart(6)} km   ` +
-        `at ${String(when).padStart(3)} Ma ${at.toFixed(0).padStart(6)} km` +
-        `   ${watched ? '(watched, not scored)' : '(should be touching)'}`,
+        `at ${String(when).padStart(3)} Ma:  ${km[i].toFixed(0).padStart(5)} km apart,  ` +
+        `${(100 * (share[i] ?? 0)).toFixed(0).padStart(3)}% of the shorter margin in contact  ` +
+        `(best ${(100 * Math.max(...share)).toFixed(0)}% at ${share.indexOf(Math.max(...share)) * step} Ma)` +
+        `${watched ? '   [watched, not scored]' : ''}`,
     )
   }
   console.log('[solve] where each continent ended up, against where it sits today:')

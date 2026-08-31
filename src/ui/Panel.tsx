@@ -199,17 +199,25 @@ export function Panel({ data }: { data: Dataset }) {
                     Math.round(fit.joinedByMa / meta.frameStepMa),
                   )
               const km = fit.separationKm[index] ?? 0
-              const now = fit.separationKm[0] ?? 0
+              // How much margin is in contact, against how much already was
+              // today. A pair that starts in contact has nothing to prove, and
+              // one of these does: it is the gain that is evidence, not the
+              // level.
+              const held = fit.matchedFraction[index] ?? 0
+              const already = fit.matchedFraction[0] ?? 0
+              const gained = held - already
               return (
                 <tr key={`${fit.a}-${fit.b}`} title={fit.note}>
                   <th>
                     {label(fit.a)} – {label(fit.b)}
                   </th>
                   <td>{watched ? `${meta.endTimeMa} Ma` : `${fit.joinedByMa} Ma`}</td>
-                  <td className={watched ? 'watched' : km < 300 ? 'good' : km < 1000 ? 'fair' : 'poor'}>
-                    {Math.round(km)} km
+                  <td className={watched ? 'watched' : gained > 0.15 ? 'good' : gained > 0.05 ? 'fair' : 'poor'}>
+                    {Math.round(100 * held)}%
                   </td>
-                  <td className="was">was {Math.round(now)}</td>
+                  <td className="was">
+                    {already > 0.02 ? `${Math.round(100 * already)}% already` : `${Math.round(km)} km apart`}
+                  </td>
                 </tr>
               )
             })}
@@ -219,12 +227,14 @@ export function Panel({ data }: { data: Dataset }) {
           The first five are pairs whose former adjacency is independently supported. The last two
           are watched rather than scored: where Antarctica and Australia end up as the Pacific
           shuts is the open question here, and the hand-assembled reconstructions that answer it
-          are not evidence. Shown is the closest approach still
-          between them at the time they should be touching -- the gap between their nearest
-          coasts, not between their centres, which stay thousands of kilometres apart even when two
-          continents are pressed against each other. Reconstructions puzzled together by hand are
-          left out on purpose: where Australia and Antarctica end up relative to South America is
-          something this model should be allowed to answer, not something to steer it towards.
+          are not evidence. Shown is how much of the shorter of the two margins lies against the
+          other at the time they should have been joined, with what was already in contact today
+          beside it. A fit is a length of coastline, not a distance: this used to report the closest
+          approach, where one corner brushing another read as 0 km while the coasts alongside were
+          nowhere near nesting. Note that Greenland and North America start at 38% and end at 36%,
+          so that fit is not one the reconstruction achieves &mdash; it was there to begin with.
+          Nothing here reaches 100%: the west coast of South America can never lie against Africa,
+          so read the gain rather than the level.
         </p>
       </section>
 
@@ -301,9 +311,14 @@ function Method({ data }: { data: Dataset }) {
           the crust tiles to a few thousandths of a percent and no finer.
         </li>
         <li>
-          The fit scorecard reports the closest approach between two continents, which is not the
-          same as a fit: one corner brushing another reads as 0 km while the margins alongside it
-          are nowhere near nesting. Look at the shapes, not only the number.
+          One of the five scored fits proves nothing. Greenland and North America are already in
+          contact along 38% of Greenland&rsquo;s margin today, and the reconstruction ends at 36%,
+          so it cannot be failed by any run. Four independent checks, not five.
+        </li>
+        <li>
+          Contact is counted where two margins come within 200 km, about two triangles of this
+          mesh. Below that this resolution cannot tell touching from adjacent. Raising it would
+          inflate every figure at once.
         </li>
         <li>
           Rigid crust cannot lie on a sphere of different curvature — Gauss's Theorema Egregium — so
