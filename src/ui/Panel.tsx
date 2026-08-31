@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { SURFACE_MAPS } from '@shared/maps'
 import { R0_KM, REGIONS, surfaceGravity } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
-import { useStore, type ViewMode } from '@/store'
+import { describePicks, useStore, type ViewMode } from '@/store'
 import { Chart, valueAt } from './Chart'
 import { useClockTime } from './useClockTime'
 
@@ -190,6 +190,8 @@ export function Panel({ data }: { data: Dataset }) {
           corners, where crust is hardest to miss, and meant nothing.
         </p>
       </section>
+
+      <PickedPoints />
 
       <section>
         <h2>Is anything still moving?</h2>
@@ -393,5 +395,31 @@ function Method({ data }: { data: Dataset }) {
         model of the idea, built so its failures are visible, not an argument that it is true.
       </p>
     </div>
+  )
+}
+
+/**
+ * The crust the user has right-clicked, and nothing else.
+ *
+ * Hidden until something is picked: it is a tool for saying "these two should
+ * have been touching", not a permanent part of the read-out. The text is
+ * already on the clipboard by the time this appears; showing it is so you can
+ * see you clicked what you meant to.
+ */
+function PickedPoints() {
+  const picks = useStore((s) => s.picks)
+  const clearPicks = useStore((s) => s.clearPicks)
+  if (!picks.length) return null
+  return (
+    <section>
+      <h2>Picked points</h2>
+      <pre className="picks">{describePicks(picks)}</pre>
+      <p className="caption">
+        Copied. Right-click the globe to add another; the last six are kept.{' '}
+        <button type="button" className="linkish" onClick={clearPicks}>
+          clear
+        </button>
+      </p>
+    </section>
   )
 }

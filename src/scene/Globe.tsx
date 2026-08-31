@@ -1,11 +1,13 @@
-import { useFrame, useLoader, useThree } from '@react-three/fiber'
+import { useFrame, useLoader, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
 import { buildIndex, sampleFrame, type Dataset } from '@/data'
 import { buildReferenceRotations } from '@/frames'
-import { clock, onClockMoved, useStore } from '@/store'
+import { clock, describePicks, onClockMoved, useStore, type Pick } from '@/store'
+import { directionToUv } from '@shared/sphere'
+import { PERMANENT_MA } from '@shared/model'
 import { fragmentShader, vertexShader } from './shaders'
 
 const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, islands: 4 } as const
@@ -141,6 +143,69 @@ export function Globe({ data }: { data: Dataset }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- retopo reads refs
   }, [data, buffers, geometry])
 
+  /**
+   * Right-click a piece of crust to copy what it is.
+   *
+   * The point of this is the vertex index. Longitude and latitude are for
+   * reading; the index is the same piece of crust in every frame and in every
+   * run, so "these two should have been touching at 130 Ma" can be turned into
+   * a number the solver reports from then on. An eye is the only instrument
+   * that can say the whole thing looks wrong, and this is how what it saw
+   * survives being seen once.
+   */
+  const pickAt = (event: ThreeEvent<MouseEvent>) => {
+    event.nativeEvent.preventDefault()
+    event.stopPropagation()
+    const face = event.face
+    if (!face) return
+    // The triangle it hit has three corners; the nearest of them is the answer.
+    // Anything finer would be a point between vertices, which is not a piece of
+    // crust this model knows anything about.
+    let vertex = face.a
+    let nearest = Infinity
+    for (const v of [face.a, face.b, face.c]) {
+      const d = (buffers.positions[v * 3] - event.point.x) ** 2
+        + (buffers.positions[v * 3 + 1] - event.point.y) ** 2
+        + (buffers.positions[v * 3 + 2] - event.point.z) ** 2
+      if (d < nearest) {
+        nearest = d
+        vertex = v
+      }
+    }
+    const degrees = (x: number, y: number, z: number) => {
+      const length = Math.hypot(x, y, z) || 1
+      const [u, w] = directionToUv(x / length, y / length, z / length)
+      return [(u - 0.5) * 360, (w - 0.5) * 180]
+    }
+    const [todayLon, todayLat] = degrees(
+      data.dirs[vertex * 3], data.dirs[vertex * 3 + 1], data.dirs[vertex * 3 + 2],
+    )
+    const [thenLon, thenLat] = degrees(
+      buffers.positions[vertex * 3],
+      buffers.positions[vertex * 3 + 1],
+      buffers.positions[vertex * 3 + 2],
+    )
+    const frame = Math.min(
+      Math.round(clock.timeMa / data.meta.frameStepMa), data.meta.frameCount - 1,
+    )
+    const age = data.vertexAge[vertex]
+    const pick: Pick = {
+      vertex,
+      todayLon,
+      todayLat,
+      timeMa: clock.timeMa,
+      thenLon,
+      thenLat,
+      ageMa: age >= PERMANENT_MA ? null : age,
+      island: data.islands[vertex],
+      block: data.plates[frame * data.vertexCount + vertex],
+      referenceFrame,
+    }
+    const { addPick, picks } = useStore.getState()
+    addPick(pick)
+    void navigator.clipboard?.writeText(describePicks([...picks, pick].slice(-6)))
+  }
+
   useFrame(({ camera, invalidate }, delta) => {
     const { playing, speed } = useStore.getState()
     if (playing) {
@@ -183,7 +248,7 @@ export function Globe({ data }: { data: Dataset }) {
 
   return (
     <>
-      <mesh geometry={geometry} frustumCulled={false}>
+      <mesh geometry={geometry} frustumCulled={false} onContextMenu={pickAt}>
         <shaderMaterial
           ref={material}
           vertexShader={vertexShader}
