@@ -1,6 +1,9 @@
 import { useFrame, useLoader, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useMemo, useRef } from 'react'
 import * as THREE from 'three'
+import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
+import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
+import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
 import { buildIndex, sampleFrame, type Dataset } from '@/data'
@@ -78,6 +81,7 @@ export function Globe({ data }: { data: Dataset }) {
    * for the same depth and come out stitched.
    */
   const LIFT = 1.004
+  const size = useThree((state) => state.size)
   const overlay = useMemo(() => {
     const t = data.tracks
     if (!t) return null
@@ -87,51 +91,76 @@ export function Globe({ data }: { data: Dataset }) {
         path.push(t.vertex[p], t.vertex[p + 1])
       }
     }
-    const line = (count: number) => {
-      const g = new THREE.BufferGeometry()
-      g.setAttribute(
-        'position',
-        new THREE.BufferAttribute(new Float32Array(count * 3), 3)
-          .setUsage(THREE.DynamicDrawUsage),
-      )
-      g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2)
-      return g
+    /**
+     * Thick lines need geometry, not a line width.
+     *
+     * WebGL draws every GL_LINE one pixel wide and silently ignores anything
+     * else, so a hairline is all a lineBasicMaterial can ever give. LineSegments2
+     * builds each segment as a screen-facing quad instead, which is why it wants
+     * the viewport size: the width is in pixels and it has to do the projection
+     * itself.
+     */
+    const line = (count: number, color: string, widthPx: number) => {
+      const geometry = new LineSegmentsGeometry()
+      const material = new LineMaterial({
+        color: new THREE.Color(color),
+        linewidth: widthPx,
+        depthWrite: false,
+        toneMapped: false,
+      })
+      // One degenerate segment to start with. The geometry is instanced and
+      // has no attributes until it is given positions, and everything that
+      // touches it -- including three's own bookkeeping -- reads their count.
+      geometry.setPositions(new Float32Array(6))
+      geometry.instanceCount = 0
+      const object = new LineSegments2(geometry, material)
+      object.frustumCulled = false
+      // Drawn after the globe, whatever the depth sorting decides.
+      //
+      // An opaque object that writes no depth is at the mercy of render order,
+      // and the order is near-to-far: a line lifted off the crust is nearer
+      // than the crust, so it went down first and the globe painted straight
+      // over it. Only the parts hanging past the silhouette survived, which
+      // looks exactly like a depth bug and is not one.
+      object.renderOrder = 2
+      return { geometry, material, object, points: new Float32Array(count * 3) }
     }
     return {
       path: Int32Array.from(path),
-      pathGeometry: line(path.length),
-      // Every pair gets room; only the ones due at the drawn frame are ever
-      // inside the draw range.
-      gapGeometry: line(t.pairA.length * 2),
+      pathLine: line(path.length, '#ff4fa3', 2.5),
+      // Every pair gets room; only the ones due at the drawn frame are written.
+      gapLine: line(t.pairA.length * 2, '#ffd24a', 4),
     }
   }, [data])
 
   useEffect(() => () => {
-    overlay?.pathGeometry.dispose()
-    overlay?.gapGeometry.dispose()
+    for (const l of [overlay?.pathLine, overlay?.gapLine]) {
+      l?.geometry.dispose()
+      l?.material.dispose()
+    }
   }, [overlay])
 
-  /** Copy the current positions of a list of vertices into a line geometry. */
+  /** Copy the current positions of a list of vertices into a thick line. */
   const drawLines = (
-    geometry: THREE.BufferGeometry, list: ArrayLike<number>, count: number,
+    line: { geometry: LineSegmentsGeometry; points: Float32Array },
+    list: ArrayLike<number>,
+    count: number,
   ) => {
-    const target = geometry.getAttribute('position') as THREE.BufferAttribute
-    const out = target.array as Float32Array
     for (let i = 0; i < count; i++) {
       const v = list[i] * 3
-      out[i * 3] = buffers.positions[v] * LIFT
-      out[i * 3 + 1] = buffers.positions[v + 1] * LIFT
-      out[i * 3 + 2] = buffers.positions[v + 2] * LIFT
+      line.points[i * 3] = buffers.positions[v] * LIFT
+      line.points[i * 3 + 1] = buffers.positions[v + 1] * LIFT
+      line.points[i * 3 + 2] = buffers.positions[v + 2] * LIFT
     }
-    geometry.setDrawRange(0, count)
-    target.needsUpdate = true
+    line.geometry.setPositions(count ? line.points.subarray(0, count * 3) : new Float32Array(6))
+    line.geometry.instanceCount = count / 2
   }
 
   /** The pairs whose crust formed at the frame being drawn, and nothing else. */
   const dueNow = useMemo(() => new Int32Array((data.tracks?.pairA.length ?? 0) * 2), [data])
   const refreshOverlay = () => {
     if (!overlay || !data.tracks) return
-    drawLines(overlay.pathGeometry, overlay.path, overlay.path.length)
+    drawLines(overlay.pathLine, overlay.path, overlay.path.length)
     const t = data.tracks
     const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
     let n = 0
@@ -140,7 +169,7 @@ export function Globe({ data }: { data: Dataset }) {
       dueNow[n++] = t.pairA[i]
       dueNow[n++] = t.pairB[i]
     }
-    drawLines(overlay.gapGeometry, dueNow, n)
+    drawLines(overlay.gapLine, dueNow, n)
   }
 
   // Built here rather than declared in JSX so the wireframe overlay can draw
@@ -189,6 +218,14 @@ export function Globe({ data }: { data: Dataset }) {
   // scrubbed, and every control that feeds a uniform.
   const invalidate = useThree((state) => state.invalidate)
   useEffect(() => onClockMoved(invalidate), [invalidate])
+  // A screen-space line width has to be told what the screen is.
+  useEffect(() => {
+    if (!overlay) return
+    for (const l of [overlay.pathLine, overlay.gapLine]) {
+      l.material.resolution.set(size.width, size.height)
+    }
+    invalidate()
+  }, [overlay, size, invalidate])
   useEffect(
     () => invalidate(),
     [invalidate, mode, showGrid, showMesh, showTracks, surfaceMap, referenceFrame, data],
@@ -350,16 +387,12 @@ export function Globe({ data }: { data: Dataset }) {
       </mesh>
       {showTracks && overlay && (
         <>
-          {/* The paths the crust took away from the ridges. Magenta because
+          {/* The paths the crust took away from the ridges, in magenta because
               nothing in the age ramp or the satellite imagery is. */}
-          <lineSegments geometry={overlay.pathGeometry} frustumCulled={false}>
-            <lineBasicMaterial color="#ff4fa3" transparent opacity={0.75} depthWrite={false} toneMapped={false} />
-          </lineSegments>
+          <primitive object={overlay.pathLine.object} />
           {/* One segment per pair that was a single point at this moment, so its
               length is the model's error, drawn. */}
-          <lineSegments geometry={overlay.gapGeometry} frustumCulled={false}>
-            <lineBasicMaterial color="#ffd24a" depthWrite={false} toneMapped={false} />
-          </lineSegments>
+          <primitive object={overlay.gapLine.object} />
         </>
       )}
       {showMesh && (
