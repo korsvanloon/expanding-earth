@@ -10,12 +10,12 @@ pnpm install
 pnpm dev         # generates the reconstruction on first run, then serves it
 ```
 
-The first `pnpm dev` spends about four minutes building the data from
+The first `pnpm dev` spends under three minutes building the data from
 `public/textures/age-map.png`, then caches it. `pnpm data` rebuilds it, and
 notices when any file under `tools/` or `shared/` has changed.
 
 While tweaking the solver, `SUBDIV=5 pnpm data` does the whole two hundred
-million years in under a minute on a quarter of the triangles. It is a different
+million years in forty seconds on a quarter of the triangles. It is a different
 model rather than a cheaper view of the same one — its fits are its own, so use
 it to see which way a parameter moves things and not for a number worth
 quoting.
@@ -71,8 +71,8 @@ pnpm blocks by default and vite needs to build.
 | | |
 |---|---|
 | `pnpm dev` | generate data if stale, then serve |
-| `pnpm data` | rebuild the reconstruction (~4 min) |
-| `SUBDIV=5 pnpm data` | coarse draft for tweaking (~1 min) |
+| `pnpm data` | rebuild the reconstruction (~3 min) |
+| `SUBDIV=5 pnpm data` | coarse draft for tweaking (~40 s) |
 | `pnpm build` | production build |
 | `pnpm artifact` | build a single self-contained HTML file |
 | `pnpm test` | unit tests |

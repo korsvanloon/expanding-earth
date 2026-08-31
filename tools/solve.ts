@@ -44,7 +44,7 @@ import {
 } from '../shared/model.js'
 import { CRATON_RIGIDITY, WEAK_RIGIDITY } from '../shared/crust.js'
 import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topology.js'
-import { directionToUv } from '../shared/sphere.js'
+import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
 import { unstretching } from './lib/unstretching.js'
 
@@ -236,7 +236,7 @@ function main() {
       const a = indices[f * 3 + k] * 3
       const b = indices[f * 3 + ((k + 1) % 3)] * 3
       restEdge[f * 3 + k] =
-        r0 * Math.hypot(dirs[a] - dirs[b], dirs[a + 1] - dirs[b + 1], dirs[a + 2] - dirs[b + 2])
+        r0 * length3(dirs[a] - dirs[b], dirs[a + 1] - dirs[b + 1], dirs[a + 2] - dirs[b + 2])
     }
     restArea[f] =
       solidAngle(dirs, indices[f * 3] * 3, indices[f * 3 + 1] * 3, indices[f * 3 + 2] * 3) * r0 * r0
@@ -369,10 +369,10 @@ function main() {
     let x = 0, y = 0, z = 0
     for (const v of regionVertices.get(id) ?? []) {
       const s = mesh.survivor(v) * 3
-      const length = Math.hypot(pos[s], pos[s + 1], pos[s + 2]) || 1
+      const length = length3(pos[s], pos[s + 1], pos[s + 2]) || 1
       x += pos[s] / length; y += pos[s + 1] / length; z += pos[s + 2] / length
     }
-    const length = Math.hypot(x, y, z) || 1
+    const length = length3(x, y, z) || 1
     return [x / length, y / length, z / length]
   }
   const followRegions = (radiusKm: number) => {
@@ -421,11 +421,11 @@ function main() {
       let best = -1
       for (let i = 0; i < one.length; i += 4) {
         const p = mesh.survivor(one[i]) * 3
-        const pl = Math.hypot(pos[p], pos[p + 1], pos[p + 2]) || 1
+        const pl = length3(pos[p], pos[p + 1], pos[p + 2]) || 1
         const px = pos[p] / pl, py = pos[p + 1] / pl, pz = pos[p + 2] / pl
         for (let j = 0; j < two.length; j += 4) {
           const q = mesh.survivor(two[j]) * 3
-          const ql = Math.hypot(pos[q], pos[q + 1], pos[q + 2]) || 1
+          const ql = length3(pos[q], pos[q + 1], pos[q + 2]) || 1
           const dot = px * (pos[q] / ql) + py * (pos[q + 1] / ql) + pz * (pos[q + 2] / ql)
           if (dot > best) best = dot
         }
@@ -516,7 +516,7 @@ function main() {
           const dx = pos[i] - pos[j]
           const dy = pos[i + 1] - pos[j + 1]
           const dz = pos[i + 2] - pos[j + 2]
-          const length = Math.hypot(dx, dy, dz)
+          const length = length3(dx, dy, dz)
           if (length < 1e-9) continue
           const c = (0.5 * stiffness * (length - target)) / length
           const cx = dx * c, cy = dy * c, cz = dz * c
@@ -681,7 +681,7 @@ function islandShape(
     for (let k = 0; k < 3; k++) centre[c * 3 + k] += dirs[i * 3 + k]
   }
   for (let c = 0; c < count; c++) {
-    const length = Math.hypot(centre[c * 3], centre[c * 3 + 1], centre[c * 3 + 2]) || 1
+    const length = length3(centre[c * 3], centre[c * 3 + 1], centre[c * 3 + 2]) || 1
     for (let k = 0; k < 3; k++) centre[c * 3 + k] /= length
   }
   const arcKm = new Float64Array(vertexCount)
@@ -693,7 +693,7 @@ function islandShape(
     const dot = Math.min(1, Math.max(-1, dirs[i * 3] * cx + dirs[i * 3 + 1] * cy + dirs[i * 3 + 2] * cz))
     arcKm[i] = Math.acos(dot) * r0
     const tx = dirs[i * 3] - cx * dot, ty = dirs[i * 3 + 1] - cy * dot, tz = dirs[i * 3 + 2] - cz * dot
-    const tl = Math.hypot(tx, ty, tz) || 1
+    const tl = length3(tx, ty, tz) || 1
     bearing[i * 3] = tx / tl; bearing[i * 3 + 1] = ty / tl; bearing[i * 3 + 2] = tz / tl
   }
   return { centre, arcKm, bearing }
@@ -750,7 +750,7 @@ function holdIslands(
       const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
       const qy = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
       const qz = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
-      const length = Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
+      const length = length3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
       const dx = pos[i * 3] / length - qx
       const dy = pos[i * 3 + 1] / length - qy
       const dz = pos[i * 3 + 2] / length - qz
@@ -769,7 +769,7 @@ function holdIslands(
         [v[c * 3], v[c * 3 + 1], v[c * 3 + 2]],
       )
       if (!omega) continue
-      const angle = Math.hypot(...omega)
+      const angle = length3(omega[0], omega[1], omega[2])
       if (angle < 1e-12 || angle > 0.5) continue
       compose(rotation, c * 9, omega[0] / angle, omega[1] / angle, omega[2] / angle, angle)
     }
@@ -838,8 +838,8 @@ function findPlates(
   const here = new Float64Array(vertexCount * 3)
   for (let v = 0; v < vertexCount; v++) {
     if (!mesh.vertexAlive[v]) continue
-    const now = Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
-    const then = Math.hypot(before[v * 3], before[v * 3 + 1], before[v * 3 + 2]) || 1
+    const now = length3(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
+    const then = length3(before[v * 3], before[v * 3 + 1], before[v * 3 + 2]) || 1
     for (let c = 0; c < 3; c++) {
       const u = pos[v * 3 + c] / now
       here[v * 3 + c] = u * now
@@ -878,7 +878,7 @@ function findPlates(
     const rx = omega[1] * pz - omega[2] * py
     const ry = omega[2] * px - omega[0] * pz
     const rz = omega[0] * py - omega[1] * px
-    return Math.hypot(
+    return length3(
       velocity[v * 3] - rx, velocity[v * 3 + 1] - ry, velocity[v * 3 + 2] - rz,
     )
   }
@@ -901,7 +901,7 @@ function findPlates(
     let n = 0
     for (const u of ring) {
       if (!mesh.vertexAlive[u]) continue
-      spread += Math.hypot(
+      spread += length3(
         velocity[u * 3] - velocity[v * 3],
         velocity[u * 3 + 1] - velocity[v * 3 + 1],
         velocity[u * 3 + 2] - velocity[v * 3 + 2],
@@ -1104,7 +1104,7 @@ function tiling(
   // have closed away, so a two-degree grid keeps a handful in each cell.
   for (const list of cellFaces) list.length = 0
   const cellOf = (x: number, y: number, z: number) => {
-    const length = Math.hypot(x, y, z) || 1
+    const length = length3(x, y, z) || 1
     const lat = Math.asin(Math.min(1, Math.max(-1, y / length)))
     const lon = Math.atan2(z / length, x / length)
     const row = Math.min(GRID_ROWS - 1, Math.floor(((lat + Math.PI / 2) / Math.PI) * GRID_ROWS))
@@ -1279,7 +1279,7 @@ function spreadingField(
       nz * helper[0] - nx * helper[2],
       nx * helper[1] - ny * helper[0],
     ]
-    const e1n = Math.hypot(e1[0], e1[1], e1[2]) || 1
+    const e1n = length3(e1[0], e1[1], e1[2]) || 1
     e1 = [e1[0] / e1n, e1[1] / e1n, e1[2] / e1n]
     const e2 = [
       ny * e1[2] - nz * e1[1],
@@ -1488,7 +1488,7 @@ function relaxToSphere(pos: Float64Array, vertexCount: number, r: number, stiffn
     const x = pos[i * 3]
     const y = pos[i * 3 + 1]
     const z = pos[i * 3 + 2]
-    const length = Math.hypot(x, y, z)
+    const length = length3(x, y, z)
     if (length < 1e-12) continue
     const s = 1 + stiffness * (r / length - 1)
     pos[i * 3] = x * s
@@ -1526,7 +1526,7 @@ function removeNetRotation(
   }
   const omega = solve3([axx, axy, axz, axy, ayy, ayz, axz, ayz, azz], [bx, by, bz])
   if (!omega) return
-  const angle = Math.hypot(...omega)
+  const angle = length3(omega[0], omega[1], omega[2])
   if (angle < 1e-12 || angle > 0.5) return
   const [ax, ay, az] = omega.map((v) => v / angle)
   const c = Math.cos(-angle)
@@ -1556,7 +1556,7 @@ function quantise(pos: Float64Array, vertexCount: number) {
   const out = new Int16Array(vertexCount * 3)
   for (let i = 0; i < vertexCount; i++) {
     const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
-    const length = Math.hypot(x, y, z) || 1
+    const length = length3(x, y, z) || 1
     out[i * 3] = Math.round((x / length) * 32767)
     out[i * 3 + 1] = Math.round((y / length) * 32767)
     out[i * 3 + 2] = Math.round((z / length) * 32767)
@@ -1570,7 +1570,7 @@ function quantise(pos: Float64Array, vertexCount: number) {
 function relief(pos: Float64Array, vertexCount: number, r: number) {
   let sum = 0
   for (let i = 0; i < vertexCount; i++) {
-    const d = Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) - r
+    const d = length3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) - r
     sum += d * d
   }
   return Math.sqrt(sum / vertexCount)
@@ -1596,7 +1596,7 @@ function faceStrain(
     const a = indices[f * 3] * 3
     const b = indices[f * 3 + 1] * 3
     const c = indices[f * 3 + 2] * 3
-    const radius = Math.hypot(pos[a], pos[a + 1], pos[a + 2]) || 1
+    const radius = length3(pos[a], pos[a + 1], pos[a + 2]) || 1
     const area = solidAngle(pos, a, b, c) * radius * radius
     out[f] = Math.sqrt(area / restArea[f]) - 1
   }
@@ -1690,7 +1690,7 @@ function perVertexStrain(
 
 function solidAngle(pos: ArrayLike<number>, a: number, b: number, c: number) {
   const n = (i: number) => {
-    const length = Math.hypot(pos[i], pos[i + 1], pos[i + 2]) || 1
+    const length = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
     return [pos[i] / length, pos[i + 1] / length, pos[i + 2] / length] as const
   }
   const [ax, ay, az] = n(a)

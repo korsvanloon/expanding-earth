@@ -47,8 +47,8 @@ export const CONFIG = {
    * parameter and deciding to try it tomorrow. It is a different model, not a
    * cheaper view of the same one: the area budget is read off a coarser shell,
    * so it ends 8 km smaller, and the fits it reports are its own -- the Pacific
-   * measured 2367 km across where the full run says 2980, and North America
-   * against Africa 696 km where the full run closes it. Use it to decide which
+   * measured 2083 km across where the full run says 2689, and North America
+   * against Africa 454 km where the full run gets to 96. Use it to decide which
    * way a parameter moves things, never for a number worth quoting.
    *
    * Seven would need wider corner indices than the per-frame topology writes;

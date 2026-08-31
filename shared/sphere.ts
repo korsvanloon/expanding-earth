@@ -38,3 +38,31 @@ export function directionToPixel(
   const row = Math.min(height - 1, Math.max(0, Math.floor((1 - v) * height)))
   return [column, row]
 }
+
+/**
+ * The length of a vector, the fast way.
+ *
+ * `Math.hypot` is the careful way to write this: it rescales its arguments so
+ * that a vector too long to square still gets a length, and rounds a shade
+ * better for it. Nothing here is anywhere near needing that. Coordinates are
+ * positions on a shell a few thousand kilometres across, so the squares come
+ * out around a million and a double runs to 10^308 -- three hundred orders of
+ * margin. What the guard costs is not nothing: this is asked about four million
+ * times per step of the solve, and dropping it took the run from 245s to 155s.
+ *
+ * What it costs in return is worth stating plainly, because it is not accuracy.
+ * The difference is the last bit or two of a double, and the solver feeds its
+ * own output back in eight thousand times -- and decides discrete things on the
+ * way, like whether `after > before * 1.05` is true and an edge gets redrawn.
+ * A last-bit difference can tip one of those, and from there the two runs hold
+ * different triangulations rather than slightly different numbers: 186,897
+ * connectivity changes against 184,801, measured. After 20 Myr that is ten
+ * centimetres; after 200 Myr it is up to 300 km in the fit scorecard.
+ *
+ * Neither answer is the right one. What the spread measures is the model's own
+ * resolution -- the Pacific gap is a three-digit number, not a four-digit one --
+ * and that was true before this function existed. It only made it visible.
+ */
+export function length3(x: number, y: number, z: number): number {
+  return Math.sqrt(x * x + y * y + z * z)
+}

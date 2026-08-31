@@ -27,6 +27,8 @@
  * zipped shut rather than as a hole.
  */
 
+import { length3 } from '../../shared/sphere.js'
+
 /** The most neighbours a point may end up with; a good triangulation averages six. */
 const MAX_NEIGHBOURS = 11
 
@@ -298,7 +300,7 @@ export class DynamicMesh {
   flip(a: number, b: number, c: number, d: number, f: number, g: number, restEdge: Float64Array,
     pos: Float64Array): void {
     const lengthOf = (x: number, y: number) =>
-      Math.hypot(pos[x * 3] - pos[y * 3], pos[x * 3 + 1] - pos[y * 3 + 1],
+      length3(pos[x * 3] - pos[y * 3], pos[x * 3 + 1] - pos[y * 3 + 1],
         pos[x * 3 + 2] - pos[y * 3 + 2])
     const rest = new Map<number, number>()
     const width = this.vertexCount
@@ -490,7 +492,7 @@ function quality(
   const ux = bx - ax, uy = by - ay, uz = bz - az
   const vx = cx - ax, vy = cy - ay, vz = cz - az
   const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx
-  const twiceArea = Math.hypot(nx, ny, nz)
+  const twiceArea = length3(nx, ny, nz)
   const wx = cx - bx, wy = cy - by, wz = cz - bz
   const sides =
     ux * ux + uy * uy + uz * uz + vx * vx + vy * vy + vz * vz + wx * wx + wy * wy + wz * wz

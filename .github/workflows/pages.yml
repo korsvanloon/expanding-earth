@@ -36,7 +36,7 @@ jobs:
       # `pnpm build` regenerates the reconstruction from the textures and the
       # crustal model in the repository before bundling. That is two hundred
       # one-million-year steps over eighty thousand triangles, forty relaxation
-      # sweeps each: about four minutes on this runner, down from twenty once
+      # sweeps each: two to three minutes on this runner, down from twenty once
       # the retriangulation stopped measuring every triangle a thousand times
       # over. Nothing is fetched from the network.
       - run: pnpm build
