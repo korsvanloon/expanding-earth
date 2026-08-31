@@ -66,6 +66,8 @@ export interface FlowOptions {
   departureKm?: number
   /** How far a seed may walk downhill looking for the ridge axis, km. */
   axisReachKm?: number
+  /** Radius of the box average the field is read through, in grid cells. */
+  blurCells?: number
   /** Give up on a flank after this far, km. */
   maxLengthKm?: number
   radiusKm?: number
@@ -102,21 +104,41 @@ function advance(
 }
 
 /**
- * The age field as a function of direction, plus its tangential gradient.
+ * The age field as a function of direction, blurred as it is read.
  *
  * `age` is an equirectangular grid in Ma with NaN where the grid does not date
- * the crust. Anything touching a NaN returns null rather than a number made up
- * from its neighbours: a path that walks into undated crust has to stop, not
- * carry on over a guess.
+ * the crust. Anything whose centre is undated returns NaN rather than a number
+ * made up from its neighbours: a path that walks into undated crust has to
+ * stop, not carry on over a guess.
+ *
+ * The blur is a box average over the surrounding cells, done here rather than
+ * over the whole grid beforehand. On the 2048-wide grid the difference did not
+ * matter; on the 8192-wide one it is the difference between a hundred thousand
+ * reads and smoothing thirty-three million cells four times over. The grid is
+ * about one Ma per level, so without some averaging the gradient reads the
+ * terracing rather than the sea floor.
  */
-function ageField(age: Float64Array, width: number, height: number) {
+function ageField(age: ArrayLike<number>, width: number, height: number, blurCells: number) {
   const at = (x: number, y: number, z: number) => {
     const l = length3(x, y, z) || 1
     const u = Math.atan2(-z / l, x / l) / (2 * Math.PI) + 0.5
     const v = Math.acos(Math.min(1, Math.max(-1, y / l))) / Math.PI
     const col = Math.min(width - 1, Math.max(0, Math.floor(u * width) % width))
     const row = Math.min(height - 1, Math.max(0, Math.floor(v * height)))
-    return age[row * width + col]
+    const centre = age[row * width + col]
+    if (Number.isNaN(centre) || blurCells < 1) return centre
+    let sum = 0
+    let seen = 0
+    for (let dr = -blurCells; dr <= blurCells; dr++) {
+      const r = row + dr
+      if (r < 0 || r >= height) continue
+      for (let dc = -blurCells; dc <= blurCells; dc++) {
+        const c = ((col + dc) % width + width) % width
+        const a = age[r * width + c]
+        if (!Number.isNaN(a)) { sum += a; seen++ }
+      }
+    }
+    return seen ? sum / seen : centre
   }
   return { at }
 }
@@ -135,7 +157,7 @@ export interface FlowResult {
 }
 
 export function traceFlowLines(
-  age: Float64Array,
+  age: ArrayLike<number>,
   width: number,
   height: number,
   options: FlowOptions = {},
@@ -148,7 +170,11 @@ export function traceFlowLines(
   const departureKm = options.departureKm ?? 200
   const axisReachKm = options.axisReachKm ?? 1000
   const r = options.radiusKm ?? 6371
-  const field = ageField(age, width, height)
+  // Blur over roughly the distance a step covers, in whatever cells this grid
+  // has. On a coarse grid that is none at all and the field is read raw.
+  const blurCells = options.blurCells
+    ?? Math.max(0, Math.round(stepKm / ((2 * Math.PI * r) / width) / 2))
+  const field = ageField(age, width, height, blurCells)
   const stepAngle = stepKm / r
   // Differentiate over roughly one step -- finer than the grid is noise, coarser
   // and a path cuts the corner of every bend in the fracture zone -- but never
@@ -387,10 +413,25 @@ export function traceFlowLines(
   return { tracks, seeds: seeds.length, rejected }
 }
 
+/**
+ * A point on the mesh, to the precision of a triangle rather than a vertex.
+ *
+ * Three vertices and the weights that mix them. Snapping each end of a pair to
+ * the nearest vertex put the floor of the whole check at the mesh spacing --
+ * 115 km, most of what the model was being blamed for at 20 Ma. A point inside
+ * a triangle is where the crust actually is, and it survives the mesh changing
+ * underneath it, because the three vertices are followed through collapses
+ * rather than the triangle being looked up again.
+ */
+export interface MeshPoint {
+  v: [number, number, number]
+  w: [number, number, number]
+}
+
 export interface Conjugate {
-  /** The two pieces of crust, as indices into whatever `snap` was given. */
-  a: number
-  b: number
+  /** The two pieces of crust. */
+  a: MeshPoint
+  b: MeshPoint
   /** When they were the same point, Ma. */
   ageMa: number
   /** How far each has travelled from the ridge since, km. */
@@ -441,7 +482,7 @@ export interface ConjugateResult {
 export function conjugatePairs(
   tracks: FlowTrack[],
   ages: number[],
-  snap: (x: number, y: number, z: number) => number,
+  snap: (x: number, y: number, z: number) => MeshPoint | null,
   tolerance = 4,
 ): ConjugateResult {
   const pairs: Conjugate[] = []
@@ -476,7 +517,7 @@ export function conjugatePairs(
       }
       const a = snap(pa.x, pa.y, pa.z)
       const b = snap(pb.x, pb.y, pb.z)
-      if (a < 0 || b < 0 || a === b) {
+      if (!a || !b || a.v.every((v, i) => v === b.v[i])) {
         rejected['both halves are the same mesh point']++
         continue
       }
@@ -488,50 +529,6 @@ export function conjugatePairs(
   return { pairs, rejected }
 }
 
-/**
- * Smooth the age field, leaving the undated crust undated.
- *
- * The grid is one Ma per grey level and the paths are read from its gradient,
- * so a single mis-shaded pixel is a step of a million years and turns a path a
- * few degrees. Averaging over the neighbours it has -- never over a nodata
- * sentinel, which would smear undated crust into dated -- costs nothing and
- * settles the walks down.
- */
-export function smoothAges(age: Float64Array, width: number, height: number, passes: number) {
-  let a = Float64Array.from(age)
-  let b = new Float64Array(age.length)
-  for (let p = 0; p < passes; p++) {
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const i = y * width + x
-        if (Number.isNaN(a[i])) { b[i] = NaN; continue }
-        let sum = 0
-        let seen = 0
-        for (let dy = -1; dy <= 1; dy++) {
-          const row = Math.min(height - 1, Math.max(0, y + dy))
-          for (let dx = -1; dx <= 1; dx++) {
-            const v = a[row * width + (((x + dx) % width) + width) % width]
-            if (!Number.isNaN(v)) { sum += v; seen++ }
-          }
-        }
-        b[i] = seen ? sum / seen : NaN
-      }
-    }
-    const swap = a
-    a = b
-    b = swap
-  }
-  return a
-}
-
-/**
- * Nearest mesh vertex to a direction, without asking all forty thousand.
- *
- * Buckets by longitude and latitude and searches the cell plus its neighbours.
- * A lat/lon bucket is a poor shape near the poles -- cells there are slivers --
- * so the ring widens with latitude, which is the same correction the coverage
- * measure needed for the same reason.
- */
 export function vertexSnapper(dirs: Float32Array, vertexCount: number) {
   // Cells sized so each holds a handful of vertices. A fixed grid works for the
   // mesh this ships with and returns -1 on a coarse one, where every cell in
@@ -584,6 +581,77 @@ export function vertexSnapper(dirs: Float32Array, vertexCount: number) {
   }
 }
 
+/**
+ * The triangle a direction falls in, with the weights that place it inside.
+ *
+ * Built on the vertex snapper: the containing triangle is nearly always one of
+ * those around the nearest vertex, so only a handful are tested. When none of
+ * them contains the point -- which happens where the walk has left the mesh's
+ * own idea of the surface -- the nearest vertex alone is returned rather than
+ * a guess, and the weights say so.
+ *
+ * The weights are the planar barycentric coordinates of the direction on the
+ * triangle's plane, which is exactly how a renderer places a point inside a
+ * triangle, so the interpolated position is the one the crust is drawn at.
+ */
+export function faceSnapper(dirs: Float32Array, indices: ArrayLike<number>, vertexCount: number) {
+  const nearest = vertexSnapper(dirs, vertexCount)
+  const around: number[][] = Array.from({ length: vertexCount }, () => [])
+  for (let f = 0; f < indices.length / 3; f++) {
+    for (let k = 0; k < 3; k++) around[indices[f * 3 + k]].push(f)
+  }
+  return (x: number, y: number, z: number): MeshPoint | null => {
+    const seed = nearest(x, y, z)
+    if (seed < 0) return null
+    const l = length3(x, y, z) || 1
+    const px = x / l, py = y / l, pz = z / l
+    for (const f of around[seed]) {
+      const a = indices[f * 3], b = indices[f * 3 + 1], c = indices[f * 3 + 2]
+      const w = barycentric(dirs, a, b, c, px, py, pz)
+      if (w) return { v: [a, b, c], w }
+    }
+    return { v: [seed, seed, seed], w: [1, 0, 0] }
+  }
+}
+
+/** Weights placing a direction inside a spherical triangle, or null if outside. */
+function barycentric(
+  dirs: Float32Array, a: number, b: number, c: number, px: number, py: number, pz: number,
+): [number, number, number] | null {
+  // Each edge of a spherical triangle lies in a plane through the centre, and a
+  // point is inside when it is on the same side of all three. Cheaper and more
+  // robust than projecting first, and it is the same test the coverage measure
+  // uses to decide whether a probe has landed on a triangle.
+  const corner = [a, b, c]
+  let sign = 0
+  for (let e = 0; e < 3; e++) {
+    const u = corner[e] * 3
+    const v = corner[(e + 1) % 3] * 3
+    const nx = dirs[u + 1] * dirs[v + 2] - dirs[u + 2] * dirs[v + 1]
+    const ny = dirs[u + 2] * dirs[v] - dirs[u] * dirs[v + 2]
+    const nz = dirs[u] * dirs[v + 1] - dirs[u + 1] * dirs[v]
+    const side = nx * px + ny * py + nz * pz
+    if (side === 0) continue
+    if (sign === 0) sign = Math.sign(side)
+    else if (Math.sign(side) !== sign) return null
+  }
+  // Inside: the weights are the areas of the three sub-triangles the point
+  // makes with each edge, which on the plane through the corners is the usual
+  // cross-product formula.
+  const area = (i: number, j: number, qx: number, qy: number, qz: number) => {
+    const u = corner[i] * 3, v = corner[j] * 3
+    const ax = dirs[u] - qx, ay = dirs[u + 1] - qy, az = dirs[u + 2] - qz
+    const bx = dirs[v] - qx, by = dirs[v + 1] - qy, bz = dirs[v + 2] - qz
+    return length3(ay * bz - az * by, az * bx - ax * bz, ax * by - ay * bx)
+  }
+  const wa = area(1, 2, px, py, pz)
+  const wb = area(2, 0, px, py, pz)
+  const wc = area(0, 1, px, py, pz)
+  const total = wa + wb + wc
+  if (!(total > 0)) return null
+  return [wa / total, wb / total, wc / total]
+}
+
 export interface ConjugateFit {
   /** How many pairs were due to coincide at this time. */
   conjugateCount: number
@@ -616,9 +684,13 @@ export interface ConjugateFit {
  * which is a second model stacked on the one being tested.
  */
 export function conjugateFit(
-  pairA: Uint32Array,
-  pairB: Uint32Array,
-  pairAgeMa: Float32Array,
+  pairs: {
+    aVerts: Uint32Array
+    aWeights: Float32Array
+    bVerts: Uint32Array
+    bWeights: Float32Array
+    ageMa: Float32Array
+  },
   timeMa: number,
   pos: Float64Array,
   radiusKm: number,
@@ -627,20 +699,36 @@ export function conjugateFit(
 ): ConjugateFit {
   const gaps: number[] = []
   let merged = 0
-  for (let i = 0; i < pairA.length; i++) {
-    if (pairAgeMa[i] !== timeMa) continue
-    const a = survivor(pairA[i])
-    const b = survivor(pairB[i])
-    if (a === b) {
+  /** Where a barycentric point has got to, as a unit direction. */
+  const place = (verts: Uint32Array, weights: Float32Array, i: number) => {
+    let x = 0, y = 0, z = 0
+    for (let k = 0; k < 3; k++) {
+      const v = survivor(verts[i * 3 + k]) * 3
+      const w = weights[i * 3 + k]
+      x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+    }
+    const l = length3(x, y, z) || 1
+    return [x / l, y / l, z / l]
+  }
+  for (let i = 0; i < pairs.ageMa.length; i++) {
+    if (pairs.ageMa[i] !== timeMa) continue
+    // Merged means the mesh has closed every corner of both triangles onto one
+    // point: the ocean shut and the two banks became the same crust. The right
+    // answer, and an unfalsifiable zero, which is why it is counted apart.
+    const first = survivor(pairs.aVerts[i * 3])
+    let same = true
+    for (let k = 0; k < 3 && same; k++) {
+      same = survivor(pairs.aVerts[i * 3 + k]) === first
+        && survivor(pairs.bVerts[i * 3 + k]) === first
+    }
+    if (same) {
       merged++
       gaps.push(0)
       continue
     }
-    const ai = a * 3, bi = b * 3
-    const la = length3(pos[ai], pos[ai + 1], pos[ai + 2]) || 1
-    const lb = length3(pos[bi], pos[bi + 1], pos[bi + 2]) || 1
-    const dot = Math.min(1, Math.max(-1,
-      (pos[ai] * pos[bi] + pos[ai + 1] * pos[bi + 1] + pos[ai + 2] * pos[bi + 2]) / (la * lb)))
+    const a = place(pairs.aVerts, pairs.aWeights, i)
+    const b = place(pairs.bVerts, pairs.bWeights, i)
+    const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
     gaps.push(Math.acos(dot) * radiusKm)
   }
   if (!gaps.length) {

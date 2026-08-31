@@ -114,10 +114,13 @@ export function runBlocks(meta: Meta): Record<string, string> {
 
     floor: (() => {
       const first = meta.diagnostics[0]
-      return `At 0 Ma the reconstruction is the present day, so its ` +
-        `${first.conjugateMedianKm.toFixed(0)} km and ` +
-        `${pct(first.conjugateMatched, 0)} are what the mesh's own resolution and the tracing ` +
-        `contribute, with nothing of the model in them.`
+      const slack = meta.conjugateToleranceMa
+      return `At 0 Ma the reconstruction is the present day, so the ` +
+        `${first.conjugateMedianKm.toFixed(0)} km it still misses by, and the ` +
+        `${pct(first.conjugateMatched, 0)} it still gets, have nothing of the model in them. ` +
+        `Most of that is the ${slack} Ma of slack a pair is allowed either side of the frame ` +
+        `it is judged at &mdash; up to ${slack} Myr of real spreading, which at ordinary rates ` +
+        `is a hundred kilometres or two &mdash; and the rest is what a triangle cannot resolve.`
     })(),
 
     reach: (() => {
@@ -145,6 +148,12 @@ export function runBlocks(meta: Meta): Record<string, string> {
 export function fillBlocks(text: string, blocks: Record<string, string>): string {
   let out = text
   for (const [name, body] of Object.entries(blocks)) {
+    // A figure read off a field the run does not have prints the word
+    // "undefined" into the document, and the drift test cannot catch it because
+    // both sides then say "undefined". Said out loud instead.
+    if (/\bundefined\b|\bNaN\b/.test(body)) {
+      throw new Error(`the ${name} block has a figure the run does not carry:\n${body}`)
+    }
     const open = OPEN(name)
     const start = out.indexOf(open)
     if (start < 0) continue

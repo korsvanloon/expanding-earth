@@ -22,19 +22,28 @@ export interface Tracks {
   ageMa: Float32Array
   /** Distance from the ridge along the path, km. */
   fromRidgeKm: Float32Array
-  /** Conjugate pairs: two vertices that were one point at `pairAgeMa`. */
-  pairA: Uint32Array
-  pairB: Uint32Array
+  /**
+   * Conjugate pairs: two pieces of crust that were one point at `pairAgeMa`.
+   *
+   * Each end is a point inside a triangle -- three vertices and the weights
+   * that mix them -- rather than the nearest vertex. Snapping to vertices put
+   * the floor of the whole check at the mesh spacing, 115 km, which was most of
+   * what the model was being blamed for in the frames where it does best.
+   */
+  pairAVerts: Uint32Array
+  pairAWeights: Float32Array
+  pairBVerts: Uint32Array
+  pairBWeights: Float32Array
   pairAgeMa: Float32Array
 }
 
 export function writeTracks(t: Tracks): ArrayBuffer {
   const trackCount = t.ridge.length
   const pointCount = t.vertex.length
-  const pairCount = t.pairA.length
+  const pairCount = t.pairAgeMa.length
   // header, the offsets (one more than there are tracks), the ridge indices,
   // three arrays per point and three per pair.
-  const words = 3 + (trackCount + 1) + trackCount + pointCount * 3 + pairCount * 3
+  const words = 3 + (trackCount + 1) + trackCount + pointCount * 3 + pairCount * 13
   const buffer = new ArrayBuffer(words * 4)
   const u32 = new Uint32Array(buffer)
   const f32 = new Float32Array(buffer)
@@ -47,8 +56,10 @@ export function writeTracks(t: Tracks): ArrayBuffer {
   u32.set(t.vertex, at); at += pointCount
   f32.set(t.ageMa, at); at += pointCount
   f32.set(t.fromRidgeKm, at); at += pointCount
-  u32.set(t.pairA, at); at += pairCount
-  u32.set(t.pairB, at); at += pairCount
+  u32.set(t.pairAVerts, at); at += pairCount * 3
+  f32.set(t.pairAWeights, at); at += pairCount * 3
+  u32.set(t.pairBVerts, at); at += pairCount * 3
+  f32.set(t.pairBWeights, at); at += pairCount * 3
   f32.set(t.pairAgeMa, at)
   return buffer
 }
@@ -73,8 +84,10 @@ export function readTracks(buffer: ArrayBuffer): Tracks {
     vertex: u32(pointCount),
     ageMa: f32(pointCount),
     fromRidgeKm: f32(pointCount),
-    pairA: u32(pairCount),
-    pairB: u32(pairCount),
+    pairAVerts: u32(pairCount * 3),
+    pairAWeights: f32(pairCount * 3),
+    pairBVerts: u32(pairCount * 3),
+    pairBWeights: f32(pairCount * 3),
     pairAgeMa: f32(pairCount),
   }
 }

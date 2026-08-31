@@ -129,7 +129,7 @@ export function Globe({ data }: { data: Dataset }) {
       path: Int32Array.from(path),
       pathLine: line(path.length, '#ff4fa3', 2.5),
       // Every pair gets room; only the ones due at the drawn frame are written.
-      gapLine: line(t.pairA.length * 2, '#ffd24a', 4),
+      gapLine: line(t.pairAgeMa.length * 2, '#ffd24a', 4),
     }
   }, [data])
 
@@ -157,17 +157,25 @@ export function Globe({ data }: { data: Dataset }) {
   }
 
   /** The pairs whose crust formed at the frame being drawn, and nothing else. */
-  const dueNow = useMemo(() => new Int32Array((data.tracks?.pairA.length ?? 0) * 2), [data])
+  const dueNow = useMemo(() => new Int32Array((data.tracks?.pairAgeMa.length ?? 0) * 2), [data])
   const refreshOverlay = () => {
     if (!overlay || !data.tracks) return
     drawLines(overlay.pathLine, overlay.path, overlay.path.length)
     const t = data.tracks
     const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
     let n = 0
-    for (let i = 0; i < t.pairA.length; i++) {
+    // Drawn from the heaviest corner of each end's triangle. The measurement
+    // interpolates inside the triangle; a line has to start somewhere real, and
+    // the difference is under a triangle's width.
+    const heaviest = (verts: Uint32Array, weights: Float32Array, i: number) => {
+      let best = 0
+      for (let k = 1; k < 3; k++) if (weights[i * 3 + k] > weights[i * 3 + best]) best = k
+      return verts[i * 3 + best]
+    }
+    for (let i = 0; i < t.pairAgeMa.length; i++) {
       if (t.pairAgeMa[i] !== frameMa) continue
-      dueNow[n++] = t.pairA[i]
-      dueNow[n++] = t.pairB[i]
+      dueNow[n++] = heaviest(t.pairAVerts, t.pairAWeights, i)
+      dueNow[n++] = heaviest(t.pairBVerts, t.pairBWeights, i)
     }
     drawLines(overlay.gapLine, dueNow, n)
   }

@@ -153,26 +153,34 @@ allowed to be a check at all. See `tools/lib/flowlines.ts`.
 <!-- from-the-run: pairs -->
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
-| 0 Ma | 50 | 115 km | 96% | 0% |
-| 5 Ma | 145 | 136 km | 77% | 28% |
-| 30 Ma | 116 | 278 km | 36% | 16% |
-| 60 Ma | 70 | 439 km | 17% | 6% |
-| 120 Ma | 32 | 1277 km | 6% | 3% |
+| 0 Ma | 60 | 80 km | 100% | 0% |
+| 5 Ma | 149 | 97 km | 89% | 0% |
+| 30 Ma | 115 | 214 km | 50% | 0% |
+| 60 Ma | 82 | 374 km | 17% | 0% |
+| 120 Ma | 41 | 1073 km | 7% | 0% |
 <!-- /from-the-run -->
 
 Two things keep the figure honest.
 
 <!-- from-the-run: floor -->
-At 0 Ma the reconstruction is the present day, so its 115 km and 96% are what the mesh's own resolution and the tracing contribute, with nothing of the model in them.
+At 0 Ma the reconstruction is the present day, so the 80 km it still misses by, and the 100% it still gets, have nothing of the model in them. Most of that is the 2 Ma of slack a pair is allowed either side of the frame it is judged at &mdash; up to 2 Myr of real spreading, which at ordinary rates is a hundred kilometres or two &mdash; and the rest is what a triangle cannot resolve.
 <!-- /from-the-run -->
 
 That is the floor: at 0 Ma the reconstruction cannot be wrong, so whatever it
-misses by there is the measurement, not the model. And the last column is the
-share of pairs whose two halves the mesh has merged into a single point. A merge
-is the model closing the ocean and joining the two banks, which is the right
-answer — and also a zero that cannot fail, so a run that merged everything would
-score perfectly. The reconstruction earns the difference between the last two
-columns.
+misses by there is the measurement, not the model.
+
+The last column is the share of pairs whose two halves the mesh has merged into
+a single point. A merge is the model closing the ocean and joining the two banks
+— the right answer, and also a zero that cannot fail, so a run that merged
+everything would score perfectly. It used to run to 29%. It is zero now, because
+each end of a pair is a point inside a triangle rather than the nearest vertex,
+and merging one takes all six corners collapsing onto the same point. Nothing in
+the score is unfalsifiable any more.
+
+That change is also why the figures improved: snapping to vertices put the
+mesh's own 47 km spacing into every residual, and the model was being blamed for
+it. The floor went from 115 km to 80 km and 20 Ma from 50% to 59% without the
+solver changing at all.
 
 Read that way the result is plain: the model reunites most of what should be
 reunited for the last thirty million years, and then loses it. By 120 Ma the

@@ -9,7 +9,7 @@ import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
 import { distortion, shapePairs } from '../tools/lib/shape'
 import {
-  conjugateFit, conjugatePairs, smoothAges, traceFlowLines, vertexSnapper,
+  conjugateFit, conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper,
 } from '../tools/lib/flowlines'
 import { readTracks, writeTracks } from '../shared/tracks'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
@@ -413,16 +413,19 @@ describe('reading the stretch marks', () => {
     expect(seeds).toBeGreaterThan(10)
     expect(tracks.length).toBeGreaterThan(8)
     const found: [number, number][] = []
+    // A stand-in for the mesh: every point is its own one-vertex "triangle",
+    // which is all this test needs -- it is about where the walk went.
     const { pairs } = conjugatePairs(tracks, [20, 40], (x, y, z) => {
       const lon = Math.atan2(-z, x) / DEG
       const lat = Math.asin(Math.min(1, Math.max(-1, y))) / DEG
       found.push([lon, lat])
-      return found.length - 1
+      const i = found.length - 1
+      return { v: [i, i, i] as [number, number, number], w: [1, 0, 0] as [number, number, number] }
     })
     expect(pairs.length).toBeGreaterThan(10)
     for (const pair of pairs) {
-      const [lonA, latA] = found[pair.a]
-      const [lonB, latB] = found[pair.b]
+      const [lonA, latA] = found[pair.a.v[0]]
+      const [lonB, latB] = found[pair.b.v[0]]
       // The two halves must straddle the ridge, at the longitude the age says.
       expect(Math.sign(lonA)).toBe(-Math.sign(lonB))
       expect(Math.abs(Math.abs(lonA) - 2 * pair.ageMa)).toBeLessThan(4)
@@ -448,12 +451,13 @@ describe('reading the stretch marks', () => {
     const lons: number[] = []
     const { pairs } = conjugatePairs(tracks, [10, 20, 30, 40], (x, _y, z) => {
       lons.push(Math.atan2(-z, x) / DEG)
-      return lons.length - 1
+      const i = lons.length - 1
+      return { v: [i, i, i] as [number, number, number], w: [1, 0, 0] as [number, number, number] }
     })
     expect(pairs.length).toBeGreaterThan(3)
     for (const pair of pairs) {
-      expect(lons[pair.a]).toBeLessThan(41)
-      expect(lons[pair.b]).toBeLessThan(41)
+      expect(lons[pair.a.v[0]]).toBeLessThan(41)
+      expect(lons[pair.b.v[0]]).toBeLessThan(41)
     }
   })
 
@@ -473,9 +477,20 @@ describe('reading the stretch marks', () => {
         { ...near(21), ageMa: 40 },
       ],
     }
-    const seen = conjugatePairs([track], [40], (_x, _y, _z) => Math.random())
+    const seen = conjugatePairs([track], [40], () => ({
+      v: [0, 0, 0] as [number, number, number], w: [1, 0, 0] as [number, number, number],
+    }))
     expect(seen.pairs).toHaveLength(0)
     expect(seen.rejected['not as far apart as the paths are long']).toBe(1)
+  })
+
+  /** Pairs whose ends are single vertices, which is all these cases need. */
+  const atVertices = (as: number[], bs: number[], ages: number[]) => ({
+    aVerts: Uint32Array.from(as.flatMap((v) => [v, v, v])),
+    aWeights: Float32Array.from(as.flatMap(() => [1, 0, 0])),
+    bVerts: Uint32Array.from(bs.flatMap((v) => [v, v, v])),
+    bWeights: Float32Array.from(bs.flatMap(() => [1, 0, 0])),
+    ageMa: Float32Array.from(ages),
   })
 
   it('scores a pair the model reunited and one it did not', () => {
@@ -489,13 +504,11 @@ describe('reading the stretch marks', () => {
     put(0, 10); put(1, 10)
     put(2, 0); put(3, 90)
     const fit = conjugateFit(
-      Uint32Array.from([0, 2]), Uint32Array.from([1, 3]), Float32Array.from([40, 40]),
-      40, pos, 6371, 200, (v: number) => v,
+      atVertices([0, 2], [1, 3], [40, 40]), 40, pos, 6371, 200, (v: number) => v,
     )
     expect(fit.conjugateCount).toBe(2)
     expect(fit.conjugateMatched).toBe(0.5)
     expect(fit.conjugateMerged).toBe(0)
-    // A quarter of a great circle at this radius.
     expect(fit.conjugateMedianKm).toBeCloseTo((Math.PI / 2) * 6371, 0)
   })
 
@@ -507,10 +520,7 @@ describe('reading the stretch marks', () => {
     const pos = new Float64Array(2 * 3)
     pos[0] = 6371
     pos[3] = 6371
-    const fit = conjugateFit(
-      Uint32Array.from([0]), Uint32Array.from([1]), Float32Array.from([40]),
-      40, pos, 6371, 200, () => 0,
-    )
+    const fit = conjugateFit(atVertices([0], [1], [40]), 40, pos, 6371, 200, () => 0)
     expect(fit.conjugateMatched).toBe(1)
     expect(fit.conjugateMerged).toBe(1)
   })
@@ -519,19 +529,53 @@ describe('reading the stretch marks', () => {
     const pos = new Float64Array(4 * 3).fill(0)
     pos[0] = 6371; pos[3] = -6371; pos[6] = 6371; pos[9] = 6371
     const fit = conjugateFit(
-      Uint32Array.from([0, 2]), Uint32Array.from([1, 3]), Float32Array.from([40, 80]),
-      80, pos, 6371, 200, (v: number) => v,
+      atVertices([0, 2], [1, 3], [40, 80]), 80, pos, 6371, 200, (v: number) => v,
     )
     expect(fit.conjugateCount).toBe(1)
     expect(fit.conjugateMedianKm).toBeCloseTo(0, 6)
   })
 
-  it('leaves undated crust undated when it smooths', () => {
-    const age = new Float64Array(9).fill(10)
-    age[4] = Number.NaN
-    const out = smoothAges(age, 3, 3, 2)
-    expect(Number.isNaN(out[4])).toBe(true)
-    for (const i of [0, 1, 2, 3, 5, 6, 7, 8]) expect(out[i]).toBeCloseTo(10, 9)
+  it('places a pair inside its triangle rather than at the nearest corner', () => {
+    // The point of the barycentric ends. Two points a fifth of a triangle
+    // apart, in the same triangle: snapped to corners they are either the same
+    // place or a whole edge apart, and neither is what the age grid said.
+    const { positions, indices } = buildIcosphere(4)
+    const count = positions.length / 3
+    const dirs = Float32Array.from(positions)
+    const snap = faceSnapper(dirs, indices, count)
+    const mix = (a: number, b: number, c: number, wa: number, wb: number, wc: number) => {
+      const x = dirs[a * 3] * wa + dirs[b * 3] * wb + dirs[c * 3] * wc
+      const y = dirs[a * 3 + 1] * wa + dirs[b * 3 + 1] * wb + dirs[c * 3 + 1] * wc
+      const z = dirs[a * 3 + 2] * wa + dirs[b * 3 + 2] * wb + dirs[c * 3 + 2] * wc
+      const l = Math.hypot(x, y, z)
+      return [x / l, y / l, z / l] as const
+    }
+    const [a, b, c] = [indices[0], indices[1], indices[2]]
+    const one = mix(a, b, c, 0.6, 0.3, 0.1)
+    const two = mix(a, b, c, 0.4, 0.5, 0.1)
+    const pa = snap(...one)
+    const pb = snap(...two)
+    expect(pa).not.toBeNull()
+    expect(pb).not.toBeNull()
+    // Same triangle, different weights: the corners cannot tell them apart.
+    expect([...pa!.v].sort()).toEqual([...pb!.v].sort())
+    const pos = new Float64Array(count * 3)
+    for (let i = 0; i < pos.length; i++) pos[i] = dirs[i] * 6371
+    const fit = conjugateFit(
+      {
+        aVerts: Uint32Array.from(pa!.v),
+        aWeights: Float32Array.from(pa!.w),
+        bVerts: Uint32Array.from(pb!.v),
+        bWeights: Float32Array.from(pb!.w),
+        ageMa: Float32Array.from([40]),
+      },
+      40, pos, 6371, 200, (v: number) => v,
+    )
+    const truth = Math.acos(one[0] * two[0] + one[1] * two[1] + one[2] * two[2]) * 6371
+    // A tenth of a subdivision-4 edge, and it reads it to within a kilometre.
+    expect(truth).toBeGreaterThan(50)
+    expect(truth).toBeLessThan(200)
+    expect(fit.conjugateMedianKm).toBeCloseTo(truth, 0)
   })
 
   it('snaps a direction to the nearest vertex, poles included', () => {
@@ -561,8 +605,10 @@ describe('reading the stretch marks', () => {
       vertex: Uint32Array.from([7, 8, 9, 20, 21]),
       ageMa: Float32Array.from([10, 0, 10, 0, 25]),
       fromRidgeKm: Float32Array.from([400, 0, 400, 0, 900]),
-      pairA: Uint32Array.from([7]),
-      pairB: Uint32Array.from([9]),
+      pairAVerts: Uint32Array.from([7, 8, 9]),
+      pairAWeights: Float32Array.from([0.5, 0.25, 0.25]),
+      pairBVerts: Uint32Array.from([20, 21, 7]),
+      pairBWeights: Float32Array.from([0.1, 0.8, 0.1]),
       pairAgeMa: Float32Array.from([10]),
     }
     const back = readTracks(writeTracks(tracks))

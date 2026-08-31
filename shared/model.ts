@@ -171,6 +171,15 @@ export interface Meta {
   frameCount: number
   endTimeMa: number
 
+  /**
+   * How near a frame's age a piece of crust has to be to be paired at it, Ma.
+   *
+   * The floor of the conjugate check. A pair may have spread for up to this
+   * long before the frame it is judged at, and that spreading lands in the
+   * residual as though the model had put it there.
+   */
+  conjugateToleranceMa: number
+
   /** Distance in km between each scored pair, per recorded frame. */
   scorecard: {
     a: string

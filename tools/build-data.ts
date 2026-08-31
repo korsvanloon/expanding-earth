@@ -24,7 +24,7 @@ import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
-import { conjugatePairs, smoothAges, traceFlowLines, vertexSnapper } from './lib/flowlines.js'
+import { conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper } from './lib/flowlines.js'
 import { writeTracks } from '../shared/tracks.js'
 import {
   PERMANENT_MA,
@@ -83,8 +83,6 @@ export const CONFIG = {
    * of axis and walk the same fracture zone.
    */
   seedSpacingKm: 250,
-  /** Smoothing passes over the age grid before its gradient is walked. */
-  flowSmoothing: 4,
   /**
    * How near a frame's age a track point has to be to be paired at it, Ma.
    *
@@ -239,14 +237,21 @@ function main() {
   // that drives the whole model. See tools/lib/flowlines.ts.
   mkdirSync(OUT, { recursive: true })
   console.log('[build-data] tracing fracture zones')
-  const ageMa = new Float64Array(age.width * age.height)
+  // Traced on the age map at its own resolution, not on the working grid the
+  // rest of the pipeline uses. The source is 8192x4096, five kilometres to the
+  // pixel; the working grid is a quarter of that in each direction, and every
+  // bend in a fracture zone narrower than twenty kilometres was being thrown
+  // away before the walk started. The rest of the pipeline still reads the
+  // downsampled grid -- an area budget does not care about five-kilometre
+  // detail, and a walk along a lineament does.
+  const ageMa = new Float32Array(ageFull.width * ageFull.height)
   for (let i = 0; i < ageMa.length; i++) {
-    ageMa[i] = age.data[i] === NODATA ? NaN : (age.data[i] / 255) * CONFIG.maxAgeMa
+    ageMa[i] = ageFull.data[i] === NODATA ? NaN : (ageFull.data[i] / 255) * CONFIG.maxAgeMa
   }
   const traced = traceFlowLines(
-    smoothAges(ageMa, age.width, age.height, CONFIG.flowSmoothing),
-    age.width,
-    age.height,
+    ageMa,
+    ageFull.width,
+    ageFull.height,
     { seedSpacingKm: CONFIG.seedSpacingKm },
   )
   console.log(
@@ -254,11 +259,12 @@ function main() {
       Object.entries(traced.rejected).map(([why, n]) => `${n} ${why}`).join(', '),
   )
   const snap = vertexSnapper(shell.positions, vertexCount)
+  const snapToFace = faceSnapper(shell.positions, shell.indices, vertexCount)
   const frameAges = Array.from(
     { length: Math.floor(CONFIG.endTimeMa / CONFIG.frameStepMa) + 1 },
     (_, i) => i * CONFIG.frameStepMa,
   )
-  const conjugates = conjugatePairs(traced.tracks, frameAges, snap, CONFIG.conjugateToleranceMa)
+  const conjugates = conjugatePairs(traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa)
   console.log(
     `  ${conjugates.pairs.length} conjugate pairs at the frame ages; ` +
       Object.entries(conjugates.rejected).map(([why, n]) => `${n} ${why}`).join(', '),
@@ -308,8 +314,10 @@ function main() {
       vertex: Uint32Array.from(vertex),
       ageMa: Float32Array.from(pointAge),
       fromRidgeKm: Float32Array.from(fromRidge),
-      pairA: Uint32Array.from(conjugates.pairs, (p) => p.a),
-      pairB: Uint32Array.from(conjugates.pairs, (p) => p.b),
+      pairAVerts: Uint32Array.from(conjugates.pairs.flatMap((p) => p.a.v)),
+      pairAWeights: Float32Array.from(conjugates.pairs.flatMap((p) => p.a.w)),
+      pairBVerts: Uint32Array.from(conjugates.pairs.flatMap((p) => p.b.v)),
+      pairBWeights: Float32Array.from(conjugates.pairs.flatMap((p) => p.b.w)),
       pairAgeMa: Float32Array.from(conjugates.pairs, (p) => p.ageMa),
     })),
   )
@@ -344,6 +352,7 @@ function main() {
     referenceRadiusKm,
     frameStepMa: CONFIG.frameStepMa,
     endTimeMa: CONFIG.endTimeMa,
+    conjugateToleranceMa: CONFIG.conjugateToleranceMa,
   }
   writeFileSync(resolve(OUT, 'meta.partial.json'), JSON.stringify(meta, null, 2))
   console.log('[build-data] wrote public/data/mesh.bin, tracks.bin and meta.partial.json')

@@ -159,7 +159,7 @@ function main() {
     trackFile.buffer.slice(trackFile.byteOffset, trackFile.byteOffset + trackFile.byteLength),
   )
   console.log(
-    `[solve] ${tracks.pairA.length} conjugate pairs off ${tracks.ridge.length} drawn ` +
+    `[solve] ${tracks.pairAgeMa.length} conjugate pairs off ${tracks.ridge.length} drawn ` +
       'fracture-zone tracks; see tools/lib/flowlines.ts',
   )
 
@@ -532,8 +532,14 @@ function main() {
       islandDistortion: held.islandDistortion,
       worstIslandDistortion: held.worstIslandDistortion,
       ...conjugateFit(
-        tracks.pairA, tracks.pairB, tracks.pairAgeMa, t, pos, radiusAt(t), CONTACT_KM,
-        (v) => mesh.survivor(v),
+        {
+          aVerts: tracks.pairAVerts,
+          aWeights: tracks.pairAWeights,
+          bVerts: tracks.pairBVerts,
+          bWeights: tracks.pairBWeights,
+          ageMa: tracks.pairAgeMa,
+        },
+        t, pos, radiusAt(t), CONTACT_KM, (v) => mesh.survivor(v),
       ),
     })
   }
