@@ -58,6 +58,8 @@ import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
 import { cellBuckets, coverage, probeCells, probeDirections } from './lib/coverage.js'
 import { distortion, shapePairs } from './lib/shape.js'
+import { conjugateFit } from './lib/flowlines.js'
+import { readTracks } from '../shared/tracks.js'
 import { unstretching } from './lib/unstretching.js'
 
 import { buildIcosphere } from './lib/icosphere.js'
@@ -151,6 +153,15 @@ function main() {
   const meta = JSON.parse(
     readFileSync(resolve(OUT, 'meta.partial.json'), 'utf8'),
   ) as Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'>
+
+  const trackFile = readFileSync(resolve(OUT, 'tracks.bin'))
+  const tracks = readTracks(
+    trackFile.buffer.slice(trackFile.byteOffset, trackFile.byteOffset + trackFile.byteLength),
+  )
+  console.log(
+    `[solve] ${tracks.pairA.length} conjugate pairs off ${tracks.ridge.length} drawn ` +
+      'fracture-zone tracks; see tools/lib/flowlines.ts',
+  )
 
   const buffer = readFileSync(resolve(OUT, 'mesh.bin'))
   const [vertexCount, faceCount, , cutPairCount] =
@@ -520,6 +531,10 @@ function main() {
       medianSpeedKmMyr: speed,
       islandDistortion: held.islandDistortion,
       worstIslandDistortion: held.worstIslandDistortion,
+      ...conjugateFit(
+        tracks.pairA, tracks.pairB, tracks.pairAgeMa, t, pos, radiusAt(t), CONTACT_KM,
+        (v) => mesh.survivor(v),
+      ),
     })
   }
 
@@ -619,6 +634,9 @@ function main() {
           `doubled=${(100 * d.overlapFraction).toFixed(2)}%  ` +
           `folded=${(100 * d.foldFraction).toFixed(2)}%  ` +
           `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%  ` +
+          `pairs=${String(d.conjugateCount).padStart(3)}` +
+          ` med=${d.conjugateMedianKm.toFixed(0).padStart(4)}km` +
+          ` hit=${(100 * d.conjugateMatched).toFixed(0).padStart(3)}%  ` +
           `plates=${String(plateReport.count).padStart(3)}` +
           ` (biggest ${plateReport.biggest.slice(0, 3).map((x) => `${(100 * x).toFixed(0)}%`).join(' ')})`,
       )

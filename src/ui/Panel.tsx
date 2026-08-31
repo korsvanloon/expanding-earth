@@ -30,7 +30,8 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
 export function Panel({ data }: { data: Dataset }) {
   const timeMa = useClockTime(8)
   const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
-    surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame } = useStore()
+    surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame,
+    showTracks, setShowTracks } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
   /**
@@ -69,6 +70,12 @@ export function Panel({ data }: { data: Dataset }) {
   const speed = pick((i) => meta.diagnostics[i].medianSpeedKmMyr)
   const heldShape = pick((i) => meta.diagnostics[i].islandDistortion)
   const subduction = pick((i) => meta.fixedRadiusDiagnostics[i].gapFraction)
+
+  // The overlay draws the pairs of the nearest frame, so this has to name that
+  // frame's count rather than an interpolation between two of them.
+  const atFrame = meta.diagnostics.reduce((best, d) =>
+    Math.abs(d.timeMa - timeMa) < Math.abs(best.timeMa - timeMa) ? d : best)
+  const pairsDue = atFrame.conjugateCount
 
   const step = meta.radiusStepMa
   const curveTimes = meta.crustModels[0].radiusKm.map((_, i) => i * step)
@@ -144,6 +151,25 @@ export function Panel({ data }: { data: Dataset }) {
         they stand for un-forms, and watch the edges be redrawn where one piece slides past
         another.
       </p>
+      {data.tracks && (
+        <>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={showTracks}
+              onChange={(e) => setShowTracks(e.target.checked)}
+            />
+            Fracture zones
+          </label>
+          <p className="caption">
+            The paths the crust took away from the ridges, in magenta &mdash; read off the age grid,
+            not drawn. Each line runs from one coast, through the ridge, to the coast it left. Scrub
+            back and they should shorten to nothing as the ocean closes. The yellow segments join the
+            {' '}<strong>{pairsDue}</strong> pairs of points that were a single point at this very
+            moment, so each one&rsquo;s length is the model being wrong, in kilometres you can see.
+          </p>
+        </>
+      )}
 
       <section>
         <h2>Radius</h2>
@@ -223,6 +249,44 @@ export function Panel({ data }: { data: Dataset }) {
           below that a still shell and a rigid one look identical and everything joins one block
           turning at nearly nothing. That is what happens past 180 Ma, where the sea floor runs out:
           the count falling to one there is the record ending, not a shell welding.
+        </p>
+      </section>
+
+      <section>
+        <h2>Do the pieces come back together?</h2>
+        <Chart
+          times={times}
+          series={[
+            {
+              values: meta.diagnostics.map((d) => 100 * d.conjugateMatched),
+              color: '#6fbf9f',
+              label: 'pairs reunited',
+            },
+            {
+              values: meta.diagnostics.map((d) => 100 * d.conjugateMerged),
+              color: '#8a94a6',
+              label: 'merged by the mesh',
+            },
+          ]}
+          currentMa={timeMa}
+          endMa={end}
+          format={(v) => `${v.toFixed(0)}%`}
+        />
+        <p className="caption">
+          The age grid says which piece of crust was once against which: two points that left the
+          same ridge along the same fracture zone at the same age were, at that age, one point. So
+          at {atFrame.timeMa} Ma there are <strong>{pairsDue}</strong> pairs whose separation ought
+          to be zero, and the model gets{' '}
+          <strong>{(100 * atFrame.conjugateMatched).toFixed(0)}%</strong> of them within 200 km, the
+          median missing by <strong>{atFrame.conjugateMedianKm.toFixed(0)} km</strong>. Thousands of
+          checks, none of them chosen by hand, all from the same observation the model is driven by.
+        </p>
+        <p className="caption">
+          Two things keep this honest. The 0 Ma reading is the floor, because at 0 Ma the
+          reconstruction <em>is</em> the present day and cannot be wrong &mdash; whatever it misses
+          by there is the mesh&rsquo;s own resolution. And the grey line is the share of pairs the
+          mesh has merged into single points, which score zero by construction; the gap between the
+          two lines is what the reconstruction actually earned.
         </p>
       </section>
 

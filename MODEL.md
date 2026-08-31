@@ -135,6 +135,55 @@ margin like the Brazilian coast — undated continent against 120 Ma ocean — w
 not mistaken for a plate boundary. That rule is gone; the strength test on
 redrawn edges does the same work without needing a threshold in Ma.
 
+## The strongest check: which crust was once against which
+
+A fracture zone is not a texture on the sea floor, it is a path. Crust leaves a
+ridge along it and keeps going, so two points on opposite flanks of the same
+ridge, on the same path, carrying the same age, **were the same point at that
+age**. The age grid therefore already knows thousands of pairs that have to come
+together at a stated time, and for most of this project's life the model was
+scored against four hand-chosen continent pairs instead.
+
+They are found by walking, not by hand: seed the ridge axis, leave it in both
+directions, follow the age uphill, and pair the two flanks where their ages
+match. Nothing is puzzled together — it is the same observation the solver is
+already driven by, read for a different question, which is the only reason it is
+allowed to be a check at all. See `tools/lib/flowlines.ts`.
+
+<!-- from-the-run: pairs -->
+| time | pairs due | median miss | reunited within 200 km | of which merged |
+|---|---|---|---|---|
+| 0 Ma | 50 | 115 km | 96% | 0% |
+| 5 Ma | 145 | 136 km | 77% | 28% |
+| 30 Ma | 116 | 278 km | 36% | 16% |
+| 60 Ma | 70 | 439 km | 17% | 6% |
+| 120 Ma | 32 | 1277 km | 6% | 3% |
+<!-- /from-the-run -->
+
+Two things keep the figure honest.
+
+<!-- from-the-run: floor -->
+At 0 Ma the reconstruction is the present day, so its 115 km and 96% are what the mesh's own resolution and the tracing contribute, with nothing of the model in them.
+<!-- /from-the-run -->
+
+That is the floor: at 0 Ma the reconstruction cannot be wrong, so whatever it
+misses by there is the measurement, not the model. And the last column is the
+share of pairs whose two halves the mesh has merged into a single point. A merge
+is the model closing the ocean and joining the two banks, which is the right
+answer — and also a zero that cannot fail, so a run that merged everything would
+score perfectly. The reconstruction earns the difference between the last two
+columns.
+
+Read that way the result is plain: the model reunites most of what should be
+reunited for the last thirty million years, and then loses it. By 120 Ma the
+median pair is more than a thousand kilometres from where the age grid says it
+should be.
+
+**These pairs are a check and never a constraint.** Nothing in the solver is told
+about them. A model steered by them could not then be scored on them, and the
+whole point of having thousands of independent residuals is to have something
+that the model has not already been fitted to.
+
 ## The integration
 
 One million years per step, backwards from today, which is the only moment we

@@ -30,6 +30,7 @@ export function Globe({ data }: { data: Dataset }) {
   const mode = useStore((s) => s.mode)
   const showGrid = useStore((s) => s.showGrid)
   const showMesh = useStore((s) => s.showMesh)
+  const showTracks = useStore((s) => s.showTracks)
   const surfaceMap = useStore((s) => s.surfaceMap)
   const referenceFrame = useStore((s) => s.referenceFrame)
   // Fitting the rotations walks every frame once; cache them per continent.
@@ -64,6 +65,83 @@ export function Globe({ data }: { data: Dataset }) {
       index: new Uint32Array(data.indices.length),
     }
   }, [data])
+
+  /**
+   * The fracture zones, and the pair of points due to meet at this moment.
+   *
+   * Both are lists of mesh vertices, so they need no geometry of their own
+   * beyond somewhere to copy positions into: a track drawn at 120 Ma is those
+   * vertices read at their 120 Ma places, which is why the lines close up as
+   * the ocean does instead of sliding over a globe that moved underneath them.
+   *
+   * Lifted a little off the surface. Drawn exactly on it they fight the shell
+   * for the same depth and come out stitched.
+   */
+  const LIFT = 1.004
+  const overlay = useMemo(() => {
+    const t = data.tracks
+    if (!t) return null
+    const path: number[] = []
+    for (let i = 0; i < t.ridge.length; i++) {
+      for (let p = t.offsets[i]; p + 1 < t.offsets[i + 1]; p++) {
+        path.push(t.vertex[p], t.vertex[p + 1])
+      }
+    }
+    const line = (count: number) => {
+      const g = new THREE.BufferGeometry()
+      g.setAttribute(
+        'position',
+        new THREE.BufferAttribute(new Float32Array(count * 3), 3)
+          .setUsage(THREE.DynamicDrawUsage),
+      )
+      g.boundingSphere = new THREE.Sphere(new THREE.Vector3(), 2)
+      return g
+    }
+    return {
+      path: Int32Array.from(path),
+      pathGeometry: line(path.length),
+      // Every pair gets room; only the ones due at the drawn frame are ever
+      // inside the draw range.
+      gapGeometry: line(t.pairA.length * 2),
+    }
+  }, [data])
+
+  useEffect(() => () => {
+    overlay?.pathGeometry.dispose()
+    overlay?.gapGeometry.dispose()
+  }, [overlay])
+
+  /** Copy the current positions of a list of vertices into a line geometry. */
+  const drawLines = (
+    geometry: THREE.BufferGeometry, list: ArrayLike<number>, count: number,
+  ) => {
+    const target = geometry.getAttribute('position') as THREE.BufferAttribute
+    const out = target.array as Float32Array
+    for (let i = 0; i < count; i++) {
+      const v = list[i] * 3
+      out[i * 3] = buffers.positions[v] * LIFT
+      out[i * 3 + 1] = buffers.positions[v + 1] * LIFT
+      out[i * 3 + 2] = buffers.positions[v + 2] * LIFT
+    }
+    geometry.setDrawRange(0, count)
+    target.needsUpdate = true
+  }
+
+  /** The pairs whose crust formed at the frame being drawn, and nothing else. */
+  const dueNow = useMemo(() => new Int32Array((data.tracks?.pairA.length ?? 0) * 2), [data])
+  const refreshOverlay = () => {
+    if (!overlay || !data.tracks) return
+    drawLines(overlay.pathGeometry, overlay.path, overlay.path.length)
+    const t = data.tracks
+    const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
+    let n = 0
+    for (let i = 0; i < t.pairA.length; i++) {
+      if (t.pairAgeMa[i] !== frameMa) continue
+      dueNow[n++] = t.pairA[i]
+      dueNow[n++] = t.pairB[i]
+    }
+    drawLines(overlay.gapGeometry, dueNow, n)
+  }
 
   // Built here rather than declared in JSX so the wireframe overlay can draw
   // the very same geometry. three derives the edge list from the index once and
@@ -111,7 +189,16 @@ export function Globe({ data }: { data: Dataset }) {
   // scrubbed, and every control that feeds a uniform.
   const invalidate = useThree((state) => state.invalidate)
   useEffect(() => onClockMoved(invalidate), [invalidate])
-  useEffect(() => invalidate(), [invalidate, mode, showGrid, showMesh, surfaceMap, referenceFrame, data])
+  useEffect(
+    () => invalidate(),
+    [invalidate, mode, showGrid, showMesh, showTracks, surfaceMap, referenceFrame, data],
+  )
+  // Turning the overlay on has to fill it: the positions are only rewritten
+  // when the clock moves, and the clock has not.
+  useEffect(() => {
+    if (showTracks) refreshOverlay()
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- reads live buffers
+  }, [showTracks, overlay, rotations])
 
   const drawnFrame = useRef(-1)
   /** The clock reading the vertex buffers currently hold. */
@@ -230,6 +317,7 @@ export function Globe({ data }: { data: Dataset }) {
       sampleFrame(data, clock.timeMa, buffers.positions, buffers.strain, rotations)
       geometry.attributes.position.needsUpdate = true
       geometry.attributes.aStrain.needsUpdate = true
+      if (showTracks) refreshOverlay()
     }
     if (material.current) {
       material.current.uniforms.uMap.value = map
@@ -260,6 +348,20 @@ export function Globe({ data }: { data: Dataset }) {
           side={THREE.FrontSide}
         />
       </mesh>
+      {showTracks && overlay && (
+        <>
+          {/* The paths the crust took away from the ridges. Magenta because
+              nothing in the age ramp or the satellite imagery is. */}
+          <lineSegments geometry={overlay.pathGeometry} frustumCulled={false}>
+            <lineBasicMaterial color="#ff4fa3" transparent opacity={0.75} depthWrite={false} toneMapped={false} />
+          </lineSegments>
+          {/* One segment per pair that was a single point at this moment, so its
+              length is the model's error, drawn. */}
+          <lineSegments geometry={overlay.gapGeometry} frustumCulled={false}>
+            <lineBasicMaterial color="#ffd24a" depthWrite={false} toneMapped={false} />
+          </lineSegments>
+        </>
+      )}
       {showMesh && (
         <mesh geometry={geometry} frustumCulled={false}>
           <meshBasicMaterial

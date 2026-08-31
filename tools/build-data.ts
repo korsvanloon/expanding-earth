@@ -24,6 +24,8 @@ import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
+import { conjugatePairs, smoothAges, traceFlowLines, vertexSnapper } from './lib/flowlines.js'
+import { writeTracks } from '../shared/tracks.js'
 import {
   PERMANENT_MA,
   R0_KM,
@@ -71,6 +73,30 @@ export const CONFIG = {
   endTimeMa: 200,
   radiusStepMa: 1,
   frameStepMa: 5,
+  /**
+   * How far apart the fracture-zone tracks are seeded along the ridges, km.
+   *
+   * Two hundred and fifty gives about five hundred tracks and two and a half
+   * thousand conjugate pairs, against the four hand-chosen continent pairs the
+   * model was scored on before. Closer spacing costs nothing to trace but the
+   * pairs stop being independent: neighbouring seeds slide onto the same stretch
+   * of axis and walk the same fracture zone.
+   */
+  seedSpacingKm: 250,
+  /** Smoothing passes over the age grid before its gradient is walked. */
+  flowSmoothing: 4,
+  /**
+   * How near a frame's age a track point has to be to be paired at it, Ma.
+   *
+   * Every million years of slack is a few tens of kilometres of spreading the
+   * pair is allowed to have done before the frame it is measured at, and that
+   * slack lands in the residual as if the model had put it there. Four Ma of
+   * tolerance put a couple of hundred kilometres into the floor. Two is about
+   * as tight as the grid allows -- one grey level is 1.1 Ma.
+   */
+  conjugateToleranceMa: 2,
+  /** How many tracks the viewer is given to draw. A picture, not the dataset. */
+  drawnTracks: 60,
   /**
    * Which classification the solver actually runs on. The depth-age fit only
    * reaches r2 ~ 0.18 against this particular height map, so interpolating ages
@@ -207,7 +233,88 @@ function main() {
     fragmentCount: 1,
   }
 
+  // --- the stretch marks -------------------------------------------------
+  //
+  // Which piece of crust was once against which, read out of the same age grid
+  // that drives the whole model. See tools/lib/flowlines.ts.
   mkdirSync(OUT, { recursive: true })
+  console.log('[build-data] tracing fracture zones')
+  const ageMa = new Float64Array(age.width * age.height)
+  for (let i = 0; i < ageMa.length; i++) {
+    ageMa[i] = age.data[i] === NODATA ? NaN : (age.data[i] / 255) * CONFIG.maxAgeMa
+  }
+  const traced = traceFlowLines(
+    smoothAges(ageMa, age.width, age.height, CONFIG.flowSmoothing),
+    age.width,
+    age.height,
+    { seedSpacingKm: CONFIG.seedSpacingKm },
+  )
+  console.log(
+    `  ${traced.tracks.length} tracks from ${traced.seeds} ridge seeds; ` +
+      Object.entries(traced.rejected).map(([why, n]) => `${n} ${why}`).join(', '),
+  )
+  const snap = vertexSnapper(shell.positions, vertexCount)
+  const frameAges = Array.from(
+    { length: Math.floor(CONFIG.endTimeMa / CONFIG.frameStepMa) + 1 },
+    (_, i) => i * CONFIG.frameStepMa,
+  )
+  const conjugates = conjugatePairs(traced.tracks, frameAges, snap, CONFIG.conjugateToleranceMa)
+  console.log(
+    `  ${conjugates.pairs.length} conjugate pairs at the frame ages; ` +
+      Object.entries(conjugates.rejected).map(([why, n]) => `${n} ${why}`).join(', '),
+  )
+  // Every pair is kept, because every pair is a check. Only a sample of the
+  // tracks is written, because they are there to be looked at: a globe with
+  // five hundred lines on it is a globe you cannot see.
+  const stride = Math.max(1, Math.round(traced.tracks.length / CONFIG.drawnTracks))
+  const drawn = traced.tracks.filter((_, i) => i % stride === 0)
+  const offsets: number[] = [0]
+  const ridge: number[] = []
+  const vertex: number[] = []
+  const pointAge: number[] = []
+  const fromRidge: number[] = []
+  // Thinned before they are written. A path steps forty kilometres and the mesh
+  // it is drawn on has points forty-seven apart, so consecutive path points
+  // land on the same vertex or the one beside it and the line comes out as a
+  // staircase -- the mesh's sawtooth, not the fracture zone's shape. Keeping
+  // only points a few mesh spacings apart draws the path the walk actually
+  // took. The pairs are unaffected: they carry their own snapped ends.
+  const drawSpacingKm = 150
+  for (const track of drawn) {
+    const start = offsets[offsets.length - 1]
+    let ridgeAt = start
+    let lastKept = -Infinity
+    let lastVertex = -1
+    track.points.forEach((p, i) => {
+      const signed = i < track.ridge ? -p.fromRidgeKm : p.fromRidgeKm
+      const forced = i === track.ridge || i === 0 || i === track.points.length - 1
+      const v = snap(p.x, p.y, p.z)
+      if (!forced && (v === lastVertex || Math.abs(signed - lastKept) < drawSpacingKm)) return
+      if (i === track.ridge) ridgeAt = vertex.length
+      lastKept = signed
+      lastVertex = v
+      vertex.push(v)
+      pointAge.push(p.ageMa)
+      fromRidge.push(p.fromRidgeKm)
+    })
+    ridge.push(ridgeAt)
+    offsets.push(vertex.length)
+  }
+  writeFileSync(
+    resolve(OUT, 'tracks.bin'),
+    Buffer.from(writeTracks({
+      offsets: Uint32Array.from(offsets),
+      ridge: Uint32Array.from(ridge),
+      vertex: Uint32Array.from(vertex),
+      ageMa: Float32Array.from(pointAge),
+      fromRidgeKm: Float32Array.from(fromRidge),
+      pairA: Uint32Array.from(conjugates.pairs, (p) => p.a),
+      pairB: Uint32Array.from(conjugates.pairs, (p) => p.b),
+      pairAgeMa: Float32Array.from(conjugates.pairs, (p) => p.ageMa),
+    })),
+  )
+  console.log(`  wrote ${drawn.length} tracks for drawing and every pair for measuring`)
+
   writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, crust)
 
   const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'> = {
@@ -239,7 +346,7 @@ function main() {
     endTimeMa: CONFIG.endTimeMa,
   }
   writeFileSync(resolve(OUT, 'meta.partial.json'), JSON.stringify(meta, null, 2))
-  console.log('[build-data] wrote public/data/mesh.bin and meta.partial.json')
+  console.log('[build-data] wrote public/data/mesh.bin, tracks.bin and meta.partial.json')
 }
 
 /**

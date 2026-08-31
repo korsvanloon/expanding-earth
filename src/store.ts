@@ -71,6 +71,8 @@ interface State {
   showGrid: boolean
   /** Draw the shell as glass with its triangles on top; see src/scene/Globe.tsx. */
   showMesh: boolean
+  /** Draw the fracture zones and the pairs due to meet now; see shared/tracks.ts. */
+  showTracks: boolean
   endTimeMa: number
   /** Points picked off the globe, oldest first; see Pick. */
   picks: Pick[]
@@ -83,6 +85,7 @@ interface State {
   setReferenceFrame: (referenceFrame: string) => void
   setShowGrid: (showGrid: boolean) => void
   setShowMesh: (showMesh: boolean) => void
+  setShowTracks: (showTracks: boolean) => void
   setEndTime: (endTimeMa: number) => void
   seek: (timeMa: number) => void
 }
@@ -119,6 +122,7 @@ export const useStore = create<State>((set) => ({
   referenceFrame: 'africa',
   showGrid: false,
   showMesh: false,
+  showTracks: false,
   endTimeMa: 200,
   picks: [],
   // Six is enough for a claim about a handful of points and few enough that the
@@ -133,6 +137,7 @@ export const useStore = create<State>((set) => ({
   setReferenceFrame: (referenceFrame) => set({ referenceFrame }),
   setShowGrid: (showGrid) => set({ showGrid }),
   setShowMesh: (showMesh) => set({ showMesh }),
+  setShowTracks: (showTracks) => set({ showTracks }),
   setEndTime: (endTimeMa) => set({ endTimeMa }),
   seek: (timeMa) => {
     clock.timeMa = timeMa

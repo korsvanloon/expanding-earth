@@ -83,6 +83,21 @@ Surviving crust keeps its present-day size because rock does not stretch;
 vanished crust pulls its two margins together but can never push them apart. See
 [MODEL.md](MODEL.md) for the method and for what to distrust in it.
 
+## How it is checked
+
+The age grid does more than drive the model: it also says which piece of crust
+was once against which. A fracture zone is the path a piece of sea floor took
+away from its ridge, so two points on opposite flanks of the same ridge, on the
+same path, with the same age, were one point at that age. Following those paths
+gives about two thousand pairs whose separation at a stated moment ought to be
+zero — where the scorecard has four hand-chosen continent pairs.
+
+They are a check and never a constraint: nothing in the solver knows they exist,
+because a model steered by them could not then be scored on them. Turn on
+**Fracture zones** in the panel to see them, and see the yellow segments joining
+the pairs due to meet at whatever moment the timeline is showing — the length of
+each one is the model being wrong, in kilometres. `MODEL.md` has the figures.
+
 ## Layout
 
 ```

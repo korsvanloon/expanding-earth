@@ -141,7 +141,12 @@ function main() {
     frames: gzipSync(deltaSplit(thinnedFrames, stride, kept.length), { level: 9 }),
     strain: gzipSync(Buffer.from(thinnedStrain), { level: 9 }),
     plates: gzipSync(Buffer.from(thinnedPlates), { level: 9 }),
-      topology: gzipSync(thinTopology(topology, kept, meta.faceCount, meshIndices), { level: 9 }),
+    topology: gzipSync(thinTopology(topology, kept, meta.faceCount, meshIndices), { level: 9 }),
+    // The tracks travel unchanged: they are vertex indices, and the vertices
+    // are the same. Only the pairs lose something -- an artifact keeps every
+    // other frame, so a pair due at a dropped one has no frame to be judged at
+    // and simply never lights up.
+    tracks: gzipSync(readFileSync(resolve(DATA, 'tracks.bin')), { level: 9 }),
   }
 
   const bundle = readdirSync(resolve(DIST, 'assets'))
@@ -180,8 +185,9 @@ window.__DATA__ = (async () => {
   };
   const P = ${JSON.stringify(Object.fromEntries(Object.entries(payload).map(([k, v]) => [k, v.toString('base64')])))};
   const meta = JSON.parse(new TextDecoder().decode(await gunzip(P.meta)));
-  const [mesh, frames, strain, plates, topology] = await Promise.all(
-    [gunzip(P.mesh), gunzip(P.frames), gunzip(P.strain), gunzip(P.plates), gunzip(P.topology)]);
+  const [mesh, frames, strain, plates, topology, tracks] = await Promise.all(
+    [gunzip(P.mesh), gunzip(P.frames), gunzip(P.strain), gunzip(P.plates), gunzip(P.topology),
+     gunzip(P.tracks)]);
 
   // Undo the byte-plane split, then the per-frame differencing. Int16Array
   // wraps on overflow exactly as the differencing did, so the running sum
@@ -197,6 +203,7 @@ window.__DATA__ = (async () => {
   return {
     meta, mesh: mesh.buffer, frames: out.buffer,
     strain: strain.buffer, plates: plates.buffer, topology: topology.buffer,
+    tracks: tracks.buffer,
   };
 })();
 </script>

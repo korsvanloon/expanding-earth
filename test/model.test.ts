@@ -8,6 +8,10 @@ import { crustScale, sampleCurve, MIN_SCALE, TAU_MA, type Meta } from '../shared
 import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
 import { distortion, shapePairs } from '../tools/lib/shape'
+import {
+  conjugateFit, conjugatePairs, smoothAges, traceFlowLines, vertexSnapper,
+} from '../tools/lib/flowlines'
+import { readTracks, writeTracks } from '../shared/tracks'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import { resolve } from 'node:path'
@@ -366,6 +370,205 @@ describe('measuring shape', () => {
     expect(seen.worstIslandDistortion).toBeGreaterThan(0.2)
     const alone = shapePairs(dirs, Int32Array.from(group, (g) => (g === 0 ? 0 : -1)), 1, 200, R0)
     expect(distortion(alone, pos, R0).islandDistortion).toBeLessThan(FLOAT_NOISE)
+  })
+})
+
+describe('reading the stretch marks', () => {
+  const W = 360
+  const H = 180
+  const DEG = Math.PI / 180
+
+  /**
+   * A synthetic ocean whose answer is known.
+   *
+   * A ridge on the meridian, spreading east and west at a stated rate, so the
+   * age at longitude L is |L| times the degrees-per-Ma. Every conjugate pair is
+   * then exactly (L, -L) and every one is known before the tracer runs. A real
+   * grid could only ever be checked against itself.
+   */
+  const madeUpOcean = (degPerMa: number, oldest: number) => {
+    const age = new Float64Array(W * H).fill(Number.NaN)
+    for (let row = 0; row < H; row++) {
+      const lat = 90 - (row + 0.5)
+      // A wide band, poles left undated so nothing walks over them. Wide on
+      // purpose: a path following a gradient takes great-circle steps, and a
+      // great circle aimed due east drifts poleward, so a narrow band would be
+      // testing the band's edge rather than the tracer.
+      if (Math.abs(lat) > 70) continue
+      for (let col = 0; col < W; col++) {
+        const lon = col + 0.5 - 180
+        const a = Math.abs(lon) / degPerMa
+        if (a > oldest) continue
+        age[row * W + col] = a
+      }
+    }
+    return age
+  }
+
+  it('walks a made-up ocean back to the pairs it was built from', () => {
+    // Two degrees per Ma of half-spreading, out to 60 Ma: crust 120 degrees
+    // either side of the ridge.
+    const age = madeUpOcean(2, 60)
+    const { tracks, seeds } = traceFlowLines(age, W, H, { seedSpacingKm: 500, stepKm: 40 })
+    expect(seeds).toBeGreaterThan(10)
+    expect(tracks.length).toBeGreaterThan(8)
+    const found: [number, number][] = []
+    const { pairs } = conjugatePairs(tracks, [20, 40], (x, y, z) => {
+      const lon = Math.atan2(-z, x) / DEG
+      const lat = Math.asin(Math.min(1, Math.max(-1, y))) / DEG
+      found.push([lon, lat])
+      return found.length - 1
+    })
+    expect(pairs.length).toBeGreaterThan(10)
+    for (const pair of pairs) {
+      const [lonA, latA] = found[pair.a]
+      const [lonB, latB] = found[pair.b]
+      // The two halves must straddle the ridge, at the longitude the age says.
+      expect(Math.sign(lonA)).toBe(-Math.sign(lonB))
+      expect(Math.abs(Math.abs(lonA) - 2 * pair.ageMa)).toBeLessThan(4)
+      expect(Math.abs(Math.abs(lonB) - 2 * pair.ageMa)).toBeLessThan(4)
+      // And they must have stayed on their own line of latitude, because in
+      // this ocean the age does not vary with latitude at all.
+      expect(Math.abs(latA - latB)).toBeLessThan(6)
+    }
+  })
+
+  it('refuses to walk over crust the grid does not date', () => {
+    // The same ocean with a continent in the middle of the eastern flank. No
+    // pair may have a half beyond it: a path that crossed dry land would be
+    // pairing crust from another ocean entirely.
+    const age = madeUpOcean(2, 60)
+    for (let row = 0; row < H; row++) {
+      for (let col = 0; col < W; col++) {
+        const lon = col + 0.5 - 180
+        if (lon > 40 && lon < 60) age[row * W + col] = Number.NaN
+      }
+    }
+    const { tracks } = traceFlowLines(age, W, H, { seedSpacingKm: 500, stepKm: 40 })
+    const lons: number[] = []
+    const { pairs } = conjugatePairs(tracks, [10, 20, 30, 40], (x, _y, z) => {
+      lons.push(Math.atan2(-z, x) / DEG)
+      return lons.length - 1
+    })
+    expect(pairs.length).toBeGreaterThan(3)
+    for (const pair of pairs) {
+      expect(lons[pair.a]).toBeLessThan(41)
+      expect(lons[pair.b]).toBeLessThan(41)
+    }
+  })
+
+  it('throws out a pair whose halves are not as far apart as their paths are long', () => {
+    // Two points a hundred kilometres apart cannot both have walked two
+    // thousand kilometres from the same ridge in opposite directions, and that
+    // is what a walk that came home looks like. Hand-build exactly that.
+    const near = (lonDeg: number) => {
+      const lon = lonDeg * DEG
+      return { x: Math.cos(lon), y: 0, z: -Math.sin(lon), fromRidgeKm: 2000 }
+    }
+    const track = {
+      ridge: 1,
+      points: [
+        { ...near(20), ageMa: 40 },
+        { x: 1, y: 0, z: 0, ageMa: 0, fromRidgeKm: 0 },
+        { ...near(21), ageMa: 40 },
+      ],
+    }
+    const seen = conjugatePairs([track], [40], (_x, _y, _z) => Math.random())
+    expect(seen.pairs).toHaveLength(0)
+    expect(seen.rejected['not as far apart as the paths are long']).toBe(1)
+  })
+
+  it('scores a pair the model reunited and one it did not', () => {
+    // Two pairs, both due at 40 Ma. One is in the same place, one is a quarter
+    // of the way round the world from where it should be.
+    const pos = new Float64Array(4 * 3)
+    const put = (v: number, lonDeg: number) => {
+      pos[v * 3] = 6371 * Math.cos(lonDeg * DEG)
+      pos[v * 3 + 2] = -6371 * Math.sin(lonDeg * DEG)
+    }
+    put(0, 10); put(1, 10)
+    put(2, 0); put(3, 90)
+    const fit = conjugateFit(
+      Uint32Array.from([0, 2]), Uint32Array.from([1, 3]), Float32Array.from([40, 40]),
+      40, pos, 6371, 200, (v: number) => v,
+    )
+    expect(fit.conjugateCount).toBe(2)
+    expect(fit.conjugateMatched).toBe(0.5)
+    expect(fit.conjugateMerged).toBe(0)
+    // A quarter of a great circle at this radius.
+    expect(fit.conjugateMedianKm).toBeCloseTo((Math.PI / 2) * 6371, 0)
+  })
+
+  it('counts a pair the mesh merged as reunited, and says how many those were', () => {
+    // A collapse is the model closing the ocean and making the two banks one
+    // point, which is the right answer -- and also an unfalsifiable zero, so it
+    // has to be reported separately or a run that merged everything would look
+    // perfect.
+    const pos = new Float64Array(2 * 3)
+    pos[0] = 6371
+    pos[3] = 6371
+    const fit = conjugateFit(
+      Uint32Array.from([0]), Uint32Array.from([1]), Float32Array.from([40]),
+      40, pos, 6371, 200, () => 0,
+    )
+    expect(fit.conjugateMatched).toBe(1)
+    expect(fit.conjugateMerged).toBe(1)
+  })
+
+  it('measures only the pairs due at the time it is asked about', () => {
+    const pos = new Float64Array(4 * 3).fill(0)
+    pos[0] = 6371; pos[3] = -6371; pos[6] = 6371; pos[9] = 6371
+    const fit = conjugateFit(
+      Uint32Array.from([0, 2]), Uint32Array.from([1, 3]), Float32Array.from([40, 80]),
+      80, pos, 6371, 200, (v: number) => v,
+    )
+    expect(fit.conjugateCount).toBe(1)
+    expect(fit.conjugateMedianKm).toBeCloseTo(0, 6)
+  })
+
+  it('leaves undated crust undated when it smooths', () => {
+    const age = new Float64Array(9).fill(10)
+    age[4] = Number.NaN
+    const out = smoothAges(age, 3, 3, 2)
+    expect(Number.isNaN(out[4])).toBe(true)
+    for (const i of [0, 1, 2, 3, 5, 6, 7, 8]) expect(out[i]).toBeCloseTo(10, 9)
+  })
+
+  it('snaps a direction to the nearest vertex, poles included', () => {
+    const { positions } = buildIcosphere(3)
+    const count = positions.length / 3
+    const snap = vertexSnapper(Float32Array.from(positions), count)
+    // Against the honest answer: ask every vertex.
+    const brute = (x: number, y: number, z: number) => {
+      let best = -1
+      let bestDot = -2
+      for (let v = 0; v < count; v++) {
+        const dot = x * positions[v * 3] + y * positions[v * 3 + 1] + z * positions[v * 3 + 2]
+        if (dot > bestDot) { bestDot = dot; best = v }
+      }
+      return best
+    }
+    for (const [lon, lat] of [[0, 0], [37, 12], [-140, -63], [10, 89], [-95, -89], [179, 45]]) {
+      const d = lonLatToDirection(lon * DEG, lat * DEG)
+      expect(snap(d[0], d[1], d[2])).toBe(brute(d[0], d[1], d[2]))
+    }
+  })
+
+  it('round-trips the track file', () => {
+    const tracks = {
+      offsets: Uint32Array.from([0, 3, 5]),
+      ridge: Uint32Array.from([1, 3]),
+      vertex: Uint32Array.from([7, 8, 9, 20, 21]),
+      ageMa: Float32Array.from([10, 0, 10, 0, 25]),
+      fromRidgeKm: Float32Array.from([400, 0, 400, 0, 900]),
+      pairA: Uint32Array.from([7]),
+      pairB: Uint32Array.from([9]),
+      pairAgeMa: Float32Array.from([10]),
+    }
+    const back = readTracks(writeTracks(tracks))
+    for (const key of Object.keys(tracks) as (keyof typeof tracks)[]) {
+      expect([...back[key]]).toEqual([...tracks[key]])
+    }
   })
 })
 

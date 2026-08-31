@@ -120,6 +120,27 @@ export interface FrameDiagnostics {
   islandDistortion: number
   /** The same for the worst single island, which is where it will fail first. */
   worstIslandDistortion: number
+  /**
+   * How many conjugate pairs were due to come together at this time.
+   *
+   * A pair is two pieces of crust that the age grid says left the same place on
+   * the same fracture zone at the same moment -- so at that moment they were
+   * one point, and their separation here is a residual whose right answer is
+   * zero. There are thousands of them, against the four hand-chosen continent
+   * pairs in the scorecard, and they come out of the same observation the model
+   * is driven by rather than out of anybody's reconstruction.
+   *
+   * They are a check and not a constraint. Nothing in the solver is told about
+   * them, because a model steered by them could not then be scored on them.
+   * See tools/lib/flowlines.ts.
+   */
+  conjugateCount: number
+  /** Median separation of those pairs, km. Zero is the right answer. */
+  conjugateMedianKm: number
+  /** Share of them that got within 200 km of each other. */
+  conjugateMatched: number
+  /** Share whose halves the mesh merged, which is the part that cannot fail. */
+  conjugateMerged: number
 }
 
 export interface Meta {

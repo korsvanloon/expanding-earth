@@ -101,6 +101,25 @@ export function runBlocks(meta: Meta): Record<string, string> {
         }).filter((r) => r !== null),
     ].join('\n'),
 
+    pairs: [
+      '| time | pairs due | median miss | reunited within 200 km | of which merged |',
+      '|---|---|---|---|---|',
+      ...[0, ...SHOWN_MA].map((ma) => {
+        const d = at(ma)
+        if (!d || !d.conjugateCount) return null
+        return `| ${ma} Ma | ${d.conjugateCount} | ${d.conjugateMedianKm.toFixed(0)} km | ` +
+          `${pct(d.conjugateMatched, 0)} | ${pct(d.conjugateMerged, 0)} |`
+      }).filter((r) => r !== null),
+    ].join('\n'),
+
+    floor: (() => {
+      const first = meta.diagnostics[0]
+      return `At 0 Ma the reconstruction is the present day, so its ` +
+        `${first.conjugateMedianKm.toFixed(0)} km and ` +
+        `${pct(first.conjugateMatched, 0)} are what the mesh's own resolution and the tracing ` +
+        `contribute, with nothing of the model in them.`
+    })(),
+
     reach: (() => {
       // Rates against rates and peaks against peaks. Nothing in here is a
       // threshold: the window is stated, the extremes are the run's own, and

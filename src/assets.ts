@@ -15,6 +15,13 @@ export interface InlineData {
   strain: ArrayBuffer
   plates: ArrayBuffer
   topology: ArrayBuffer
+  /**
+   * The fracture-zone tracks, if the build has them. Optional because a
+   * published artifact keeps only every other frame, so a pair whose age falls
+   * on a dropped frame has no frame to be judged at; the overlay is simply
+   * absent there rather than wrong.
+   */
+  tracks?: ArrayBuffer
 }
 
 declare global {

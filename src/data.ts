@@ -4,6 +4,7 @@ import {
 } from '@shared/topology'
 import type { InlineData } from '@/assets'
 import { asset, inlineData } from '@/assets'
+import { readTracks, type Tracks } from '@shared/tracks'
 
 export interface Dataset {
   meta: Meta
@@ -44,6 +45,14 @@ export interface Dataset {
    * since the frame before, since only a few thousand triangles move each time.
    */
   topology: TopologyDelta[]
+  /**
+   * The fracture zones, and the pairs of points that were once one point.
+   *
+   * Held as mesh vertex indices, so drawing a track at any time is reading
+   * those vertices' positions in that frame -- the lines deform with the crust
+   * because they *are* the crust. See shared/tracks.ts.
+   */
+  tracks?: Tracks
   /** How strongly the crust at each vertex resists deformation. */
   rigidity: Float32Array
   /** Crustal thickness in km at each vertex, from ECM1. */
@@ -67,7 +76,7 @@ export function buildIndex(
 
 export async function loadDataset(): Promise<Dataset> {
   const inline = inlineData()
-  const { meta, mesh, frames, strain, plates, topology } =
+  const { meta, mesh, frames, strain, plates, topology, tracks } =
     inline ? await inline : await fetchDataset()
 
   const [vertexCount, faceCount, , cutPairCount] = new Uint32Array(mesh, 0, 4)
@@ -138,20 +147,22 @@ export async function loadDataset(): Promise<Dataset> {
     rigidity: vertexRigidity,
     thickness: vertexThickness,
     crustType: vertexType,
+    tracks: tracks ? readTracks(tracks) : undefined,
     radiusKm: meta.crustModels[0].radiusKm,
   }
 }
 
 async function fetchDataset(): Promise<InlineData> {
-  const [meta, mesh, frames, strain, plates, topology] = await Promise.all([
+  const [meta, mesh, frames, strain, plates, topology, tracks] = await Promise.all([
     fetch(asset('data/meta.json')).then((r) => r.json() as Promise<Meta>),
     fetch(asset('data/mesh.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/frames.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/strain.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/plates.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/topology.bin')).then((r) => r.arrayBuffer()),
+    fetch(asset('data/tracks.bin')).then((r) => (r.ok ? r.arrayBuffer() : undefined)),
   ])
-  return { meta, mesh, frames, strain, plates, topology }
+  return { meta, mesh, frames, strain, plates, topology, tracks }
 }
 
 export const radiusAt = (data: Dataset, timeMa: number) =>
