@@ -185,6 +185,9 @@ export interface ZoneSummary {
   lengthKm: number
   lon: number
   lat: number
+  ageMa: number | null
+  swingE: number
+  bowlMa: number
 }
 
 /**
@@ -199,13 +202,18 @@ export interface ZoneSummary {
 export function describeZones(picked: number[], zones: ZoneSummary[]): string {
   if (!picked.length) return ''
   return [
-    'picked fracture zones on the Expanding Earth globe -- id, then length, '
-      + 'then the centre of the curve as lon, lat in degrees',
+    'picked fracture zones on the Expanding Earth globe -- id, length, the '
+      + 'centre of the curve as lon, lat in degrees, then the mean sea-floor '
+      + 'age along it, how far the gravity swings along it (a seamount chain '
+      + 'is lumpy, a scarp is not) and how far the age dips on the line '
+      + 'against 60 km either side (positive means a spreading axis)',
     ...picked.map((id) => {
       const zone = zones[id - 1]
       return zone
         ? `#${id} -- ${zone.lengthKm} km, centred at `
           + `${zone.lon.toFixed(1)}, ${zone.lat.toFixed(1)}`
+          + `; ${zone.ageMa === null ? 'undated' : `${zone.ageMa} Ma`}`
+          + `, swing ${zone.swingE} E, bowl ${zone.bowlMa.toFixed(2)} Ma`
         : `#${id} -- no record of this one`
     }),
   ].join('\n')

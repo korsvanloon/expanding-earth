@@ -531,6 +531,11 @@ function PickedZones({ data }: { data: Dataset }) {
                   {' \u2014 '}
                   <strong>{zone.lengthKm} km</strong>
                   {`, centred at ${zone.lon.toFixed(1)}, ${zone.lat.toFixed(1)}`}
+                  <br />
+                  <span className="caption">
+                    {zone.ageMa === null ? 'undated' : `${zone.ageMa} Ma`}
+                    {` \u00b7 swing ${zone.swingE} E \u00b7 bowl ${zone.bowlMa.toFixed(2)} Ma`}
+                  </span>
                 </>
               ) : (
                 ' \u2014 no record of this one'
@@ -541,7 +546,10 @@ function PickedZones({ data }: { data: Dataset }) {
       </ul>
       <p className="caption">
         In orange on the globe. Right-click a turquoise line to add or drop one; the last{' '}
-        {ZONE_LIMIT} are kept.{' '}
+        {ZONE_LIMIT} are kept. <em>Swing</em> is how much the gravity rises and falls walking
+        along the line: a chain of seamounts is lumpy, a fracture-zone scarp is not.{' '}
+        <em>Bowl</em> is how far the sea floor is younger on the line than 60 km either side,
+        so a positive one is a spreading axis rather than a fracture zone.{' '}
         <button type="button" className="linkish" onClick={copy}>
           {copied ? 'copied' : 'copy the list'}
         </button>{' '}

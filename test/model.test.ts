@@ -18,7 +18,8 @@ import { flowAt, flowField } from '../tools/lib/flowfield'
 import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
 import {
-  crestOffsetKm, fillGaps, fractureZones, lineamentAt, lineaments, sampleStructure, zoneRaster,
+  crestOffsetKm, fillGaps, fractureZones, lineamentAt, lineaments, linkCurves, sampleStructure,
+  zoneRaster,
 } from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
 import { resolve } from 'node:path'
@@ -1216,6 +1217,60 @@ describe('telling a fracture zone from an abyssal hill', () => {
     const gated = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0.94 })
     const open = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0 })
     expect(strength(gated, -90)).toBeLessThan(strength(open, -90))
+  })
+})
+
+describe('linking lit cells into curves', () => {
+  /**
+   * One north-south scarp, three cells across, with a guide axis that points
+   * north everywhere.
+   *
+   * Three cells is what a real detection looks like after thinning: the
+   * non-maximum suppression narrows a scarp but does not reduce it to a single
+   * cell everywhere along its length. The linker used to answer with a curve
+   * for each of them -- five of the twelve zones a reader picked off the globe
+   * were the same scarp counted over and over -- so this is the regression
+   * test for that.
+   */
+  const scarp = () => {
+    const width = 720
+    const height = 360
+    const size = width * height
+    const ridgeness = new Float32Array(size)
+    for (let row = 100; row < 260; row++) {
+      for (let column = 359; column <= 361; column++) {
+        // A little variation across the scarp so there is a real maximum to
+        // find, and along it so the walk is not choosing between equals.
+        ridgeness[row * width + column] = 3 - Math.abs(column - 360) + (row % 7) * 0.01
+      }
+    }
+    const field = {
+      width, height, ridgeness,
+      // Bearing zero: the lineaments run north-south, which is the way the
+      // scarp goes.
+      axis: new Uint8Array(size),
+      coherence: new Uint8Array(size).fill(200),
+      known: new Uint8Array(size).fill(1),
+    }
+    return field
+  }
+
+  it('answers with one curve for one scarp, not one per cell across it', () => {
+    const field = scarp()
+    const curves = linkCurves(field, field, R0_KM)
+    expect(curves.length).toBe(1)
+    // And it is the whole scarp, not a fragment of it.
+    expect(curves[0].length).toBeGreaterThan(140)
+  })
+
+  it('keeps two scarps that are genuinely apart', () => {
+    const field = scarp()
+    for (let row = 100; row < 260; row++) {
+      for (let column = 400; column <= 402; column++) {
+        field.ridgeness[row * field.width + column] = 3 - Math.abs(column - 401)
+      }
+    }
+    expect(linkCurves(field, field, R0_KM).length).toBe(2)
   })
 })
 

@@ -23,9 +23,10 @@ import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
-import { readGrid } from './lib/grid.js'
+import { gridValue, readGrid, type Grid } from './lib/grid.js'
 import {
-  fabricRaster, fillGaps, fractureZones, lineaments, sampleStructure, zoneRaster,
+  fabricRaster, fillGaps, fractureZones, lineamentAt, lineaments, sampleStructure, zoneRaster,
+  type Lineaments,
 } from './lib/structure.js'
 import { flowField } from './lib/flowfield.js'
 import { subdivision } from './lib/resolution.js'
@@ -549,7 +550,9 @@ function main() {
     crustModels,
     solvedModel: CONFIG.solvedModel,
     crustalFabric: structure.fabric,
-    fractureZones: detected ? zoneSummaries(detected.curves, zones!) : [],
+    fractureZones: detected && vgg && lines
+      ? zoneSummaries(detected.curves, zones!, lines, vgg, ageMa, ageFull.width, ageFull.height)
+      : [],
     radiusStepMa: CONFIG.radiusStepMa,
     referenceRadiusKm,
     frameStepMa: CONFIG.frameStepMa,
@@ -920,13 +923,31 @@ function sampleGravityStructure(shell: Shell, crustType: Uint8Array) {
 /**
  * One line per detected fracture zone, for the viewer to list.
  *
- * Only what a reader needs to recognise the thing they clicked: how long it is
- * and roughly where it is. The shape itself stays in the raster, which is what
- * gets drawn.
+ * Where it is and how long, so a reader can recognise what they clicked, plus
+ * the two numbers that say what *kind* of line it might be. A reader who spent
+ * an evening on these came back with "most of these are seamounts, some are
+ * ridges", which is the detector's real problem and not one a picture can
+ * settle -- three different things make a narrow line in a gravity grid:
+ *
+ *   a fracture zone  a step in the sea floor that runs for hundreds of
+ *                    kilometres. Walk it and the gravity barely changes.
+ *   a seamount chain separate volcanoes built on top of crust that was already
+ *                    there. The same walk climbs and falls between every one of
+ *                    them, so `swingE` is large.
+ *   a ridge axis     crust is made there, so the age is at a minimum on the
+ *                    line and rises on both sides: `bowlMa` is positive.
+ *
+ * Neither number is a verdict. They are here so that a reader's judgement --
+ * "that one is a seamount" -- can be checked against something measured, and a
+ * cut chosen against real labels instead of against a story.
  */
 function zoneSummaries(
-  curves: number[][], zones: { width: number; height: number },
-): { lengthKm: number; lon: number; lat: number }[] {
+  curves: number[][],
+  zones: { width: number; height: number },
+  guide: Lineaments,
+  vgg: Grid,
+  ageMa: Float32Array, ageWidth: number, ageHeight: number,
+): Meta['fractureZones'] {
   const dir = (at: number) => {
     const row = Math.floor(at / zones.width)
     const lat = (0.5 - (row + 0.5) / zones.height) * Math.PI
@@ -934,6 +955,16 @@ function zoneSummaries(
     const c = Math.cos(lat)
     return [c * Math.cos(lon), Math.sin(lat), -c * Math.sin(lon)] as const
   }
+  /** The gravity reading at a direction, or NaN where the grid has a hole. */
+  const gravityAt = (x: number, y: number, z: number) => {
+    const [c, r] = directionToPixel(x, y, z, vgg.width, vgg.height)
+    return gridValue(vgg, c, r)
+  }
+  const ageAt = (x: number, y: number, z: number) => {
+    const [c, r] = directionToPixel(x, y, z, ageWidth, ageHeight)
+    return ageMa[r * ageWidth + c]
+  }
+  const reachKm = 60
   return curves.map((curve) => {
     let km = 0
     for (let i = 1; i < curve.length; i++) {
@@ -941,12 +972,51 @@ function zoneSummaries(
       const b = dir(curve[i])
       km += Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * R0_KM
     }
+    const along: number[] = []
+    const ages: number[] = []
+    let bowl = 0
+    let bowlN = 0
+    for (const at of curve) {
+      const [x, y, z] = dir(at)
+      const g = gravityAt(x, y, z)
+      if (Number.isFinite(g)) along.push(g)
+      const a0 = ageAt(x, y, z)
+      if (Number.isFinite(a0)) ages.push(a0)
+      const line = lineamentAt(guide, x, y, z)
+      if (!line || !Number.isFinite(a0)) continue
+      // Across the line, both ways, staying on the sphere.
+      let nx = line.ty * z - line.tz * y
+      let ny = line.tz * x - line.tx * z
+      let nz = line.tx * y - line.ty * x
+      const nl = Math.hypot(nx, ny, nz) || 1
+      nx /= nl; ny /= nl; nz /= nl
+      const beside = (sign: number) => {
+        const angle = (sign * reachKm) / R0_KM
+        const c = Math.cos(angle), s2 = Math.sin(angle)
+        const px = x * c + nx * s2, py = y * c + ny * s2, pz = z * c + nz * s2
+        const l = Math.hypot(px, py, pz) || 1
+        return ageAt(px / l, py / l, pz / l)
+      }
+      const plus = beside(1)
+      const minus = beside(-1)
+      if (!Number.isFinite(plus) || !Number.isFinite(minus)) continue
+      bowl += (plus + minus) / 2 - a0
+      bowlN++
+    }
+    along.sort((a, b) => a - b)
     const middle = curve[curve.length >> 1]
     const row = Math.floor(middle / zones.width)
     return {
       lengthKm: Math.round(km),
       lon: Math.round((((middle % zones.width) + 0.5) / zones.width - 0.5) * 3600) / 10,
       lat: Math.round((0.5 - (row + 0.5) / zones.height) * 1800) / 10,
+      ageMa: ages.length
+        ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length)
+        : null,
+      swingE: along.length > 4
+        ? Math.round(along[Math.floor(0.9 * along.length)] - along[Math.floor(0.1 * along.length)])
+        : 0,
+      bowlMa: bowlN ? Math.round((bowl / bowlN) * 100) / 100 : 0,
     }
   })
 }

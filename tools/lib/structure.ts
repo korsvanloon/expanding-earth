@@ -813,18 +813,44 @@ export function linkCurves(
   const order: number[] = []
   for (let i = 0; i < ridgeness.length; i++) if (ridgeness[i] > 0) order.push(i)
   order.sort((a, b) => ridgeness[b] - ridgeness[a])
-  const taken = new Uint8Array(ridgeness.length)
+  /**
+   * Which curve each cell belongs to, -1 for none.
+   *
+   * A curve claims not just the cell it steps on but the whole band it looked
+   * at, because a detected scarp is two or three cells across and claiming
+   * only the best one left the rest of the band free to seed a curve of its
+   * own: one physical feature came out as four or five near parallel lines a
+   * cell apart, and 54% of all curves were shadowing a longer one. Two
+   * fracture zones 22 km apart are not resolvable at eleven kilometres a cell
+   * anyway, so nothing real is lost.
+   *
+   * Whose claim it is has to be recorded, not just that there is one. A walk
+   * steps by a fixed distance and rounds to a cell, so at high latitude it
+   * lands on the same cell twice running; with a plain taken/not-taken flag it
+   * then blocks itself, calls the step a miss, and gives up five steps later.
+   * That truncated every long line into fragments too short to keep.
+   */
+  const claim = new Int32Array(ridgeness.length).fill(-1)
 
-  const curves: number[][] = []
+  const curves: { curve: number[]; lengthKm: number }[] = []
+  // A claim number per walk, not per kept curve: a walk that turns out too
+  // short is still a walk, and reusing its number would let the next one step
+  // straight through everything it claimed.
+  let walk = 0
+  // Nothing on a sphere is longer than half its circumference, so a walk that
+  // goes further than that is going round in a circle over its own claims.
+  const stepCap = height
   for (const seed of order) {
-    if (taken[seed]) continue
-    taken[seed] = 1
+    if (claim[seed] >= 0) continue
+    const me = walk++
+    claim[seed] = me
     const halves: number[][] = []
     for (const sign of [1, -1]) {
       const half: number[] = []
       let [x, y, z] = cellDirection(seed % width, Math.floor(seed / width), width, height)
       let missed = 0
-      while (missed <= bridgeCells) {
+      let steps = 0
+      while (missed <= bridgeCells && steps++ < stepCap) {
         const line = lineamentAt(guide, x, y, z)
         if (!line) break
         const [nx, ny, nz] = advanceAlong(
@@ -840,17 +866,31 @@ export function linkCurves(
         sx /= sl; sy /= sl; sz /= sl
         let best = -1
         let bestValue = 0
+        let mineOnly = true
+        const band: number[] = []
         for (let d = -across; d <= across; d++) {
           const [px, py, pz] = advanceAlong(x, y, z, sx, sy, sz, (d * cellKm) / r0)
           const [c, r] = directionToPixel(px, py, pz, width, height)
           const at = r * width + c
-          if (taken[at] || ridgeness[at] <= bestValue) continue
+          band.push(at)
+          if (claim[at] >= 0) {
+            if (claim[at] !== me) mineOnly = false
+            continue
+          }
+          mineOnly = false
+          if (ridgeness[at] <= bestValue) continue
           best = at
           bestValue = ridgeness[at]
         }
-        if (best < 0) { missed++; continue }
+        if (best < 0) {
+          // Standing on ground this same walk has already claimed is not a
+          // gap in the evidence, it is a rounding step; walk on without
+          // spending one of the misses that end the line.
+          if (!mineOnly) missed++
+          continue
+        }
+        for (const at of band) if (claim[at] < 0) claim[at] = me
         missed = 0
-        taken[best] = 1
         half.push(best)
       }
       halves.push(half)
@@ -864,9 +904,42 @@ export function linkCurves(
       const b = cellDirection(curve[i] % width, Math.floor(curve[i] / width), width, height)
       lengthKm += Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * r0
     }
-    if (lengthKm >= minLengthKm) curves.push(curve)
+    if (lengthKm >= minLengthKm) curves.push({ curve, lengthKm })
   }
-  return curves
+
+  // A second pass over what came out, because claiming the band is not quite
+  // enough: two walks that start far apart can still converge onto the same
+  // scarp and run alongside each other from there, and one crossing feature
+  // can be traced twice from either side of the junction. Longest first, and
+  // a curve that spends most of its length inside an already accepted one's
+  // corridor is that curve seen twice.
+  curves.sort((a, b) => b.lengthKm - a.lengthKm)
+  const claimed = new Uint8Array(ridgeness.length)
+  const kept: number[][] = []
+  for (const { curve } of curves) {
+    let shadowed = 0
+    for (const at of curve) if (claimed[at]) shadowed++
+    if (shadowed >= 0.6 * curve.length) continue
+    kept.push(curve)
+    for (const at of curve) {
+      const row = Math.floor(at / width)
+      const column = at % width
+      for (let dy = -across; dy <= across; dy++) {
+        const r = row + dy
+        if (r < 0 || r >= height) continue
+        for (let dx = -across; dx <= across; dx++) {
+          claimed[r * width + ((column + dx + width) % width)] = 1
+        }
+      }
+    }
+  }
+  // Numbered from the north-west round to the south-east rather than by
+  // length. Ids are positions in this list, so they change whenever the
+  // detector does; ordering them by place at least means that a number picks
+  // out roughly the same part of the world between two runs, and that
+  // neighbouring ids are neighbours.
+  kept.sort((a, b) => a[a.length >> 1] - b[b.length >> 1])
+  return kept
 }
 
 /** The unit direction at the centre of a cell. */

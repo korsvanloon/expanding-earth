@@ -16,7 +16,7 @@
  *
  *     pnpm exec tsx tools/measure-zones.ts 1605 958 444 424 1160
  */
-import { readFileSync } from 'node:fs'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadRaster } from './lib/raster.js'
@@ -43,7 +43,15 @@ const CONFIG = {
 const NODATA = 255
 
 function main() {
-  const wanted = process.argv.slice(2).map(Number).filter((n) => Number.isFinite(n))
+  // Ids are positions in a list that is rebuilt from scratch every run, so a
+  // number written down yesterday points at a different curve today. Accept a
+  // place as well, and answer with whatever curve passes nearest to it.
+  const args = process.argv.slice(2)
+  const wanted = args.filter((a) => !a.includes(',')).map(Number).filter(Number.isFinite)
+  const places = args.filter((a) => a.includes(',')).map((a) => {
+    const [lon, lat] = a.split(',').map(Number)
+    return { lon, lat }
+  })
 
   const ageFull = loadRaster(resolve(ROOT, 'public/textures/age-map.png'))
   const ageMa = new Float32Array(ageFull.width * ageFull.height)
@@ -83,6 +91,56 @@ function main() {
       km += Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * R0_KM
     }
     return km
+  }
+
+  {
+    const lengths = curves.map((c) => lengthKm(c)).sort((a, b) => a - b)
+    const cells = new Set<number>()
+    for (const c of curves) for (const at of c) cells.add(at)
+    console.log(
+      `median ${lengths[lengths.length >> 1].toFixed(0)} km, longest `
+      + `${lengths[lengths.length - 1].toFixed(0)} km, `
+      + `${(lengths.reduce((a, b) => a + b, 0) / 1000).toFixed(0)} thousand km of line in total `
+      + `over ${cells.size} distinct cells`,
+    )
+  }
+
+  // Kept across a code change so the two answers can be compared: what
+  // matters is not the curve count but whether a feature the old detector
+  // found still has a curve on it.
+  if (process.env.DUMP) {
+    writeFileSync(process.env.DUMP, JSON.stringify({ width, height, curves }))
+    console.log(`wrote ${process.env.DUMP}`)
+  }
+  if (process.env.AGAINST) {
+    const before = JSON.parse(readFileSync(process.env.AGAINST, 'utf8')) as
+      { width: number; height: number; curves: number[][] }
+    const near = 3
+    const owned = new Uint8Array(width * height)
+    for (const c of curves) {
+      for (const at of c) {
+        const row = Math.floor(at / width), column = at % width
+        for (let dy = -near; dy <= near; dy++) {
+          const r = row + dy
+          if (r < 0 || r >= height) continue
+          for (let dx = -near; dx <= near; dx++) owned[r * width + ((column + dx + width) % width)] = 1
+        }
+      }
+    }
+    let covered = 0
+    let lostKm = 0
+    for (const c of before.curves) {
+      let hit = 0
+      for (const at of c) if (owned[at]) hit++
+      if (hit >= 0.6 * c.length) covered++
+      else lostKm += lengthKm(c)
+    }
+    console.log(
+      `${covered} of ${before.curves.length} curves from the run before still have a `
+      + `curve within ${near} cells of most of their length `
+      + `(${(100 * covered / before.curves.length).toFixed(0)}%); the rest are `
+      + `${(lostKm / 1000).toFixed(0)} thousand km`,
+    )
   }
 
   // --- 1. near-duplicates -------------------------------------------------
@@ -134,6 +192,59 @@ function main() {
       + `curves shadow a longer one (${(100 * duplicates / curves.length).toFixed(0)}%), in `
       + `${groups.size} groups, biggest ${sizes[0] ?? 0}, median group `
       + `${sizes.length ? sizes[sizes.length >> 1] : 0}`,
+    )
+  }
+
+  // --- 1b. where they are ----------------------------------------------
+  //
+  // A screenshot of one ocean suggests the detector only works in that ocean,
+  // so the share each basin gets of its own sea floor is worth having. Boxes
+  // rather than real basin outlines: crude, but stated, and the comparison is
+  // between them rather than against anything absolute.
+  {
+    const basins: { name: string; lon: [number, number]; lat: [number, number] }[] = [
+      { name: 'South Atlantic', lon: [-70, 20], lat: [-55, 0] },
+      { name: 'North Atlantic', lon: [-80, 0], lat: [0, 65] },
+      { name: 'North Pacific', lon: [120, -100], lat: [0, 60] },
+      { name: 'South Pacific', lon: [150, -70], lat: [-55, 0] },
+      { name: 'Indian', lon: [20, 120], lat: [-55, 25] },
+      { name: 'Southern', lon: [-180, 180], lat: [-80, -55] },
+    ]
+    const onCurve = new Uint8Array(width * height)
+    for (const c of curves) for (const at of c) onCurve[at] = 1
+    const inBox = (lon: number, lat: number, box: typeof basins[number]) => {
+      if (lat < box.lat[0] || lat > box.lat[1]) return false
+      return box.lon[0] <= box.lon[1]
+        ? lon >= box.lon[0] && lon <= box.lon[1]
+        : lon >= box.lon[0] || lon <= box.lon[1]
+    }
+    const counts = basins.map(() => ({ lit: 0, floor: 0 }))
+    let litAll = 0
+    let floorAll = 0
+    for (let row = 0; row < height; row++) {
+      const lat = (0.5 - (row + 0.5) / height) * 180
+      for (let column = 0; column < width; column++) {
+        const at = row * width + column
+        const lon = ((column + 0.5) / width - 0.5) * 360
+        const rad = Math.PI / 180
+        const c = Math.cos(lat * rad)
+        const [ac, ar] = directionToPixel(
+          c * Math.cos(lon * rad), Math.sin(lat * rad), -c * Math.sin(lon * rad),
+          ageFull.width, ageFull.height,
+        )
+        if (!Number.isFinite(ageMa[ar * ageFull.width + ac])) continue
+        floorAll++
+        if (onCurve[at]) litAll++
+        for (let b = 0; b < basins.length; b++) {
+          if (!inBox(lon, lat, basins[b])) continue
+          counts[b].floor++
+          if (onCurve[at]) counts[b].lit++
+        }
+      }
+    }
+    console.log(
+      `${(100 * litAll / floorAll).toFixed(2)}% of the dated sea floor is on a curve: `
+      + basins.map((b, i) => `${b.name} ${(100 * counts[i].lit / (counts[i].floor || 1)).toFixed(2)}%`).join(', '),
     )
   }
 
@@ -210,6 +321,23 @@ function main() {
       }
       n++
     }
+    // How lumpy the gravity is *along* the line. A fracture-zone scarp is a
+    // step in the sea floor that runs for hundreds of kilometres, so walking
+    // it the reading barely changes. A seamount chain is a string of separate
+    // volcanoes: the same walk climbs 200 Eotvos and falls back between every
+    // one of them.
+    let swing = 0
+    const seen: number[] = []
+    for (const at of curve) {
+      const [x, y, z] = dir(at)
+      const [gc2, gr2] = directionToPixel(x, y, z, vgg.width, vgg.height)
+      const v = gridValue(vgg, gc2, gr2)
+      if (Number.isFinite(v)) seen.push(v)
+    }
+    seen.sort((a, b) => a - b)
+    if (seen.length > 4) {
+      swing = seen[Math.floor(0.9 * seen.length)] - seen[Math.floor(0.1 * seen.length)]
+    }
     peaks.sort((a, b) => a - b)
     return n
       ? {
@@ -218,6 +346,7 @@ function main() {
         peak: peak / n,
         blob: peaks[Math.floor(0.9 * peaks.length)] ?? 0,
         excess: excessN ? excess / excessN : 0,
+        swing,
         n,
       }
       : null
@@ -230,7 +359,7 @@ function main() {
     const sorted = [...values].sort((a, b) => a - b)
     return sorted[Math.min(sorted.length - 1, Math.floor(q * sorted.length))]
   }
-  for (const key of ['step', 'bowl', 'peak', 'blob', 'excess'] as const) {
+  for (const key of ['step', 'bowl', 'peak', 'blob', 'excess', 'swing'] as const) {
     const values = scored.map((s) => s![key])
     console.log(
       `${key.padEnd(5)} p10 ${quantile(values, 0.1).toFixed(1)}  `
@@ -239,7 +368,56 @@ function main() {
     )
   }
 
-  for (const id of wanted) {
+  // Does the bowl test pick out the ridge axis, or just noise? If it is the
+  // axis, what it flags should be young: crust made at a ridge in the last few
+  // million years is what sits beside one.
+  {
+    const meanAge = (curve: number[]) => {
+      let sum = 0, n = 0
+      for (const at of curve) {
+        const [x, y, z] = dir(at)
+        const [c, r] = directionToPixel(x, y, z, ageFull.width, ageFull.height)
+        const a = ageMa[r * ageFull.width + c]
+        if (Number.isFinite(a)) { sum += a; n++ }
+      }
+      return n ? sum / n : NaN
+    }
+    for (const cut of [0.5, 0.7, 1.0]) {
+      const flagged: number[] = []
+      const rest: number[] = []
+      for (let i = 0; i < curves.length; i++) {
+        const a = across(curves[i], 60)
+        if (!a) continue
+        const age = meanAge(curves[i])
+        if (!Number.isFinite(age)) continue
+        ;(a.bowl > cut ? flagged : rest).push(age)
+      }
+      console.log(
+        `bowl > ${cut}: ${flagged.length} curves, median age `
+        + `${quantile(flagged, 0.5)?.toFixed(0)} Ma; the other ${rest.length} `
+        + `median ${quantile(rest, 0.5)?.toFixed(0)} Ma`,
+      )
+    }
+  }
+
+  const nearest = places.map(({ lon, lat }) => {
+    const rad = Math.PI / 180
+    const c = Math.cos(lat * rad)
+    const target = [c * Math.cos(lon * rad), Math.sin(lat * rad), -c * Math.sin(lon * rad)]
+    let best = -1
+    let bestKm = Infinity
+    for (let i = 0; i < curves.length; i++) {
+      for (const at of curves[i]) {
+        const d = dir(at)
+        const km = Math.acos(Math.min(1, Math.max(-1, d[0] * target[0] + d[1] * target[1] + d[2] * target[2]))) * R0_KM
+        if (km < bestKm) { bestKm = km; best = i }
+      }
+    }
+    console.log(`${lon}, ${lat}: nearest curve is #${best + 1}, ${bestKm.toFixed(0)} km away`)
+    return best + 1
+  })
+
+  for (const id of [...wanted, ...nearest]) {
     const curve = curves[id - 1]
     if (!curve) { console.log(`#${id}: no such curve`); continue }
     const a = across(curve, 60)
@@ -265,7 +443,7 @@ function main() {
       + `age ${ageN ? `${(ageSum / ageN).toFixed(0)} Ma, ${ageMin.toFixed(0)}..${ageMax.toFixed(0)}, spread ${(ageMax - ageMin).toFixed(0)}` : 'undated'}`
       + (a
         ? `  step ${a.step.toFixed(1)}  bowl ${a.bowl.toFixed(2)}  peak ${a.peak.toFixed(1)}`
-          + `  blob ${a.blob.toFixed(1)}  excess ${a.excess.toFixed(2)}`
+          + `  blob ${a.blob.toFixed(1)}  excess ${a.excess.toFixed(2)}  swing ${a.swing.toFixed(0)}`
         : '  no cross-profile'),
     )
   }

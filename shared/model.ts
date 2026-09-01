@@ -174,7 +174,24 @@ export interface Meta {
    * The detected fracture zones, one entry per curve, in the order their ids
    * are painted into zones.png. Enough to name what a reader clicked on.
    */
-  fractureZones: { lengthKm: number; lon: number; lat: number }[]
+  /**
+   * The detected fracture zones, one entry per curve, numbered from 1 in the
+   * order they are painted into zones.png.
+   *
+   * The last three are what a reader needs to argue with a detection rather
+   * than only to find it: see zoneSummaries in tools/build-data.ts.
+   */
+  fractureZones: {
+    lengthKm: number
+    lon: number
+    lat: number
+    /** Mean sea-floor age along the curve, or null where it is undated. */
+    ageMa: number | null
+    /** How much the gravity swings *along* the line, Eotvos, 10th to 90th. */
+    swingE: number
+    /** How far the age dips on the line against 60 km either side, Myr. */
+    bowlMa: number
+  }[]
 
   /** Crust-classification variants. The first entry is the one that was solved. */
   crustModels: CrustModel[]

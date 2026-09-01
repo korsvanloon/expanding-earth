@@ -300,23 +300,59 @@ Then the lit cells are linked into curves: walk the strongest unclaimed cell
 outwards along the guide axis, look a little to either side at each step, allow
 a few empty cells to be crossed, and measure how far you got. Anything under 400
 km is discarded, which is the test that removes a seamount &mdash; round, so it
-lights a cell or two and stops. What comes out is 1,622 fracture zones, median
-566 km long, over 1.4% of the sea floor. Curves, not pixels, which is also the
-form a flow field wants to be fitted through.
+lights a cell or two and stops. What comes out is 679 fracture zones, median
+569 km long, on 0.96% of the dated sea floor. Curves, not pixels, which is also
+the form a flow field wants to be fitted through.
 
-The strength cut is deliberately loose. At a stricter setting it gives 970 zones
-over 0.8% of the sea floor on ground at the 68th percentile of roughness against
-the 62nd to either side, which is the better *detector*; loose it gives the 1,622
-on ground at the 60th against the 55th, which is the better *anchor set*. A flow
+A walk claims the whole band it looked at and not just the cell it stepped on,
+which is a correction and not a detail. Thinning narrows a scarp but does not
+reduce it to one cell everywhere along its length, so claiming only the best
+cell left the rest of the band free to seed curves of its own: **54% of all
+curves were shadowing a longer one**, and one physical feature came out as four
+or five near-parallel lines a cell apart. A reader clicking through the layer
+found five of their twelve picks centred within 0.4 degrees of each other, which
+is what sent anyone to measure it. Claiming the band, plus a pass at the end
+that drops a curve most of whose length runs inside an accepted one's corridor,
+takes near-duplicates from 54% to none within 22 km and 12% within 56 km, and
+1,622 curves to 679. Little real is lost with them: 95% of the old curves still
+have a curve within three cells of most of their length, and the 5% that do not
+are 40 of the 1,045 thousand km there were.
+
+It moved the reconstruction, which was not the point of the change and is worth
+stating carefully. The conjugate pairs are traced through the flow field these
+anchor, so removing the duplicates changed the pair set as well as the model and
+that comparison measures two things at once. The continent scorecard does not:
+those pairs are hand-chosen and fixed, and on them South America and Africa
+reunite 32% against 28%, Australia and Antarctica 26% against 19%, Antarctica
+and South America 25% against 17%, India and Africa 9% against 6%, and North
+America and Africa 9% against 11% &mdash; the one that fell, and its gap at the
+moment of joining went from 111 km to zero. The shell also comes out slightly
+tidier at 200 Ma: 0.15% doubled against 0.22%, 0.16% folded against 0.21%.
+
+Two details of the walk are load-bearing and were each got wrong once. A walk
+that steps a fixed distance and rounds to a cell lands on the same cell twice at
+high latitude, so it must know its own claims from everyone else's or it blocks
+itself, calls the step a miss and gives up five steps later &mdash; which
+truncated every long line into fragments too short to keep. And a step that
+finds nothing must not claim the ground it looked at, or the end of one curve
+eats the start of the next.
+
+The strength cut is deliberately loose. At a stricter setting it gives about a
+third fewer zones, on ground at the 68th percentile of roughness against the
+62nd to either side, which is the better *detector*; loose it gives these, on
+ground at the 60th against the 55th, which is the better *anchor set*. A flow
 field fitted through these is constrained by all of them at once, so a few soft
 calls are outvoted, while a gap between anchors is filled by nothing but the
 smoothness of the fit.
 
 They are spread, which is worth stating because a screenshot of one ocean
-suggests otherwise: by share of its own area, the South Atlantic gets 2.0%, the
-two Pacific basins 1.1% each, the North Atlantic 0.8%, the Southern Ocean 0.8%
-and the Indian 0.7%. A factor of three between the densest and the thinnest, not
-a factor of twenty. Crust younger than 8 Ma is skipped
+suggests otherwise: by share of its own dated sea floor, the South Atlantic gets
+2.31%, the South Pacific 1.22%, the North Atlantic 1.05%, the North Pacific
+0.95%, the Indian 0.81% and the Southern Ocean 0.51%. A factor of four and a
+half between the densest and the thinnest, not a factor of twenty. The Southern
+Ocean is the one that moved when the near-duplicates went: it was 1.87% of the
+old count and is 0.51% of this one, so more than half of what it had was the
+same scarp counted over again. Crust younger than 8 Ma is skipped
 outright: at a spreading centre the age rises in both directions, so the
 travelled direction computed from it is whatever the two sides fail to cancel,
 and the detector was lighting up lengths of the Mid-Atlantic Ridge axis in
@@ -349,10 +385,36 @@ and that is a drawing decision rather than a measurement.
 It is there to be argued with, so it can be. Every curve carries its own number
 in the picture &mdash; the green and blue channels of `zones.png` against the
 red one that carries its strength &mdash; and a right-click on a turquoise line
-selects that curve, lights it orange along its whole length, and lists it with
-its length and where it is centred. Length is the figure worth reading: it is
-what told a fracture zone from a seamount in the first place, so a short one in
-the list is the first place to look when a detection is wrong.
+selects that curve, lights it orange along its whole length, and lists it. The
+list keeps forty-eight and has a copy button, because judging these means
+working across an ocean in one sitting and a selection that quietly drops its
+oldest entry makes the list lie. One caveat travels with the numbers: an id is a
+position in a list rebuilt from scratch every run, so a number written down
+against one build points at a different curve in the next. The place is the
+durable identity, which is why it is listed beside the id, and
+`tools/measure-zones.ts` takes a `lon,lat` as readily as an id.
+
+Each entry carries three measurements, because a reader who worked through
+twelve of them came back with *most of these are seamounts, some are ridges* and
+that is not something a picture can settle. Three different things make a narrow
+line in a gravity grid. A fracture zone is a step in the sea floor that runs for
+hundreds of kilometres, so walking it the gravity barely changes. A seamount
+chain is separate volcanoes built on top of crust that was already there, so the
+same walk climbs and falls between every one of them &mdash; that is **swing**,
+the 10th to 90th percentile of the reading along the curve, a median 25 Eotvos
+over all of them. A ridge axis is where crust is made, so the age is at a
+minimum on the line and rises on both sides &mdash; that is **bowl**, the age 60
+km either side against the age on the line, a median of zero and a ninetieth
+percentile of 0.8 Myr.
+
+Neither number is yet a verdict, and it would be easy to pretend otherwise. The
+bowl test does pick out younger crust &mdash; the curves above 0.7 Myr have a
+median age of 43 Ma against 61 Ma for the rest, and the five near-duplicates the
+reader found in the Southern Ocean all scored between 0.95 and 1.94 &mdash; but
+43 Ma is not a spreading axis, so it is catching something wider than the thing
+it was built for. They ship as numbers beside each zone so that a reader's
+judgement can be set against something measured and a cut chosen against real
+labels rather than against a story.
 
 It is there to be argued with. Two instruments that never saw each other's data
 now sit on the same crust: the paths come from the age grid, the turquoise from
@@ -366,7 +428,7 @@ the twenty-degree gate should have caught.
 
 ## The flow field
 
-The detector finds about sixteen hundred fracture zones, and a fracture zone is
+The detector finds about seven hundred fracture zones, and a fracture zone is
 a flow line that nature happened to draw. It drew perhaps one in a dozen: the
 rest of the crust flowed just the same and left nothing behind. So the sparse
 ones are treated as what they are, anchors, and a direction field is fitted
@@ -392,11 +454,11 @@ construction, so the lines come out as lines.
 <!-- from-the-run: pairs -->
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
-| 0 Ma | 28 | 80 km | 100% | 0% |
-| 5 Ma | 76 | 95 km | 95% | 0% |
-| 30 Ma | 62 | 159 km | 53% | 0% |
-| 60 Ma | 49 | 247 km | 39% | 0% |
-| 120 Ma | 23 | 441 km | 26% | 0% |
+| 0 Ma | 35 | 80 km | 100% | 0% |
+| 5 Ma | 80 | 95 km | 95% | 0% |
+| 30 Ma | 59 | 156 km | 61% | 0% |
+| 60 Ma | 43 | 239 km | 44% | 0% |
+| 120 Ma | 23 | 501 km | 26% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -485,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 135 blocks at its most divided and 7 at 200 Ma.
+The run finds 127 blocks at its most divided and 5 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -498,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 16 km/Myr to 3.0, the block count from as many as 135 to 7, and the biggest block grows to 62% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 16 km/Myr to 2.8, the block count from as many as 127 to 5, and the biggest block grows to 61% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -525,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 5.7 km/Myr | 75 | 24% | 0.3% |
-| 30 Ma | 0.644%/Myr | 14.7 km/Myr | 135 | 3% | 0.7% |
-| 60 Ma | 0.448%/Myr | 14.1 km/Myr | 109 | 3% | 1.1% |
-| 120 Ma | 0.256%/Myr | 11.5 km/Myr | 55 | 8% | 2.0% |
-| 200 Ma | 0.000%/Myr | 3.0 km/Myr | 7 | 62% | 4.2% |
+| 5 Ma | 0.620%/Myr | 5.7 km/Myr | 86 | 24% | 0.3% |
+| 30 Ma | 0.644%/Myr | 14.0 km/Myr | 127 | 3% | 0.7% |
+| 60 Ma | 0.448%/Myr | 14.1 km/Myr | 101 | 3% | 0.9% |
+| 120 Ma | 0.256%/Myr | 13.6 km/Myr | 55 | 7% | 2.4% |
+| 200 Ma | 0.000%/Myr | 2.8 km/Myr | 5 | 61% | 2.9% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -673,9 +735,9 @@ Four numbers per frame, none of them tuned:
 |---|---|---|---|---|---|---|
 | 5 Ma | 6272 km | 0.00% | 0.00% | 0.00% | 0.05% | 1.2% |
 | 30 Ma | 5728 km | 0.00% | 0.00% | 0.00% | 0.20% | 5.0% |
-| 60 Ma | 5197 km | 0.00% | 0.00% | 0.04% | 0.29% | 6.6% |
-| 120 Ma | 4373 km | 0.00% | 0.02% | 0.08% | 0.52% | 9.3% |
-| 200 Ma | 3905 km | 0.00% | 0.22% | 0.21% | 0.65% | 15.7% |
+| 60 Ma | 5197 km | 0.00% | 0.00% | 0.05% | 0.28% | 6.6% |
+| 120 Ma | 4373 km | 0.00% | 0.01% | 0.11% | 0.53% | 9.6% |
+| 200 Ma | 3905 km | 0.00% | 0.15% | 0.16% | 0.64% | 15.5% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -689,13 +751,13 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 28% | +28 | 0 km | 0 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 19% | +19 | 0 km | 0 km at 100 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 6% | +6 | 164 km | 0 km at 145 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 32% | +32 | 0 km | 0 km at 120 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 26% | +26 | 0 km | 0 km at 100 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 9% | +9 | 521 km | 0 km at 160 Ma |
 | Greenland &ndash; North America | 60 Ma | 38% | 36% | -2 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 11% | +11 | 111 km | 110 km at 185 Ma |
-| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 0 km | 0 km at 105 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2083 km | 2083 km at 200 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 9% | +9 | 0 km | 0 km at 180 Ma |
+| Antarctica &ndash; South America | watched | 0% | 25% | +25 | 20 km | 20 km at 200 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2515 km | 2515 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
