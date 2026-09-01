@@ -65,6 +65,10 @@ export interface ContactScratch {
   mixed: Uint8Array
   /** The island vertices, listed once instead of scanned for every sweep. */
   members: Uint32Array
+  /** The impulses each island's contacts have handed it, summed. */
+  push: Float64Array
+  /** How many points each island has, which is its mass. */
+  sizes: Int32Array
 }
 
 export function newContactScratch(cellCount: number): ContactScratch {
@@ -73,6 +77,8 @@ export function newContactScratch(cellCount: number): ContactScratch {
     cellIsland: new Int32Array(cellCount),
     mixed: new Uint8Array(cellCount),
     members: new Uint32Array(0),
+    push: new Float64Array(0),
+    sizes: new Int32Array(0),
   }
 }
 
@@ -81,7 +87,7 @@ export function separateIslands(
   mesh: Tiling,
   faceCount: number,
   vertexCount: number,
-  /** Which island each vertex belongs to, 0 for none. */
+  /** Which island each vertex belongs to, numbered from one, 0 for none. */
   vertexIsland: ArrayLike<number>,
   /** Which island each face belongs to, 0 unless all three corners agree. */
   faceIsland: ArrayLike<number>,
@@ -114,9 +120,22 @@ export function separateIslands(
       }
     }
     const members: number[] = []
-    for (let v = 0; v < vertexCount; v++) if (vertexIsland[v] && vertexAlive[v]) members.push(v)
+    let most = 0
+    for (let v = 0; v < vertexCount; v++) {
+      if (!vertexIsland[v] || !vertexAlive[v]) continue
+      members.push(v)
+      if (vertexIsland[v] > most) most = vertexIsland[v]
+    }
     scratch.members = Uint32Array.from(members)
+    if (scratch.push.length < (most + 1) * 3) {
+      scratch.push = new Float64Array((most + 1) * 3)
+      scratch.sizes = new Int32Array(most + 1)
+    }
+    scratch.sizes.fill(0)
+    for (const v of scratch.members) scratch.sizes[vertexIsland[v]]++
   }
+  const { push, sizes } = scratch
+  push.fill(0)
 
   const unit = [0, 0, 0]
   let found = 0
@@ -134,7 +153,8 @@ export function separateIslands(
     // exists to catch.
     if (!cellIsland[cell] || (!mixed[cell] && cellIsland[cell] === island)) continue
     for (const f of buckets[cell]) {
-      if (faceIsland[f] === island) continue
+      const host = faceIsland[f]
+      if (host === island) continue
       const a = mesh.faceVerts[f * 3] * 3
       const b = mesh.faceVerts[f * 3 + 1] * 3
       const c = mesh.faceVerts[f * 3 + 2] * 3
@@ -171,19 +191,37 @@ export function separateIslands(
       found++
       if (depth > deepest) deepest = depth
 
-      // Out by a share of the depth, and the triangle steps back by the same
-      // amount split between its corners, so the pair of islands is not
-      // quietly walked across the globe by its own contacts.
-      const move = stiffness * depth
-      pos[at] -= nx * move
-      pos[at + 1] -= ny * move
-      pos[at + 2] -= nz * move
-      const share = move / 3
-      for (const corner of [a, b, c]) {
-        pos[corner] += nx * share
-        pos[corner + 1] += ny * share
-        pos[corner + 2] += nz * share
-      }
+      // Recorded against the two islands rather than applied to the two
+      // points. A contact between rigid bodies moves the bodies; denting them
+      // where they touch is what the first version did, and holdIslands spent
+      // the rest of every sweep undoing the dent -- half a million contacts
+      // over a run, the deepest never falling below 40 km, and the overlap it
+      // was built to remove nine times worse at 160 Ma. That is two
+      // constraints pulling against each other, not a solver converging.
+      push[island * 3] -= nx * depth
+      push[island * 3 + 1] -= ny * depth
+      push[island * 3 + 2] -= nz * depth
+      push[host * 3] += nx * depth
+      push[host * 3 + 1] += ny * depth
+      push[host * 3 + 2] += nz * depth
+    }
+  }
+
+  // Each island moves once, by the impulse its contacts handed it divided by
+  // how many points it has -- which is impulse over mass, so a small block
+  // gives way to a large one and the pair's centre of mass does not move at
+  // all. Summed rather than averaged, because fifty points of a margin pressed
+  // into a neighbour really is fifty times the push of one; dividing by the
+  // island's size is what keeps that from firing a craton across the globe.
+  if (found) {
+    for (const v of scratch.members) {
+      const island = vertexIsland[v]
+      const mass = sizes[island]
+      if (!mass) continue
+      const at = v * 3
+      pos[at] += (stiffness * push[island * 3]) / mass
+      pos[at + 1] += (stiffness * push[island * 3 + 1]) / mass
+      pos[at + 2] += (stiffness * push[island * 3 + 2]) / mass
     }
   }
   return { found, deepestKm: deepest, tests, bucketed }
