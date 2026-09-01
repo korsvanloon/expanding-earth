@@ -298,10 +298,23 @@ Then the lit cells are linked into curves: walk the strongest unclaimed cell
 outwards along the guide axis, look a little to either side at each step, allow
 a few empty cells to be crossed, and measure how far you got. Anything under 400
 km is discarded, which is the test that removes a seamount &mdash; round, so it
-lights a cell or two and stops. What comes out is 970 fracture zones, median 551
-km long, over 0.8% of the sea floor, sitting on ground at the 68th percentile of
-roughness against the 62nd forty kilometres to either side. Curves, not pixels,
-which is also the form a flow field wants to be fitted through. Crust younger than 8 Ma is skipped
+lights a cell or two and stops. What comes out is 1,622 fracture zones, median
+566 km long, over 1.4% of the sea floor. Curves, not pixels, which is also the
+form a flow field wants to be fitted through.
+
+The strength cut is deliberately loose. At a stricter setting it gives 970 zones
+over 0.8% of the sea floor on ground at the 68th percentile of roughness against
+the 62nd to either side, which is the better *detector*; loose it gives the 1,622
+on ground at the 60th against the 55th, which is the better *anchor set*. A flow
+field fitted through these is constrained by all of them at once, so a few soft
+calls are outvoted, while a gap between anchors is filled by nothing but the
+smoothness of the fit.
+
+They are spread, which is worth stating because a screenshot of one ocean
+suggests otherwise: by share of its own area, the South Atlantic gets 2.0%, the
+two Pacific basins 1.1% each, the North Atlantic 0.8%, the Southern Ocean 0.8%
+and the Indian 0.7%. A factor of three between the densest and the thinnest, not
+a factor of twenty. Crust younger than 8 Ma is skipped
 outright: at a spreading centre the age rises in both directions, so the
 travelled direction computed from it is whatever the two sides fail to cancel,
 and the detector was lighting up lengths of the Mid-Atlantic Ridge axis in

@@ -24,6 +24,9 @@ export interface InlineData {
   tracks?: ArrayBuffer
 }
 
+/** The build's fingerprint of public/data; see vite.config.ts. */
+declare const __DATA_VERSION__: string
+
 declare global {
   interface Window {
     /** Resolves once the inlined payload has been decompressed. */
@@ -32,5 +35,18 @@ declare global {
   }
 }
 
-export const asset = (path: string) => window.__ASSETS__?.[path] ?? path
+/**
+ * Where to fetch an asset from, and which version of it.
+ *
+ * A standalone artifact carries everything inline and answers with a data URI.
+ * Otherwise it is a path, with the build's data fingerprint on the end for
+ * anything generated: those files have fixed names, so without it a returning
+ * visitor is served the new code against whatever data their browser cached
+ * last time, and the page quietly looks unchanged. See vite.config.ts.
+ */
+export const asset = (path: string) => {
+  const inline = window.__ASSETS__?.[path]
+  if (inline) return inline
+  return path.startsWith('data/') ? `${path}?v=${__DATA_VERSION__}` : path
+}
 export const inlineData = () => window.__DATA__

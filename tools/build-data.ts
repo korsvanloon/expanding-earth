@@ -154,12 +154,19 @@ export const CONFIG = {
    *
    * The gate is a ramp closing at thirty-five degrees, the strength cut is a
    * quantile of what survives the thinning, and a curve has to run 400 km to be
-   * kept at all. Together: 970 zones, median 551 km long, over 0.8% of the sea
-   * floor, sitting on ground at the 68th percentile of roughness against the
-   * 62nd forty kilometres to either side.
+   * kept at all.
+   *
+   * The cut is set low on purpose. At 0.7 it gives 970 zones over 0.8% of the
+   * sea floor, on ground at the 68th percentile of roughness against the 62nd
+   * to either side; at 0.5 it gives 1,622 zones over 1.36%, on ground at the
+   * 60th against the 55th. The stricter setting is the better *detector* and
+   * the looser one is the better *anchor set*, which is what these are for: a
+   * flow field fitted through them is constrained by all of them at once, so a
+   * few soft calls are outvoted, while gaps between anchors are filled by
+   * nothing but the smoothness of the fit.
    */
   alignmentGate: 0.82,
-  strengthQuantile: 0.7,
+  strengthQuantile: 0.5,
   minZoneLengthKm: 400,
   crestReachKm: 60,
   crestMaxShiftKm: 8,
