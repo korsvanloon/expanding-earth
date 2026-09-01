@@ -1,3 +1,5 @@
+import { ZONE_LIMIT } from '@/store'
+
 export const vertexShader = /* glsl */ `
 in vec3 aDir;
 in float aIsland;
@@ -38,7 +40,7 @@ uniform float uZonesOn;
  * a handful of things at once, and a uniform costs nothing to update while a
  * texture would have to be re-uploaded on every click.
  */
-uniform float uPickedZones[8];
+uniform float uPickedZones[${ZONE_LIMIT}];
 uniform int uPickedCount;
 uniform float uTimeMa;
 uniform float uMaxAgeMa;
@@ -234,7 +236,7 @@ void main() {
       // only where the click landed.
       float id = floor(zone.g * 255.0 + 0.5) + floor(zone.b * 255.0 + 0.5) * 256.0;
       bool picked = false;
-      for (int i = 0; i < 8; i++) {
+      for (int i = 0; i < ${ZONE_LIMIT}; i++) {
         if (i >= uPickedCount) break;
         if (abs(uPickedZones[i] - id) < 0.5) { picked = true; break; }
       }

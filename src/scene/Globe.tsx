@@ -8,7 +8,7 @@ import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
 import { buildIndex, radiusAt, sampleFrame, type Dataset } from '@/data'
 import { buildReferenceRotations } from '@/frames'
-import { clock, describePicks, onClockMoved, useStore, type Pick } from '@/store'
+import { clock, describePicks, onClockMoved, useStore, ZONE_LIMIT, type Pick } from '@/store'
 import { pairPulls } from '@shared/tracks'
 import { directionToUv } from '@shared/sphere'
 import { PERMANENT_MA } from '@shared/model'
@@ -381,7 +381,7 @@ export function Globe({ data }: { data: Dataset }) {
       uFabric: { value: BLANK },
       uZones: { value: BLANK },
       uZonesOn: { value: 0 },
-      uPickedZones: { value: new Float32Array(8) },
+      uPickedZones: { value: new Float32Array(ZONE_LIMIT) },
       uPickedCount: { value: 0 },
       uTimeMa: { value: 0 },
       uMaxAgeMa: { value: data.meta.maxAgeMa },
@@ -616,8 +616,8 @@ export function Globe({ data }: { data: Dataset }) {
       material.current.uniforms.uZones.value = zones ?? BLANK
       material.current.uniforms.uZonesOn.value = showZones && zones ? 1 : 0
       const held = material.current.uniforms.uPickedZones.value as Float32Array
-      for (let i = 0; i < 8; i++) held[i] = pickedZones[i] ?? 0
-      material.current.uniforms.uPickedCount.value = Math.min(8, pickedZones.length)
+      for (let i = 0; i < ZONE_LIMIT; i++) held[i] = pickedZones[i] ?? 0
+      material.current.uniforms.uPickedCount.value = Math.min(ZONE_LIMIT, pickedZones.length)
       material.current.uniforms.uTimeMa.value = clock.timeMa
       material.current.uniforms.uMode.value = MODES[mode]
       material.current.uniforms.uGrid.value = showGrid ? 1 : 0

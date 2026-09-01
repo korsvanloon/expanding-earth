@@ -172,6 +172,45 @@ export function describePicks(picks: Pick[]): string {
   ].join('\n')
 }
 
+/**
+ * How many picked zones are kept, and highlighted.
+ *
+ * Bounded because the shader compares against a fixed-size uniform array on
+ * every fragment, so this is the length of that array too; keep the two equal.
+ */
+export const ZONE_LIMIT = 48
+
+/** What the summary table in meta.json holds for one detected zone. */
+export interface ZoneSummary {
+  lengthKm: number
+  lon: number
+  lat: number
+}
+
+/**
+ * The picked zones as text, ready to be pasted into a sentence about them.
+ *
+ * Same job as describePicks and the same reasoning: the id leads because that
+ * is what survives a rebuild of the page, and the degrees follow so a person
+ * can say "that one is a seamount chain" without loading anything. The em dash
+ * is load-bearing -- without a separator `#1605` and `409 km` run together into
+ * a number that means nothing.
+ */
+export function describeZones(picked: number[], zones: ZoneSummary[]): string {
+  if (!picked.length) return ''
+  return [
+    'picked fracture zones on the Expanding Earth globe -- id, then length, '
+      + 'then the centre of the curve as lon, lat in degrees',
+    ...picked.map((id) => {
+      const zone = zones[id - 1]
+      return zone
+        ? `#${id} -- ${zone.lengthKm} km, centred at `
+          + `${zone.lon.toFixed(1)}, ${zone.lat.toFixed(1)}`
+        : `#${id} -- no record of this one`
+    }),
+  ].join('\n')
+}
+
 export const useStore = create<State>((set) => ({
   playing: false,
   speed: 25,
@@ -199,12 +238,14 @@ export const useStore = create<State>((set) => ({
   setShowMesh: (showMesh) => set({ showMesh }),
   setShowTracks: (showTracks) => set({ showTracks }),
   setShowZones: (showZones) => set({ showZones }),
-  // Eight, because that is what the shader can hold and more than anyone
-  // compares at once; clicking a picked zone again lets it go.
+  // Clicking a picked zone again lets it go. The cap is ZONE_LIMIT rather
+  // than a handful because judging the detector means working across a whole
+  // ocean in one sitting, and a selection that silently evaporates while you
+  // do that is worse than useless -- it makes the list lie.
   toggleZone: (id) => set((s) => ({
     pickedZones: s.pickedZones.includes(id)
       ? s.pickedZones.filter((z) => z !== id)
-      : [...s.pickedZones, id].slice(-8),
+      : [...s.pickedZones, id].slice(-ZONE_LIMIT),
   })),
   clearZones: () => set({ pickedZones: [] }),
   setEndTime: (endTimeMa) => set({ endTimeMa }),

@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { SURFACE_MAPS } from '@shared/maps'
 import { R0_KM, REGIONS, surfaceGravity } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
-import { describePicks, useStore, type ViewMode } from '@/store'
+import { describePicks, describeZones, useStore, ZONE_LIMIT, type ViewMode } from '@/store'
 import { Chart, valueAt } from './Chart'
 import { useClockTime } from './useClockTime'
 
@@ -508,7 +508,13 @@ function PickedZones({ data }: { data: Dataset }) {
   const clearZones = useStore((s) => s.clearZones)
   const toggleZone = useStore((s) => s.toggleZone)
   const zones = data.meta.fractureZones ?? []
+  const [copied, setCopied] = useState(false)
   if (!picked.length) return null
+  const copy = () => {
+    void navigator.clipboard?.writeText(describeZones(picked, zones))
+    setCopied(true)
+    window.setTimeout(() => setCopied(false), 1500)
+  }
   return (
     <section>
       <h2>Picked fracture zones</h2>
@@ -519,17 +525,26 @@ function PickedZones({ data }: { data: Dataset }) {
             <li key={id}>
               <button type="button" className="linkish" onClick={() => toggleZone(id)}>
                 #{id}
-              </button>{' '}
-              {zone
-                ? `${zone.lengthKm} km, centred at ${zone.lon.toFixed(1)}, ${zone.lat.toFixed(1)}`
-                : 'no record of this one'}
+              </button>
+              {zone ? (
+                <>
+                  {' \u2014 '}
+                  <strong>{zone.lengthKm} km</strong>
+                  {`, centred at ${zone.lon.toFixed(1)}, ${zone.lat.toFixed(1)}`}
+                </>
+              ) : (
+                ' \u2014 no record of this one'
+              )}
             </li>
           )
         })}
       </ul>
       <p className="caption">
-        In orange on the globe. Right-click a turquoise line to add or drop one;
-        eight are kept.{' '}
+        In orange on the globe. Right-click a turquoise line to add or drop one; the last{' '}
+        {ZONE_LIMIT} are kept.{' '}
+        <button type="button" className="linkish" onClick={copy}>
+          {copied ? 'copied' : 'copy the list'}
+        </button>{' '}
         <button type="button" className="linkish" onClick={clearZones}>
           clear
         </button>
