@@ -171,6 +171,13 @@ export const CONFIG = {
   minZoneLengthKm: 400,
   crestReachKm: 60,
   crestMaxShiftKm: 8,
+  /**
+   * Whether the walk follows the fitted field at all.
+   *
+   * Here so that the control run can be reproduced by changing a file, which
+   * is the only kind of change the freshness check in tools/run.ts can see.
+   */
+  useFlowField: true,
   /** Relaxation sweeps for the flow field, and how hard an anchor holds. */
   flowPasses: 300,
   flowAnchorWeight: 0.6,
@@ -405,7 +412,7 @@ function main() {
   // The direction field the walk follows, fitted through every detected
   // fracture zone at once and to the age grid everywhere else. See
   // tools/lib/flowfield.ts for why this replaces steering step by step.
-  const field = zones && vgg
+  const field = CONFIG.useFlowField && zones && vgg
     ? flowField(zones, ageMa, ageFull.width, ageFull.height, vgg, R0_KM,
         { passes: CONFIG.flowPasses, anchorWeight: CONFIG.flowAnchorWeight })
     : undefined

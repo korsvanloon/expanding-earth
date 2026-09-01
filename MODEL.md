@@ -162,7 +162,9 @@ Two measures say what it is worth and they do not agree, which is the honest
 part. The first is geometric and is what a reader sees: the median angle between
 the traced path and the gravity axis beneath it, taken only where there is a
 line to follow at all. It falls from 25 degrees to 18. The second is the
-conjugate score, which is the model's:
+conjugate score &mdash; which, as the section on the flow field below records,
+measures the ruler and not the model, because the reconstruction is identical
+either way:
 
 | | 20 Ma | 40 Ma | 60 Ma | 90 Ma | 120 Ma |
 |---|---|---|---|---|---|
@@ -389,15 +391,33 @@ construction, so the lines come out as lines.
 | 120 Ma | 42 | 1334 km | 2% | 0% |
 <!-- /from-the-run -->
 
-What it is worth is not yet settled, and the reason is a confound worth naming.
-Against the same tracer walking the gravity bearing alone, the median residual
-goes 228 to 203 km at 40 Ma &mdash; the best figure this model has produced
-&mdash; and 320 to 385 at 60 Ma and 998 to 1334 at 120. But the field also
-produces *more pairs* at every time (132, 124, 91, 63, 42 against 131, 119, 82,
-54, 38), and the extra ones are pairs that previously failed the geometry check,
-which is to say the hard ones. A harder test scoring worse is not the same as a
-worse model, and the two cannot be told apart from these numbers. Comparing the
-two runs on the pairs they share would settle it, and has not been done.
+### None of this changes the reconstruction, and it never could
+
+That was the intended conclusion of a measurement, and it turned out to be the
+measurement's whole finding. Scoring each model against the other's pairs was
+supposed to separate a better model from an easier test. It separated nothing,
+because the two models' frames came out byte for byte identical.
+
+They had to. The conjugate pairs reach `conjugateFit` and nothing else: the
+solver reads the mesh, the age grid and the radius curve, and the pairs are read
+only to be measured against. The tracer produces a *yardstick*, not an input.
+Everything traced here &mdash; the gravity bearing, the crest follower, the
+detector, the field &mdash; has changed how the reconstruction is judged, and
+has changed the reconstruction not at all.
+
+So every table in this section reads differently from how it was written. A
+lower residual after a change to the tracer does not mean the model improved; it
+means the same unchanged model was measured with a different ruler. That is not
+worthless &mdash; a truer ruler gives a truer reading, and if the field's paths
+are the better ones then 203 km at 40 Ma and 1334 at 120 are what this
+reconstruction has always been worth, and the older figures were flattering it
+at depth. But it is a statement about the measurement, not about the model, and
+this file said otherwise until the frames were compared.
+
+Feeding the pairs to the solver as constraints &mdash; asking the reconstruction
+to bring conjugate points together rather than only scoring it on how far apart
+it leaves them &mdash; is the change that would make any of this move the model.
+It is not built.
 
 ## Where the plates come from
 
