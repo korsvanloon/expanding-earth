@@ -12,6 +12,8 @@ import {
   conjugateFit, conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper,
 } from '../tools/lib/flowlines'
 import { SEAM_FULL_KM, SEAM_START_KM, measureSeams, seamReach } from '../shared/seams'
+import { SURFACE_MAPS } from '../shared/maps'
+import { VIEW_MODES, remembered } from '../src/store'
 import { readTracks, writeTracks } from '../shared/tracks'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
@@ -1218,6 +1220,53 @@ describe('telling a fracture zone from an abyssal hill', () => {
     const gated = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0.94 })
     const open = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0 })
     expect(strength(gated, -90)).toBeLessThan(strength(open, -90))
+  })
+})
+
+describe('remembering how the globe was set up', () => {
+  // The store keeps the view settings in localStorage so that a reader
+  // comparing two layers with one continent held still does not have to set all
+  // three again after every reload. What a stored value must never do is
+  // outlive the code that made it and quietly leave the globe painted with
+  // nothing, so anything unrecognised falls back to the default.
+  it('takes back what it recognises', () => {
+    expect(remembered({
+      mode: 'fabric',
+      surfaceMap: SURFACE_MAPS[1].id,
+      referenceFrame: 'australia',
+      showZones: true,
+      showGrid: false,
+      speed: 40,
+    })).toEqual({
+      mode: 'fabric',
+      surfaceMap: SURFACE_MAPS[1].id,
+      referenceFrame: 'australia',
+      showZones: true,
+      showGrid: false,
+      speed: 40,
+    })
+    // No net rotation is a real choice and not a missing one.
+    expect(remembered({ referenceFrame: '' })).toEqual({ referenceFrame: '' })
+  })
+
+  it('drops anything it no longer understands', () => {
+    expect(remembered({
+      mode: 'heat-flow',
+      surfaceMap: 'a-map-that-was-deleted',
+      referenceFrame: 'atlantis',
+      showZones: 'yes',
+      speed: -1,
+    })).toEqual({})
+    expect(remembered(null)).toEqual({})
+    expect(remembered('the whole thing as a string')).toEqual({})
+    expect(remembered({})).toEqual({})
+  })
+
+  it('numbers the view modes the way the shader reads them', () => {
+    // uMode in src/scene/shaders.ts: 0 surface, 1 age, 2 strain, 3 rigidity,
+    // 4 islands, 5 fabric. The renderer indexes this list to get that number,
+    // so the order here is load-bearing.
+    expect(VIEW_MODES).toEqual(['surface', 'age', 'strain', 'rigidity', 'islands', 'fabric'])
   })
 })
 

@@ -8,14 +8,15 @@ import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
 import { buildIndex, radiusAt, sampleFrame, type Dataset } from '@/data'
 import { buildReferenceRotations } from '@/frames'
-import { clock, describePicks, onClockMoved, useStore, ZONE_LIMIT, type Pick } from '@/store'
+import {
+  clock, describePicks, onClockMoved, useStore, VIEW_MODES, ZONE_LIMIT, type Pick,
+} from '@/store'
 import { pairPulls } from '@shared/tracks'
 import { directionToUv } from '@shared/sphere'
 import { PERMANENT_MA } from '@shared/model'
 import { measureSeams } from '@shared/seams'
 import { fragmentShader, vertexShader } from './shaders'
 
-const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, islands: 4, fabric: 5 } as const
 
 /** Bound to the fabric sampler until the raster has been fetched. */
 const BLANK = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1)
@@ -640,7 +641,7 @@ export function Globe({ data }: { data: Dataset }) {
       for (let i = 0; i < ZONE_LIMIT; i++) held[i] = pickedZones[i] ?? 0
       material.current.uniforms.uPickedCount.value = Math.min(ZONE_LIMIT, pickedZones.length)
       material.current.uniforms.uTimeMa.value = clock.timeMa
-      material.current.uniforms.uMode.value = MODES[mode]
+      material.current.uniforms.uMode.value = VIEW_MODES.indexOf(mode)
       material.current.uniforms.uGrid.value = showGrid ? 1 : 0
       material.current.uniforms.uOpacity.value = GLASS_OPACITY
       // A light just off the camera's shoulder: everything you turn towards is

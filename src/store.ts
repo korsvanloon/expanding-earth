@@ -1,5 +1,7 @@
 import { create } from 'zustand'
-import { DEFAULT_SURFACE_MAP } from '@shared/maps'
+import { createJSONStorage, persist } from 'zustand/middleware'
+import { DEFAULT_SURFACE_MAP, SURFACE_MAPS } from '@shared/maps'
+import { REGIONS } from '@shared/model'
 
 export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'islands' | 'fabric'
 
@@ -219,9 +221,115 @@ export function describeZones(picked: number[], zones: ZoneSummary[]): string {
   ].join('\n')
 }
 
-export const useStore = create<State>((set) => ({
+/**
+ * What is remembered between visits.
+ *
+ * How the globe is set up, and nothing else. Someone comparing the crustal
+ * fabric against the detected zones with Africa held still should not have to
+ * put all three back after every reload, and while a run is being judged that
+ * is most reloads.
+ *
+ * Deliberately not the picks or the picked zones. Those are a reading of one
+ * particular run, and an id is a position in a list the pipeline rebuilds from
+ * scratch, so restoring them after a rebuild would quietly point at different
+ * crust. Deliberately not `playing` either: a page that starts animating on its
+ * own is a page nobody asked to move.
+ */
+// Spelled out rather than picked off State, because `Pick` here is the
+// interface above -- a point of crust someone clicked on -- and not the type
+// operator.
+interface Remembered {
+  mode: ViewMode
+  surfaceMap: string
+  referenceFrame: string
+  showGrid: boolean
+  showMesh: boolean
+  showTracks: boolean
+  showZones: boolean
+  speed: number
+}
+
+/**
+ * Every view mode, in the order the shader numbers them.
+ *
+ * One list, because there were two: the shader's `uMode` is an integer and the
+ * renderer had its own table mapping a name to it. Two lists of the same six
+ * things drift the moment a seventh is added, and the failure is silent -- a
+ * mode that paints as whatever happens to share its number.
+ */
+export const VIEW_MODES: ViewMode[] = [
+  'surface', 'age', 'strain', 'rigidity', 'islands', 'fabric',
+]
+
+/**
+ * Take back only what still means something.
+ *
+ * A stored value outlives the code that made it: a map can be renamed, a view
+ * mode dropped, a region removed. Restoring one of those blind leaves a globe
+ * painted with nothing and no way to tell why, so anything unrecognised falls
+ * back to the default rather than being trusted.
+ */
+export function remembered(stored: unknown): Partial<Remembered> {
+  if (!stored || typeof stored !== 'object') return {}
+  const s = stored as Record<string, unknown>
+  const flag = (key: 'showGrid' | 'showMesh' | 'showTracks' | 'showZones') =>
+    (typeof s[key] === 'boolean' ? { [key]: s[key] as boolean } : {})
+  return {
+    ...(VIEW_MODES.includes(s.mode as ViewMode) ? { mode: s.mode as ViewMode } : {}),
+    ...(SURFACE_MAPS.some((m) => m.id === s.surfaceMap)
+      ? { surfaceMap: s.surfaceMap as string }
+      : {}),
+    ...(s.referenceFrame === '' || REGIONS.some((r) => r.id === s.referenceFrame)
+      ? { referenceFrame: s.referenceFrame as string }
+      : {}),
+    ...(typeof s.speed === 'number' && s.speed > 0 && s.speed <= 1000
+      ? { speed: s.speed }
+      : {}),
+    ...flag('showGrid'),
+    ...flag('showMesh'),
+    ...flag('showTracks'),
+    ...flag('showZones'),
+  }
+}
+
+/**
+ * Storage that cannot throw.
+ *
+ * Reading localStorage is not always allowed -- a private window, a browser set
+ * to block site data, a page opened from a file -- and in some of those the
+ * access itself throws rather than returning null. A viewer preference is not
+ * worth a blank page.
+ */
+const safeStorage = {
+  getItem: (name: string) => {
+    try {
+      return localStorage.getItem(name)
+    } catch {
+      return null
+    }
+  },
+  setItem: (name: string, value: string) => {
+    try {
+      localStorage.setItem(name, value)
+    } catch {
+      // Nothing to be done, and nothing that depends on it.
+    }
+  },
+  removeItem: (name: string) => {
+    try {
+      localStorage.removeItem(name)
+    } catch {
+      // As above.
+    }
+  },
+}
+
+export const useStore = create<State>()(persist((set) => ({
   playing: false,
-  speed: 25,
+  // One of the values the speed control offers, which 25 was not: the store
+  // played at 25 while the dropdown, finding nothing to match, displayed the
+  // first option and said 5.
+  speed: 15,
   mode: 'surface',
   surfaceMap: DEFAULT_SURFACE_MAP,
   referenceFrame: 'africa',
@@ -260,4 +368,19 @@ export const useStore = create<State>((set) => ({
   seek: (timeMa) => {
     clock.timeMa = timeMa
   },
+}), {
+  name: 'expanding-earth.view',
+  version: 1,
+  storage: createJSONStorage(() => safeStorage),
+  partialize: (s): Remembered => ({
+    mode: s.mode,
+    surfaceMap: s.surfaceMap,
+    referenceFrame: s.referenceFrame,
+    showGrid: s.showGrid,
+    showMesh: s.showMesh,
+    showTracks: s.showTracks,
+    showZones: s.showZones,
+    speed: s.speed,
+  }),
+  merge: (stored, current) => ({ ...current, ...remembered(stored) }),
 }))
