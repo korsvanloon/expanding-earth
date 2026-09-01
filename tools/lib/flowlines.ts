@@ -77,10 +77,27 @@ export interface FlowOptions {
    */
   lineaments?: Lineaments
   /**
-   * How far the lineament may pull the step away from the age gradient, at
-   * full coherence. Zero ignores it; one follows it wherever it goes.
+   * How far the lineament may pull the step away from the age gradient, once
+   * there is a line worth following at all. Zero ignores it.
    */
   structureWeight?: number
+  /**
+   * Coherence at which the lineament starts being listened to, and the
+   * coherence at which it is listened to in full.
+   *
+   * The weight ramps between the two rather than being proportional to
+   * coherence, and that is a correction to how this first worked. Scaling the
+   * pull by coherence sounds careful and is self-defeating: a path that drifts
+   * off a fracture zone lands on featureless abyssal plain, where coherence is
+   * low by definition, so exactly when the correction is most needed there is
+   * almost none of it. Measured on the flank west of the Mid-Atlantic Ridge at
+   * 24 degrees north, the gravity axis held at 87-97 degrees over the whole
+   * stretch while the path wandered between 73 and 117 -- and the coherence
+   * over the worst of that wandering was 0.24, which under a proportional rule
+   * bought a tenth of the correction it needed.
+   */
+  structureFloor?: number
+  structureFull?: number
   /**
    * How far the lineament may disagree with the age gradient before it is
    * thrown away entirely, degrees.
@@ -199,6 +216,8 @@ export function traceFlowLines(
   const r = options.radiusKm ?? 6371
   const structure = options.lineaments
   const structureWeight = options.structureWeight ?? 0.6
+  const structureFloor = options.structureFloor ?? 0.15
+  const structureFull = options.structureFull ?? 0.35
   const structureMaxCos = Math.cos(((options.structureMaxDeg ?? 40) * Math.PI) / 180)
   // Blur over roughly the distance a step covers, in whatever cells this grid
   // has. On a coarse grid that is none at all and the field is read raw.
@@ -292,7 +311,9 @@ export function traceFlowLines(
           const sign = line.tx * tx + line.ty * ty + line.tz * tz < 0 ? -1 : 1
           const sx = line.tx * sign, sy = line.ty * sign, sz = line.tz * sign
           if (sx * g.tx + sy * g.ty + sz * g.tz >= structureMaxCos) {
-            const w = structureWeight * line.coherence
+            const ramp = Math.min(1, Math.max(0,
+              (line.coherence - structureFloor) / Math.max(1e-6, structureFull - structureFloor)))
+            const w = structureWeight * ramp
             const bx = g.tx + (sx - g.tx) * w
             const by = g.ty + (sy - g.ty) * w
             const bz = g.tz + (sz - g.tz) * w

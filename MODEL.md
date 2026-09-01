@@ -148,29 +148,49 @@ indistinguishable on real data from one that has nothing to say: it measured 47
 degrees against the paths, which is a coin. Only a stripe whose direction is
 known by construction shows it, which is why there is now a test made of stripes.
 
-What it buys, against the same pairs measured the same way:
+A third thing was wrong and only showed against a picked point. The pull was
+scaled by coherence, which sounds careful and is self-defeating: a path that
+drifts off a fracture zone lands on featureless abyssal plain, where coherence
+is low by definition, so exactly when the correction is most needed there is
+almost none of it. On the flank east of the Mid-Atlantic Ridge at 24 degrees
+north the gravity axis holds at 87 to 97 degrees over the whole stretch while
+the traced path wanders between 73 and 117 &mdash; and over the worst of that
+wandering the coherence is 0.24, which under a proportional rule bought a tenth
+of the correction it needed. The weight ramps from a floor instead.
 
-| time | age grid alone | with the lineaments |
-|---|---|---|
-| 20 Ma | 173 km | 162 km |
-| 40 Ma | 246 km | 230 km |
-| 60 Ma | 374 km | 341 km |
-| 90 Ma | 558 km | 518 km |
-| 120 Ma | 1073 km | 992 km |
+Two measures say what it is worth and they do not agree, which is the honest
+part. The first is geometric and is what a reader sees: the median angle between
+the traced path and the gravity axis beneath it, taken only where there is a
+line to follow at all. It falls from 25 degrees to 18. The second is the
+conjugate score, which is the model's:
 
-Six to nine per cent off the median residual, consistently, across the middle of
-the record. Small, and worth stating carefully, because the pairs are both the
-test and a product of the tracer: a change to the tracer changes the test. Two
-things say it is not the test getting easier. The pair counts barely move
-(131, 122, 82, 55, 41 against 131, 123, 81, 57, 39), and the pairs are the same
-distance apart today &mdash; 758 km against 738 at 20 Ma, and identical to the
-kilometre at 40, 60, 90 and 120. The same pairs, the same difficulty, a smaller
-miss.
+| | 20 Ma | 40 Ma | 60 Ma | 90 Ma | 120 Ma |
+|---|---|---|---|---|---|
+| age grid alone | 173 km | 246 km | 374 km | 558 km | 1073 km |
+| with the lineaments | 176 km | 228 km | 320 km | 507 km | 998 km |
 
-The weight is 0.4 and not more because the effect is bimodal. At 0.4 the median
-track end moves 15 km and the ninety-fifth percentile 426. At 0.7 the
-ninety-fifth is 5,099 km: a minority of paths stop being refined and start being
-captured by whatever line is loudest near them.
+Better at 40, 60, 90 and 120; a hair worse at 20. Turning the weight up to 0.7
+gets the geometric measure to 14 degrees and the residual to 437 km at 90 Ma and
+900 at 120, better still &mdash; and moves the median track end 497 km, with a
+ninety-fifth percentile of 12,815. That is not a refinement, it is a different
+set of paths, and no aggregate can tell which of them are right. At 0.4 the
+median end moves 36 km and the ninety-fifth 538.
+
+The two measures answer different questions and the difference matters. The
+score asks whether the model can bring a pair back together; the angle asks
+whether the pair was read off the right line in the first place. A tracer that
+followed the true lineament exactly would hand the model *truer* targets, and
+truer targets can be harder to hit &mdash; so a slightly worse residual is not
+by itself evidence of a worse tracer. Where they disagree, this takes the
+geometric measure, because that is the one a reader can check against the
+picture, and it keeps the weight low enough that the paths are the same paths.
+
+It is not fixed. Eighteen degrees of median wander around an axis that is stable
+to a few degrees is still wander, and it happens because the mechanism aligns
+the step's *direction* with the line without ever pulling the step back onto the
+line. Once a path is a hundred kilometres off a fracture zone, nothing in this
+draws it back. Following the crest rather than the bearing is the next thing to
+build, and it is not built here.
 
 ## Where the plates come from
 
@@ -275,10 +295,10 @@ allowed to be a check at all. See `tools/lib/flowlines.ts`.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 60 | 80 km | 100% | 0% |
-| 5 Ma | 149 | 98 km | 89% | 0% |
-| 30 Ma | 113 | 202 km | 50% | 0% |
-| 60 Ma | 81 | 341 km | 21% | 0% |
-| 120 Ma | 39 | 992 km | 5% | 0% |
+| 5 Ma | 148 | 101 km | 89% | 0% |
+| 30 Ma | 115 | 214 km | 50% | 0% |
+| 60 Ma | 82 | 320 km | 20% | 0% |
+| 120 Ma | 38 | 998 km | 3% | 0% |
 <!-- /from-the-run -->
 
 Two things keep the figure honest.

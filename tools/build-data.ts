@@ -93,13 +93,19 @@ export const CONFIG = {
    * How far the gravity grid's lineaments may pull a traced step away from the
    * age gradient, at full coherence. Zero reads the age grid alone.
    *
-   * 0.4 rather than more because the effect is bimodal: at 0.4 the median track
-   * end moves 15 km and the ninety-fifth percentile 426 km, while at 0.7 the
-   * ninety-fifth is 5,099 km -- a minority of paths stop being refined and
-   * start being captured by whatever line is loudest nearby. Set STRUCTURE in
-   * the environment to try another.
+   * Not read from the environment, though it was while it was being tuned, and
+   * that cost a wasted comparison: the freshness check in tools/run.ts compares
+   * the output's timestamp against its inputs, an environment variable is not
+   * an input, and the second of two runs quietly reported "up to date" and
+   * shipped the first one's answer. Anything that changes the output belongs in
+   * a file, where changing it changes a timestamp.
    */
-  structureWeight: Number(process.env.STRUCTURE ?? 0.4),
+  structureWeight: 0.4,
+  /** Where the lineament starts and stops being trusted, by coherence. */
+  structureFloor: 0.15,
+  structureFull: 0.35,
+  /** How far it may disagree with the age gradient before it is ignored. */
+  structureMaxDeg: 40,
   /** How far the gravity field is low-passed before the tensor, km. */
   structureSmoothKm: 100,
   /** How wide the tensor's own window is, km. */
@@ -297,6 +303,9 @@ function main() {
       seedSpacingKm: CONFIG.seedSpacingKm,
       lineaments: lines,
       structureWeight: CONFIG.structureWeight,
+      structureFloor: CONFIG.structureFloor,
+      structureFull: CONFIG.structureFull,
+      structureMaxDeg: CONFIG.structureMaxDeg,
     },
   )
   console.log(
