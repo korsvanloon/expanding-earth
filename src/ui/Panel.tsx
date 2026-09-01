@@ -240,6 +240,7 @@ export function Panel({ data }: { data: Dataset }) {
         </p>
       </section>
 
+      <PickedZones data={data} />
       <PickedPoints />
 
       <section>
@@ -493,6 +494,50 @@ function Method({ data }: { data: Dataset }) {
  * already on the clipboard by the time this appears; showing it is so you can
  * see you clicked what you meant to.
  */
+/**
+ * The fracture zones the reader has selected.
+ *
+ * Listed rather than only highlighted, because the point of selecting one is to
+ * say something about it, and saying something needs a name. Length is the
+ * useful figure: it is what separated a fracture zone from a seamount in the
+ * detector, so a short one in the list is the first place to look when a
+ * detection is wrong.
+ */
+function PickedZones({ data }: { data: Dataset }) {
+  const picked = useStore((s) => s.pickedZones)
+  const clearZones = useStore((s) => s.clearZones)
+  const toggleZone = useStore((s) => s.toggleZone)
+  const zones = data.meta.fractureZones ?? []
+  if (!picked.length) return null
+  return (
+    <section>
+      <h2>Picked fracture zones</h2>
+      <ul className="zonelist">
+        {picked.map((id) => {
+          const zone = zones[id - 1]
+          return (
+            <li key={id}>
+              <button type="button" className="linkish" onClick={() => toggleZone(id)}>
+                #{id}
+              </button>{' '}
+              {zone
+                ? `${zone.lengthKm} km, centred at ${zone.lon.toFixed(1)}, ${zone.lat.toFixed(1)}`
+                : 'no record of this one'}
+            </li>
+          )
+        })}
+      </ul>
+      <p className="caption">
+        In orange on the globe. Right-click a turquoise line to add or drop one;
+        eight are kept.{' '}
+        <button type="button" className="linkish" onClick={clearZones}>
+          clear
+        </button>
+      </p>
+    </section>
+  )
+}
+
 function PickedPoints() {
   const picks = useStore((s) => s.picks)
   const clearPicks = useStore((s) => s.clearPicks)

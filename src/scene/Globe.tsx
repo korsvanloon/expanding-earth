@@ -40,6 +40,8 @@ export function Globe({ data }: { data: Dataset }) {
   const showMesh = useStore((s) => s.showMesh)
   const showTracks = useStore((s) => s.showTracks)
   const showZones = useStore((s) => s.showZones)
+  const pickedZones = useStore((s) => s.pickedZones)
+  const toggleZone = useStore((s) => s.toggleZone)
   const surfaceMap = useStore((s) => s.surfaceMap)
 
   /**
@@ -74,13 +76,55 @@ export function Globe({ data }: { data: Dataset }) {
       // sRGB decode would bend the scale they were written on.
       texture.colorSpace = THREE.NoColorSpace
       texture.wrapS = THREE.RepeatWrapping
-      texture.anisotropy = 8
+      if (file.endsWith('zones.png')) {
+        // Nearest, and no mipmaps. Two of this image's channels are a curve's
+        // identity number, and an identity averaged with its neighbour's is a
+        // different curve or none: smoothing it would leave every line fringed
+        // with a curve that does not exist.
+        texture.magFilter = THREE.NearestFilter
+        texture.minFilter = THREE.NearestFilter
+        texture.generateMipmaps = false
+      } else {
+        texture.anisotropy = 8
+      }
       keep(texture)
     }).catch(() => {})
     return () => { live = false }
   }, [wanted, held, file])
   raster('data/fabric.jpg', mode === 'fabric', fabric, setFabric)
   raster('data/zones.png', showZones, zones, setZones)
+
+  /**
+   * The zone image again, on the processor's side, so a click can be answered.
+   *
+   * The texture lives on the graphics card and cannot be read back cheaply, so
+   * the same picture is decoded once into an array and the curve number is
+   * looked up there. It is only the two identity channels that are wanted, but
+   * a canvas hands over all four and sorting that out costs less than a second
+   * request would.
+   */
+  const [zoneIds, setZoneIds] = useState<{
+    width: number; height: number; data: Uint8ClampedArray
+  } | null>(null)
+  useEffect(() => {
+    if (!showZones || zoneIds) return
+    let live = true
+    const image = new Image()
+    image.crossOrigin = 'anonymous'
+    image.onload = () => {
+      if (!live) return
+      const canvas = document.createElement('canvas')
+      canvas.width = image.width
+      canvas.height = image.height
+      const context = canvas.getContext('2d', { willReadFrequently: false })
+      if (!context) return
+      context.drawImage(image, 0, 0)
+      const { data } = context.getImageData(0, 0, image.width, image.height)
+      setZoneIds({ width: image.width, height: image.height, data })
+    }
+    image.src = asset('data/zones.png')
+    return () => { live = false }
+  }, [showZones, zoneIds])
   useEffect(() => () => fabric?.dispose(), [fabric])
   useEffect(() => () => zones?.dispose(), [zones])
   const referenceFrame = useStore((s) => s.referenceFrame)
@@ -337,6 +381,8 @@ export function Globe({ data }: { data: Dataset }) {
       uFabric: { value: BLANK },
       uZones: { value: BLANK },
       uZonesOn: { value: 0 },
+      uPickedZones: { value: new Float32Array(8) },
+      uPickedCount: { value: 0 },
       uTimeMa: { value: 0 },
       uMaxAgeMa: { value: data.meta.maxAgeMa },
       uMode: { value: 0 },
@@ -460,6 +506,22 @@ export function Globe({ data }: { data: Dataset }) {
      * reach is generous -- a segment is a few pixels wide and a click is not
      * surgery -- and the nearest end wins.
      */
+    // A click on a fracture zone selects it rather than sampling the crust: the
+    // useful thing to do with a detector's claim is to agree or disagree with
+    // it, so it lights up along its whole length and joins a list.
+    if (showZones && zoneIds) {
+      const l = Math.hypot(event.point.x, event.point.y, event.point.z) || 1
+      const [u, v] = directionToUv(event.point.x / l, event.point.y / l, event.point.z / l)
+      const column = Math.min(zoneIds.width - 1, Math.max(0, Math.floor(u * zoneIds.width)))
+      const row = Math.min(zoneIds.height - 1, Math.max(0, Math.floor((1 - v) * zoneIds.height)))
+      const at = (row * zoneIds.width + column) * 4
+      const id = zoneIds.data[at + 1] + zoneIds.data[at + 2] * 256
+      if (id > 0) {
+        toggleZone(id)
+        return
+      }
+    }
+
     const t = data.tracks
     let pair: Pick['pair']
     if (t) {
@@ -553,6 +615,9 @@ export function Globe({ data }: { data: Dataset }) {
       material.current.uniforms.uFabric.value = fabric ?? BLANK
       material.current.uniforms.uZones.value = zones ?? BLANK
       material.current.uniforms.uZonesOn.value = showZones && zones ? 1 : 0
+      const held = material.current.uniforms.uPickedZones.value as Float32Array
+      for (let i = 0; i < 8; i++) held[i] = pickedZones[i] ?? 0
+      material.current.uniforms.uPickedCount.value = Math.min(8, pickedZones.length)
       material.current.uniforms.uTimeMa.value = clock.timeMa
       material.current.uniforms.uMode.value = MODES[mode]
       material.current.uniforms.uGrid.value = showGrid ? 1 : 0

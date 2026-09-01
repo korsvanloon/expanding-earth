@@ -1234,14 +1234,19 @@ describe('painting the detected zones', () => {
       axis: new Uint8Array(width * height),
       coherence: new Uint8Array(width * height),
       known: new Uint8Array(width * height).fill(1),
-    }, 1)
-    expect(painted[10 * width + 20]).toBeGreaterThan(0)
-    expect(painted[10 * width + 21]).toBeGreaterThan(0)
-    expect(painted[9 * width + 19]).toBeGreaterThan(0)
-    expect(painted[10 * width + 23]).toBe(0)
+    }, [[10 * width + 20]], 1)
+    expect(painted.strength[10 * width + 20]).toBeGreaterThan(0)
+    expect(painted.strength[10 * width + 21]).toBeGreaterThan(0)
+    expect(painted.strength[9 * width + 19]).toBeGreaterThan(0)
+    expect(painted.strength[10 * width + 23]).toBe(0)
     let lit = 0
-    for (const v of painted) if (v) lit++
+    for (const v of painted.strength) if (v) lit++
     expect(lit).toBe(9)
+    // The whole patch belongs to the one curve it was widened from, so a click
+    // anywhere in it names the same fracture zone.
+    expect(painted.curve[10 * width + 20]).toBe(1)
+    expect(painted.curve[9 * width + 21]).toBe(1)
+    expect(painted.curve[10 * width + 23]).toBe(0)
   })
 
   it('paints nothing at all when nothing was detected', () => {
@@ -1253,8 +1258,9 @@ describe('painting the detected zones', () => {
       axis: new Uint8Array(width * height),
       coherence: new Uint8Array(width * height),
       known: new Uint8Array(width * height).fill(1),
-    })
-    expect(painted.some((v) => v !== 0)).toBe(false)
+    }, [])
+    expect(painted.strength.some((v) => v !== 0)).toBe(false)
+    expect(painted.curve.some((v) => v !== 0)).toBe(false)
   })
 })
 

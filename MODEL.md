@@ -346,6 +346,14 @@ zones*, in turquoise under the magenta paths. It is drawn about three times
 wider than it was measured or it would be invisible at eleven kilometres a cell,
 and that is a drawing decision rather than a measurement.
 
+It is there to be argued with, so it can be. Every curve carries its own number
+in the picture &mdash; the green and blue channels of `zones.png` against the
+red one that carries its strength &mdash; and a right-click on a turquoise line
+selects that curve, lights it orange along its whole length, and lists it with
+its length and where it is centred. Length is the figure worth reading: it is
+what told a fracture zone from a seamount in the first place, so a short one in
+the list is the first place to look when a detection is wrong.
+
 It is there to be argued with. Two instruments that never saw each other's data
 now sit on the same crust: the paths come from the age grid, the turquoise from
 the gravity grid, and where they agree that is worth something no aggregate

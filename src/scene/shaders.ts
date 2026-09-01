@@ -31,6 +31,15 @@ uniform sampler2D uMap;
 uniform sampler2D uFabric;
 uniform sampler2D uZones;
 uniform float uZonesOn;
+/**
+ * Which fracture zones the reader has picked, as ids, and how many.
+ *
+ * A small fixed array rather than a lookup texture: nobody points at more than
+ * a handful of things at once, and a uniform costs nothing to update while a
+ * texture would have to be re-uploaded on every click.
+ */
+uniform float uPickedZones[8];
+uniform int uPickedCount;
 uniform float uTimeMa;
 uniform float uMaxAgeMa;
 uniform int uMode;        // 0 surface, 1 crustal age, 2 strain, 3 rigidity, 4 islands, 5 fabric
@@ -218,9 +227,21 @@ void main() {
   // the detector answers in -- every cell it fired on, not a chosen sample of
   // them -- and because a raster on the crust deforms with the crust for free.
   if (uZonesOn > 0.5) {
-    float zone = texture(uZones, dirToUv(vDir)).r;
-    if (zone > 0.004) {
-      base = mix(base, srgbToLinear(vec3(0.20, 0.95, 0.80)), 0.35 + 0.55 * zone);
+    vec3 zone = texture(uZones, dirToUv(vDir)).rgb;
+    if (zone.r > 0.004) {
+      // The green and blue channels carry the curve's own number, so a picked
+      // zone can be told from its neighbours along its whole length rather than
+      // only where the click landed.
+      float id = floor(zone.g * 255.0 + 0.5) + floor(zone.b * 255.0 + 0.5) * 256.0;
+      bool picked = false;
+      for (int i = 0; i < 8; i++) {
+        if (i >= uPickedCount) break;
+        if (abs(uPickedZones[i] - id) < 0.5) { picked = true; break; }
+      }
+      vec3 ink = picked
+        ? srgbToLinear(vec3(1.00, 0.45, 0.15))
+        : srgbToLinear(vec3(0.20, 0.95, 0.80));
+      base = mix(base, ink, (picked ? 0.75 : 0.35) + 0.55 * zone.r);
     }
   }
 

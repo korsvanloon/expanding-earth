@@ -170,6 +170,12 @@ export interface Meta {
    */
   crustalFabric: { type: string; median: number; low: number; high: number }[]
 
+  /**
+   * The detected fracture zones, one entry per curve, in the order their ids
+   * are painted into zones.png. Enough to name what a reader clicked on.
+   */
+  fractureZones: { lengthKm: number; lon: number; lat: number }[]
+
   /** Crust-classification variants. The first entry is the one that was solved. */
   crustModels: CrustModel[]
   solvedModel: CrustModelId

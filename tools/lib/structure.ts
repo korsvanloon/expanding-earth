@@ -903,29 +903,56 @@ function advanceAlong(
  * where the field's own ninety-ninth percentile is full, so that a handful of
  * enormous readings cannot leave the rest of the map black.
  */
-export function zoneRaster(zones: Lineaments, dilateCells = 1): Uint8Array {
+export interface ZoneRaster {
+  /** How strong the line is, 0 for no line, on the same scale as the fabric. */
+  strength: Uint8Array
+  /**
+   * Which curve each cell belongs to, plus one, so that zero means none.
+   *
+   * Carried so a reader can point at a fracture zone and have the viewer know
+   * which one they meant. Without it the layer is a picture of the detector's
+   * answer and nothing in it can be selected, named or argued with.
+   */
+  curve: Uint16Array
+}
+
+export function zoneRaster(
+  zones: Lineaments, curves: number[][], dilateCells = 1,
+): ZoneRaster {
   const { width, height, ridgeness } = zones
+  const strength = new Uint8Array(width * height)
+  const curve = new Uint16Array(width * height)
   const positives: number[] = []
   for (let i = 0; i < ridgeness.length; i++) if (ridgeness[i] > 0) positives.push(ridgeness[i])
-  if (!positives.length) return new Uint8Array(width * height)
+  if (!positives.length) return { strength, curve }
   const sorted = Float64Array.from(positives).sort()
   const full = sorted[Math.floor(0.99 * sorted.length)] || sorted[sorted.length - 1]
 
-  const out = new Uint8Array(width * height)
-  for (let row = 0; row < height; row++) {
-    for (let column = 0; column < width; column++) {
-      const value = ridgeness[row * width + column]
+  // Painted curve by curve rather than cell by cell, so that a cell knows which
+  // curve it came from. Longest first, so that where two curves have been
+  // widened into each other the longer one owns the overlap -- an arbitrary
+  // rule, but a stable one, and the alternative is that whichever came last
+  // wins and the picture changes when the detector's ordering does.
+  const order = curves.map((_, i) => i).sort((a, b) => curves[b].length - curves[a].length)
+  for (const index of order) {
+    for (const at of curves[index]) {
+      const value = ridgeness[at]
       if (value <= 0) continue
       const level = 1 + Math.round(254 * Math.min(1, value / full))
+      const row = Math.floor(at / width)
+      const column = at % width
       for (let dr = -dilateCells; dr <= dilateCells; dr++) {
         const r = row + dr
         if (r < 0 || r >= height) continue
         for (let dc = -dilateCells; dc <= dilateCells; dc++) {
           const c = ((column + dc) % width + width) % width
-          if (out[r * width + c] < level) out[r * width + c] = level
+          const cell = r * width + c
+          if (strength[cell] >= level) continue
+          strength[cell] = level
+          curve[cell] = index + 1
         }
       }
     }
   }
-  return out
+  return { strength, curve }
 }

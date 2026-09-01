@@ -113,6 +113,15 @@ interface State {
    * evidence. See fractureZones in tools/lib/structure.ts.
    */
   showZones: boolean
+  /**
+   * Fracture zones the reader has picked, newest last, by id.
+   *
+   * Kept apart from `picks`, which are pieces of crust. A zone is a claim the
+   * detector made and the useful thing to do with it is agree or disagree, so
+   * it is selected rather than sampled: it lights up along its whole length and
+   * stays in a list until it is dismissed.
+   */
+  pickedZones: number[]
   endTimeMa: number
   /** Points picked off the globe, oldest first; see Pick. */
   picks: Pick[]
@@ -127,6 +136,8 @@ interface State {
   setShowMesh: (showMesh: boolean) => void
   setShowTracks: (showTracks: boolean) => void
   setShowZones: (showZones: boolean) => void
+  toggleZone: (id: number) => void
+  clearZones: () => void
   setEndTime: (endTimeMa: number) => void
   seek: (timeMa: number) => void
 }
@@ -171,6 +182,7 @@ export const useStore = create<State>((set) => ({
   showMesh: false,
   showTracks: false,
   showZones: false,
+  pickedZones: [],
   endTimeMa: 200,
   picks: [],
   // Six is enough for a claim about a handful of points and few enough that the
@@ -187,6 +199,14 @@ export const useStore = create<State>((set) => ({
   setShowMesh: (showMesh) => set({ showMesh }),
   setShowTracks: (showTracks) => set({ showTracks }),
   setShowZones: (showZones) => set({ showZones }),
+  // Eight, because that is what the shader can hold and more than anyone
+  // compares at once; clicking a picked zone again lets it go.
+  toggleZone: (id) => set((s) => ({
+    pickedZones: s.pickedZones.includes(id)
+      ? s.pickedZones.filter((z) => z !== id)
+      : [...s.pickedZones, id].slice(-8),
+  })),
+  clearZones: () => set({ pickedZones: [] }),
   setEndTime: (endTimeMa) => set({ endTimeMa }),
   seek: (timeMa) => {
     clock.timeMa = timeMa

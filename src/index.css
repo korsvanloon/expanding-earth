@@ -185,3 +185,15 @@ code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px;
   .readout strong { font-size: 14px; }
   .panel-toggle { top: 12px; right: 12px; }
 }
+
+/* The list of fracture zones a reader has picked; see PickedZones. */
+.zonelist {
+  list-style: none;
+  margin: 0.4rem 0 0;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--ink-dim, #9aa4b2);
+}
+.zonelist li { display: flex; gap: 0.4rem; }
+.zonelist .linkish { color: #ff7326; font-variant-numeric: tabular-nums; }

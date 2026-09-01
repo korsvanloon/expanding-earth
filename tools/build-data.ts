@@ -389,24 +389,31 @@ function main() {
       `[build-data] ${detected.curves.length} fracture zones linked from the gravity grid, ` +
         `median ${curveLengthKm(detected.curves, zones)} km long`,
     )
-    const raster = zoneRaster(zones)
+    const raster = zoneRaster(zones, detected.curves)
+    // Three channels: how strong the line is, and which curve it belongs to
+    // split over the other two. A reader points at a fracture zone and the
+    // viewer has to know which one they meant, so the identity travels in the
+    // picture rather than beside it.
     const pixels = new Uint8Array(zones.width * zones.height * 4)
     let lit = 0
-    for (let i = 0; i < raster.length; i++) {
-      pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = raster[i]
+    for (let i = 0; i < raster.strength.length; i++) {
+      pixels[i * 4] = raster.strength[i]
+      pixels[i * 4 + 1] = raster.curve[i] & 0xff
+      pixels[i * 4 + 2] = raster.curve[i] >> 8
       pixels[i * 4 + 3] = 255
-      if (raster[i]) lit++
+      if (raster.strength[i]) lit++
     }
-    const png = new PNG({ width: zones.width, height: zones.height, colorType: 0 })
+    const png = new PNG({ width: zones.width, height: zones.height, colorType: 2 })
     png.data.set(pixels)
     const encoded = PNG.sync.write(png)
     writeFileSync(resolve(OUT, 'zones.png'), encoded)
     console.log(
       `[build-data] wrote public/data/zones.png -- fracture zones on ` +
-        `${((100 * lit) / raster.length).toFixed(1)}% of the grid's cells ` +
+        `${((100 * lit) / raster.strength.length).toFixed(1)}% of the grid's cells ` +
         `(${(encoded.length / 1e6).toFixed(1)} MB)`,
     )
   }
+
   const crest = CONFIG.crestPull > 0 ? zones : undefined
 
   // The direction field the walk follows, fitted through every detected
@@ -542,6 +549,7 @@ function main() {
     crustModels,
     solvedModel: CONFIG.solvedModel,
     crustalFabric: structure.fabric,
+    fractureZones: detected ? zoneSummaries(detected.curves, zones!) : [],
     radiusStepMa: CONFIG.radiusStepMa,
     referenceRadiusKm,
     frameStepMa: CONFIG.frameStepMa,
@@ -907,6 +915,40 @@ function sampleGravityStructure(shell: Shell, crustType: Uint8Array) {
     )
   }
   return { ...structure, fabric }
+}
+
+/**
+ * One line per detected fracture zone, for the viewer to list.
+ *
+ * Only what a reader needs to recognise the thing they clicked: how long it is
+ * and roughly where it is. The shape itself stays in the raster, which is what
+ * gets drawn.
+ */
+function zoneSummaries(
+  curves: number[][], zones: { width: number; height: number },
+): { lengthKm: number; lon: number; lat: number }[] {
+  const dir = (at: number) => {
+    const row = Math.floor(at / zones.width)
+    const lat = (0.5 - (row + 0.5) / zones.height) * Math.PI
+    const lon = ((at % zones.width) + 0.5) / zones.width * 2 * Math.PI - Math.PI
+    const c = Math.cos(lat)
+    return [c * Math.cos(lon), Math.sin(lat), -c * Math.sin(lon)] as const
+  }
+  return curves.map((curve) => {
+    let km = 0
+    for (let i = 1; i < curve.length; i++) {
+      const a = dir(curve[i - 1])
+      const b = dir(curve[i])
+      km += Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * R0_KM
+    }
+    const middle = curve[curve.length >> 1]
+    const row = Math.floor(middle / zones.width)
+    return {
+      lengthKm: Math.round(km),
+      lon: Math.round((((middle % zones.width) + 0.5) / zones.width - 0.5) * 3600) / 10,
+      lat: Math.round((0.5 - (row + 0.5) / zones.height) * 1800) / 10,
+    }
+  })
 }
 
 /** The median length of a set of linked curves, km, for the build log. */
