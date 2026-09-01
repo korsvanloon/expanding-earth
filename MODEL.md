@@ -884,14 +884,34 @@ At the times a reader spends most of their time in, the fix is worth about five
 times: 1.0% of the globe misnamed at 13 Ma becomes 0.2%, and the ghost ridge
 down the middle of the closing Pacific becomes a line one triangle wide.
 
-What is left is not renaming and should not all be fixed. A *flip* is a genuine
-retriangulation: it draws a new edge between two points that have come into
-contact, and a triangle built on that edge really is made of crust from either
-side of a closure. That is a seam, and painting it as one is right. But 21.5% of
-the shell at 200 Ma is five times more than a one-triangle-wide strip along
-every closed ridge would account for, so some of it is the easing pass redrawing
-inside dead crust more freely than it needs to. That is the next thread and it
-is not pulled yet.
+What is left is not renaming, and two guesses about it were both wrong, so they
+are written down rather than quietly dropped.
+
+The first guess was that those triangles are empty &mdash; that the mesh has
+failed to collapse crust which has not erupted yet, and is drawing sea floor
+before it exists. Measured, that is between 0.6% and 2.7% of the area at every
+time, and by face index not one triangle of old crust has been collapsed away
+anywhere in the run: at 200 Ma there are 32,534 live faces and 32,203 of them
+are crust older than the frame. The collapse does its job. (The first attempt at
+this measurement said 63%, because it read `faceAge[f]` against an array that
+`applyTopology` had compacted, lining each triangle up with some other
+triangle's age. A tool that agrees with a suspicion is the one to check hardest.)
+
+The second guess was the flips &mdash; 164,175 of them, each one a fault by the
+mesh's own description, whose new corner is borrowed from the neighbouring
+triangle. Cutting `flipPasses` from six to two gives 27% fewer flips and does
+nothing to the seam: 21.5% of the area at 200 Ma becomes 22.3%. It does plenty
+to the fit, all of it bad &mdash; conjugate pairs reunited fall from 44% to 33%
+at 60 Ma and 24% to 12% at 90, South America and Africa from 32% to 23%,
+Australia and Antarctica from 26% to 16%, and the doubled-over area at 200 Ma
+triples. The flips are load-bearing and they are not the cause.
+
+What the numbers do say is that the *median* triangle is untouched: 130 km at
+every time, the icosphere's own spacing, from 0 Ma to 200. This is a tail, not a
+drift &mdash; four fifths of the shell is pristine and a fifth of it, around the
+closures, is genuinely made of crust from either side of a contact. Whether a
+fifth is too much is not answerable by tuning, and no knob tried moves it
+without making the reconstruction worse.
 
 Where a triangle does bridge a closed ocean, the shader stops painting sea floor
 and paints a seam colour instead &mdash; deliberately neither a sea-floor colour
