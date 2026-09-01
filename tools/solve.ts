@@ -925,7 +925,9 @@ function main() {
   let flippedTotal = 0
   let easedTotal = 0
   let foldedNow = 0
-  let contacts: IslandContacts = { found: 0, deepestKm: 0 }
+  let contacts: IslandContacts = { found: 0, deepestKm: 0, tests: 0, bucketed: 0 }
+  let contactTests = 0
+  let contactBucketed = 0
   let contactsTotal = 0
   let deepestContactKm = 0
   for (let t = CONFIG.stepMa; t <= endTimeMa; t += CONFIG.stepMa) {
@@ -999,6 +1001,8 @@ function main() {
       )
       contactsNow += contacts.found
       if (contacts.deepestKm > deepestContactKm) deepestContactKm = contacts.deepestKm
+      contactTests += contacts.tests
+      contactBucketed += contacts.bucketed
       unfold(
         pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin,
