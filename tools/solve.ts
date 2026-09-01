@@ -807,6 +807,71 @@ function main() {
     }
   }
 
+  /**
+   * Which stage of a step stretches the fracture zones.
+   *
+   * Two adjacent points of a track are crust forty kilometres apart, and the
+   * crust between them is older than both ends, so it survives as long as they
+   * do and the distance has to hold. Measured on the shipped run it does not:
+   * the median segment reads 1.04 of its present-day length at 38 Ma and 1.21
+   * at 120, worst on the youngest crust still alive and fading with age behind
+   * it -- the shape of a sheet pulled along by its leading edge.
+   *
+   * Knobs did not find it. Letting the crust behind the driven band coast for
+   * longer (poleMemory 0.5 to 0.9) leaves the gradient where it was and costs
+   * fit; so does cutting the flips. So instead of guessing which stage is
+   * responsible, this reads the same number after each of them. Set
+   * STRETCH_TRACE=1; it is off otherwise because it walks every track point
+   * five times a step.
+   */
+  const tracing = process.env.STRETCH_TRACE === '1'
+  const segmentRestKm = new Float64Array(tracks.ageMa.length)
+  if (tracing) {
+    for (let track = 0; track + 1 < tracks.offsets.length; track++) {
+      for (let i = tracks.offsets[track]; i + 1 < tracks.offsets[track + 1]; i++) {
+        const place = (j: number) => {
+          let x = 0, y = 0, z = 0
+          for (let k = 0; k < 3; k++) {
+            const v = tracks.pointVerts[j * 3 + k] * 3
+            const w = tracks.pointWeights[j * 3 + k]
+            x += w * dirs[v]; y += w * dirs[v + 1]; z += w * dirs[v + 2]
+          }
+          const l = length3(x, y, z) || 1
+          return [x / l, y / l, z / l] as const
+        }
+        const a = place(i)
+        const b = place(i + 1)
+        const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
+        segmentRestKm[i] = Math.acos(dot) * r0
+      }
+    }
+  }
+  /** Median segment length as a share of its present-day length, right now. */
+  const stretchNow = (t: number): number => {
+    const ratios: number[] = []
+    const place = (j: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.survivor(tracks.pointVerts[j * 3 + k]) * 3
+        const w = tracks.pointWeights[j * 3 + k]
+        x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+      }
+      return [x, y, z] as const
+    }
+    for (let track = 0; track + 1 < tracks.offsets.length; track++) {
+      for (let i = tracks.offsets[track]; i + 1 < tracks.offsets[track + 1]; i++) {
+        if (segmentRestKm[i] < 1) continue
+        if (tracks.ageMa[i] < t || tracks.ageMa[i + 1] < t) continue
+        const a = place(i)
+        const b = place(i + 1)
+        ratios.push(length3(a[0] - b[0], a[1] - b[1], a[2] - b[2]) / segmentRestKm[i])
+      }
+    }
+    if (ratios.length < 20) return NaN
+    ratios.sort((x, y) => x - y)
+    return ratios[ratios.length >> 1]
+  }
+
   const endTimeMa = CONFIG.endMa ?? meta.endTimeMa
   let refusedTotal = 0
   let flippedTotal = 0
@@ -818,7 +883,10 @@ function main() {
     previous.set(pos)
 
     const shrink = rNext / rPrev
+    const trace: string[] = []
+    if (tracing) trace.push(`start ${stretchNow(t).toFixed(3)}`)
     for (let i = 0; i < vertexCount * 3; i++) pos[i] *= shrink
+    if (tracing) trace.push(`shrink ${stretchNow(t).toFixed(3)}`)
 
     // Un-make the crust that had not been made yet.
     const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
@@ -826,7 +894,9 @@ function main() {
     easedTotal += closed.eased
     settleCollapsed()
 
+    if (tracing) trace.push(`collapse ${stretchNow(t).toFixed(3)}`)
     driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
+    if (tracing) trace.push(`drive ${stretchNow(t).toFixed(3)}`)
 
     // What each edge is asked to measure, worked out once for the step rather
     // than once per sweep. Neither the rest lengths nor how far the crust has
@@ -877,6 +947,7 @@ function main() {
       )
     }
     relaxToSphere(pos, vertexCount, rNext, 1)
+    if (tracing) trace.push(`sweeps ${stretchNow(t).toFixed(3)}`)
     foldedNow = unfold(
       pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
     )
@@ -886,11 +957,13 @@ function main() {
     flippedTotal += retriangulate(
       mesh, pos, restEdge, CONFIG.flipPasses, rigidity, CONFIG.breaksBelow,
     )
+    if (tracing) trace.push(`flips ${stretchNow(t).toFixed(3)}`)
     settleCollapsed()
     removeNetRotation(pos, previous, vertexCount, shrink)
     settleCollapsed()
     followRegions(rNext)
 
+    if (tracing && t % 10 === 0) console.log(`[stretch] ${t} Ma  ${trace.join('  ')}`)
     if (t % meta.frameStepMa === 0) {
       record(t)
       const d = diagnostics[diagnostics.length - 1]
