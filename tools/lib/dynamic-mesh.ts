@@ -59,6 +59,28 @@ export interface CollapseResult {
 export class DynamicMesh {
   /** Three vertex indices per face; a removed face reads -1. */
   readonly faceVerts: Int32Array
+  /**
+   * The same triangulation, with every corner still naming the crust it is.
+   *
+   * `faceVerts` is what the solver needs: a collapse merges two points, and
+   * every triangle round the one that goes has to be told to use the survivor
+   * instead, or the springs pull on a vertex nobody is moving. But that
+   * renaming throws away the one thing the renderer needs. A corner is how a
+   * triangle knows which piece of the Earth it is -- its present-day direction
+   * is what the surface map, the age grid and the gravity are sampled at -- and
+   * after a chain of thirty collapses a corner names crust four thousand
+   * kilometres from the crust the triangle is made of. The globe then paints
+   * that triangle by interpolating across four thousand kilometres of sea
+   * floor, which is how a ridge stays visible in a reconstruction that has
+   * already removed it.
+   *
+   * So this array takes the same face removals and the same flips and skips the
+   * renaming. The drawn shape is identical, because a merged point is moved to
+   * sit exactly on its survivor, so a triangle drawn through the old name and
+   * one drawn through the new name occupy the same three places. What differs
+   * is that this one still knows whose crust it is.
+   */
+  readonly drawnVerts: Int32Array
   readonly faceAlive: Uint8Array
   readonly vertexAlive: Uint8Array
   /** Which surviving vertex each original vertex has been merged into. */
@@ -74,6 +96,7 @@ export class DynamicMesh {
     indices: Uint32Array,
   ) {
     this.faceVerts = Int32Array.from(indices)
+    this.drawnVerts = Int32Array.from(indices)
     this.faceAlive = new Uint8Array(faceCount).fill(1)
     this.vertexAlive = new Uint8Array(vertexCount).fill(1)
     this.mergedInto = new Int32Array(vertexCount)
@@ -326,9 +349,43 @@ export class DynamicMesh {
         restEdge[face * 3 + k] = rest.get(Math.min(p, q) * width + Math.max(p, q)) ?? lengthOf(p, q)
       }
     }
+    // The same flip in the drawn triangulation, in its own names. A face's
+    // drawn corners are originals whose survivors are its solver corners, so
+    // each new corner is looked up in the face it comes from: f keeps its own
+    // names for a and c, g keeps its own for b and d, and the new diagonal
+    // borrows d from g and c from f. Two faces can hold different original
+    // names for the same survivor -- that is the point, since they are made of
+    // different crust.
+    const drawnOf = (face: number, want: number) => {
+      for (let k = 0; k < 3; k++) {
+        const u = this.drawnVerts[face * 3 + k]
+        if (u >= 0 && this.survivor(u) === want) return u
+      }
+      return -1
+    }
+    const da = drawnOf(f, a)
+    const dc = drawnOf(f, c)
+    const db = drawnOf(g, b)
+    const dd = drawnOf(g, d)
+    if (da >= 0 && dc >= 0 && db >= 0 && dd >= 0) {
+      this.drawnVerts[f * 3] = dc
+      this.drawnVerts[f * 3 + 1] = dd
+      this.drawnVerts[f * 3 + 2] = da
+      this.drawnVerts[g * 3] = dd
+      this.drawnVerts[g * 3 + 1] = dc
+      this.drawnVerts[g * 3 + 2] = db
+    } else {
+      // Should not happen; if a name cannot be found the drawn face is better
+      // left as it was than written with a corner that means nothing.
+      this.drawnMisses++
+    }
+
     write(f, c, d, a)
     write(g, d, c, b)
   }
+
+  /** Flips whose drawn equivalent could not be named; expected to stay zero. */
+  drawnMisses = 0
 
   /** Merge b into a, dropping the two triangles along the edge. */
   collapse(a: number, b: number): void {
@@ -340,6 +397,10 @@ export class DynamicMesh {
         const v = this.faceVerts[f * 3 + k]
         this.incident[v].delete(f)
         this.faceVerts[f * 3 + k] = -1
+        // The drawn triangulation loses exactly the same triangles. It does not
+        // lose the names: nothing below renames a drawn corner, which is the
+        // whole difference between the two arrays.
+        this.drawnVerts[f * 3 + k] = -1
       }
     }
     for (const f of this.incident[b]) {

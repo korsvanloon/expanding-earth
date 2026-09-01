@@ -56,7 +56,7 @@ function main() {
   }
 
   console.log('  Ma   R km   faces   median span km   p90   p99   share of area painted from crust')
-  console.log('                     (on the sphere)              >100 / >300 / >1000 km away   tinted')
+  console.log('                     (on the sphere)              >100 / >300 / >1000 km away   tinted   triangles/sphere')
   for (const timeMa of [0, 13, 20, 38, 60, 90, 120, 160, 200]) {
     const frame = Math.round(timeMa / meta.frameStepMa)
     if (frame >= meta.frameCount) continue
@@ -121,7 +121,8 @@ function main() {
       + `${q(0.5).toFixed(0).padStart(10)}${q(0.9).toFixed(0).padStart(7)}`
       + `${q(0.99).toFixed(0).padStart(7)}   `
       + smeared.map((s) => `${(100 * s / area).toFixed(1)}%`).join('  ')
-      + `   ${(100 * tinted / area).toFixed(1)}%`,
+      + `   ${(100 * tinted / area).toFixed(1)}%`
+      + `   ${(100 * area / (4 * Math.PI * radius * radius)).toFixed(1)}%`,
     )
   }
 }

@@ -154,6 +154,28 @@ const CONFIG = {
    * grid agree on.
    */
   conjugateStiffness: 0.15,
+  /**
+   * How hard a traced fracture zone is held to being smooth, and how much of a
+   * corner it is allowed before anything happens.
+   *
+   * A fracture zone is a path one piece of crust actually took, so it bends
+   * over hundreds of kilometres and never corners: the tracer enforces no more
+   * than six degrees per forty-kilometre step, and a drawn track is smooth today
+   * by construction. Measured through the reconstruction it is not. By 60 Ma
+   * 8.9% of the turns along the surviving tracks are over thirty degrees and the
+   * 99th percentile is 145 -- the crust doubling back on itself at the scale of
+   * one step, which nothing on the sea floor does. The tracer did not put those
+   * corners there; the solver did. See tools/measure-tracks.ts.
+   *
+   * So this is not a drawing fix. A kink in a material line is a kink in the
+   * crust, and this is a claim about the crust: whatever else the reconstruction
+   * does, it may not fold a fracture zone at forty kilometres.
+   *
+   * The allowance is twice what the tracer permits, so ordinary bending and the
+   * mesh's own noise cost nothing and only real corners are pushed on.
+   */
+  trackStiffness: Number(process.env.TRACK_K ?? 0),
+  trackTurnDeg: 12,
   radialStiffness: Number(process.env.RADIAL_K ?? 0.35),
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,
@@ -469,7 +491,7 @@ function main() {
   const topologyDeltas: TopologyDelta[] = []
   const recordTopology = () =>
     topologyDeltas.push(
-      topologyDelta(drawnTopology, mesh.faceVerts, faceCount, mesh.faceAlive),
+      topologyDelta(drawnTopology, mesh.drawnVerts, faceCount, mesh.faceAlive),
     )
 
   const record = (t: number) => {
@@ -542,6 +564,9 @@ function main() {
       pos, atLastFrame, mesh, Math.max(meta.frameStepMa, 1), vertexCount,
       plates[plates.length - 1],
     )
+    for (let v = 0; v < vertexCount; v++) {
+      if (!mesh.vertexAlive[v]) found.ids[v] = found.ids[mesh.survivor(v)]
+    }
     plates.push(found.ids)
     plateReport = { count: found.count, biggest: found.biggest }
     const speed = medianSpeed(
@@ -553,9 +578,18 @@ function main() {
     const strain = faceStrain(pos, mesh.faceVerts, restAreaNow, faceCount, mesh.faceAlive)
     frames.push(quantise(pos, vertexCount))
     recordTopology()
-    strains.push(
-      perVertexStrain(strain, mesh.faceVerts, restAreaNow, faceCount, vertexCount, mesh.faceAlive),
+    // Per-vertex readings are computed on the solver's names, so a point that
+    // has been merged away holds nothing -- and the drawn triangulation still
+    // uses those names, because that is how it keeps track of whose crust each
+    // triangle is. Hand each of them its survivor's reading, the same way
+    // settleCollapsed hands them its position.
+    const vertexStrain = perVertexStrain(
+      strain, mesh.faceVerts, restAreaNow, faceCount, vertexCount, mesh.faceAlive,
     )
+    for (let v = 0; v < vertexCount; v++) {
+      if (!mesh.vertexAlive[v]) vertexStrain[v] = vertexStrain[mesh.survivor(v)]
+    }
+    strains.push(vertexStrain)
     const held = distortion(heldPairs, pos, radiusAt(t))
     const tiled = coverage(pos, mesh, faceCount, probes, cells, buckets)
     // Should be impossible; said out loud rather than trusted, because when the
@@ -673,6 +707,106 @@ function main() {
     }
   }
 
+  /**
+   * Which drawn tracks are held smooth, and which are left alone to say whether
+   * it worked.
+   *
+   * The same split the conjugate pairs use, and for the same reason: a track the
+   * solver was told to keep smooth is no evidence that the crust stayed smooth.
+   * pairPulls is decided by the track's own number, so the two constraints agree
+   * about which half of the evidence is being spent and which is being kept.
+   */
+  const trackPulls = new Uint8Array(Math.max(0, tracks.offsets.length - 1))
+  for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+    const t = tracks.pairTrack[i]
+    if (t < trackPulls.length && pairPulls[i]) trackPulls[t] = 1
+  }
+  {
+    let held = 0
+    for (const v of trackPulls) if (v) held++
+    console.log(
+      `[solve] ${held} of ${trackPulls.length} drawn tracks are held smooth, `
+        + `${trackPulls.length - held} left free to score it`,
+    )
+  }
+
+  /**
+   * Refuse to let a traced fracture zone corner.
+   *
+   * Three consecutive points of one track are a piece of crust forty kilometres
+   * long either side of a middle point. If the turn there is past the allowance,
+   * the middle is pulled towards the midpoint of its neighbours and they are
+   * pushed the other way by half each, so the correction moves no crust on
+   * average and cannot walk the whole line sideways.
+   *
+   * Only where the crust exists: a point on sea floor younger than the frame has
+   * been collapsed out of the mesh, so its corners have been merged into their
+   * neighbours and the turn through it is not a reading of anything. Measuring
+   * those was the first version of the diagnostic and it reported a quarter of
+   * every track reversing on itself at 13 Ma, which was a measurement of the
+   * collapse and not of the crust.
+   *
+   * Like the pairs, each point is a place inside a triangle, so its correction
+   * is handed to the three corners in proportion to their weights.
+   */
+  const straightenTracks = (pos: Float64Array, t: number) => {
+    if (CONFIG.trackStiffness <= 0) return
+    const allowance = Math.cos((CONFIG.trackTurnDeg * Math.PI) / 180)
+    const place = (i: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.survivor(tracks.pointVerts[i * 3 + k]) * 3
+        const w = tracks.pointWeights[i * 3 + k]
+        x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+      }
+      return [x, y, z] as const
+    }
+    /** Hand a correction to the three corners the point is mixed from. */
+    const push = (i: number, cx: number, cy: number, cz: number) => {
+      let share = 0
+      for (let k = 0; k < 3; k++) {
+        const w = tracks.pointWeights[i * 3 + k]
+        share += w * w
+      }
+      if (share < 1e-9) return
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.survivor(tracks.pointVerts[i * 3 + k]) * 3
+        const w = tracks.pointWeights[i * 3 + k] / share
+        pos[v] += cx * w; pos[v + 1] += cy * w; pos[v + 2] += cz * w
+      }
+    }
+    for (let track = 0; track + 1 < tracks.offsets.length; track++) {
+      if (!trackPulls[track]) continue
+      const from = tracks.offsets[track]
+      const to = tracks.offsets[track + 1]
+      for (let i = from + 1; i + 1 < to; i++) {
+        // Adjacent in the walk and all three still crust. A gap where the sea
+        // floor has gone is not a corner, so nothing bridges one.
+        if (tracks.ageMa[i - 1] < t || tracks.ageMa[i] < t || tracks.ageMa[i + 1] < t) continue
+        const a = place(i - 1)
+        const b = place(i)
+        const c = place(i + 1)
+        const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
+        const vx = c[0] - b[0], vy = c[1] - b[1], vz = c[2] - b[2]
+        const ul = length3(ux, uy, uz)
+        const vl = length3(vx, vy, vz)
+        if (ul < 1e-9 || vl < 1e-9) continue
+        const cos = (ux * vx + uy * vy + uz * vz) / (ul * vl)
+        if (cos >= allowance) continue
+        // How far past the allowance, ramped so a corner just over it is barely
+        // touched and a reversal gets the full stiffness.
+        const excess = Math.min(1, (allowance - cos) / (allowance + 1))
+        const w = CONFIG.trackStiffness * excess
+        const dx = b[0] - 0.5 * (a[0] + c[0])
+        const dy = b[1] - 0.5 * (a[1] + c[1])
+        const dz = b[2] - 0.5 * (a[2] + c[2])
+        push(i, -w * dx, -w * dy, -w * dz)
+        push(i - 1, 0.5 * w * dx, 0.5 * w * dy, 0.5 * w * dz)
+        push(i + 1, 0.5 * w * dx, 0.5 * w * dy, 0.5 * w * dz)
+      }
+    }
+  }
+
   const endTimeMa = CONFIG.endMa ?? meta.endTimeMa
   let refusedTotal = 0
   let flippedTotal = 0
@@ -731,6 +865,7 @@ function main() {
         }
       }
       closeConjugates(pos, t, rNext)
+      straightenTracks(pos, t)
       unfold(
         pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin,
@@ -872,6 +1007,13 @@ function main() {
       `  ${region.label.padEnd(18)} walked ${seen.walked.toFixed(0).padStart(6)} km ` +
         `to get ${net.toFixed(0).padStart(5)} km   ` +
         `${net > 1 ? `x${(seen.walked / net).toFixed(1)}` : '(went nowhere)'}`,
+    )
+  }
+  if (mesh.drawnMisses) {
+    console.log(
+      `[solve] WARNING: ${mesh.drawnMisses} flips could not be named in the drawn `
+        + 'triangulation, so some triangles are painted from the wrong crust. '
+        + 'See drawnVerts in tools/lib/dynamic-mesh.ts.',
     )
   }
   console.log(
