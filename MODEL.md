@@ -750,7 +750,7 @@ Four numbers per frame, none of them tuned:
 | 30 Ma | 5728 km | 0.00% | 0.00% | 0.000% | 0.00% | 0.18% | 4.0% |
 | 60 Ma | 5197 km | 0.00% | 0.00% | 0.000% | 0.02% | 0.26% | 4.2% |
 | 120 Ma | 4373 km | 0.00% | 0.01% | 0.002% | 0.05% | 0.49% | 7.2% |
-| 200 Ma | 3905 km | 0.00% | 0.11% | 0.044% | 0.23% | 0.67% | 13.2% |
+| 200 Ma | 3905 km | 0.00% | 0.11% | 0.022% | 0.23% | 0.67% | 13.2% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
