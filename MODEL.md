@@ -237,8 +237,61 @@ what flattens the crest away.
 
 What this needs is a field containing flow-line features and nothing else, which
 means telling a fracture zone from an abyssal hill before following either. That
-is a detector, not a filter. The follower is waiting for one: pass it as `crest`
-and set `crestPull` above zero.
+is a detector, not a filter.
+
+### The detector
+
+Three properties separate a fracture zone from everything else that makes a line
+in a gravity grid, and each removes a different impostor.
+
+It runs *across the isochrons*, because it is the trace of a transform offset
+and so lies along the direction the crust travelled. Abyssal hills are the
+opposite: frozen ridge topography, running along the isochrons. The travelled
+direction comes from the age grid smoothed to 250 km, which is a regional
+spreading direction rather than a local reading &mdash; and that is also what
+keeps the test from being circular, since the age grid's fine detail is the very
+thing the tracer is being corrected for.
+
+It is *continuous* over hundreds of kilometres. Averaging along the lineament's
+own bend rewards a feature that keeps going and dilutes one that does not: a
+seamount is a point and a chain of them is a dotted line, and both fade against
+a scarp that runs unbroken. Following the *blurred* axis for that walk, not the
+sharp one &mdash; the sharp axis is too noisy to walk along, and following it
+averages together cells that have nothing to do with each other, which destroys
+the continuity it is meant to test.
+
+And it is *narrow*: only cells that are a maximum across their own line survive,
+which thins the result to a curve a cell wide.
+
+Alignment gates rather than weights, and that is the difference between working
+and not. Multiplying strength by alignment lets a loud half-aligned feature
+outrank a quiet perfectly aligned one, and ranked that way the strongest
+detections came out at 44 degrees to the flow &mdash; worse than picking at
+random, because the loudest lines in a gravity grid are seamount chains and
+plateau edges. Gated at twenty degrees and ranked on strength alone, the
+detector flags 4.3% of the surveyed globe and the lines it keeps run a median 13
+degrees from the direction the crust travelled, against 28 to 34 for the
+ungated lineaments they were picked out of.
+
+So the detector works. What it is *for* is still open, because pulling the
+traced paths onto its lines makes the reconstruction worse:
+
+| | 20 Ma | 40 Ma | 60 Ma | 90 Ma | 120 Ma |
+|---|---|---|---|---|---|
+| bearing only | 176 km | 228 km | 320 km | 507 km | 998 km |
+| pulled onto detected zones | 181 km | 228 km | 374 km | 543 km | 1129 km |
+
+The obvious explanation is wrong, and it was worth checking rather than
+assuming: a fracture zone is not an age discontinuity here. The age step across
+a detected line is a median 1.1 Ma over 80 km, the same as across sea floor the
+detector rejected, and with a *smaller* tail. So the reason these paths reunite
+worse is not established, and this is written down as an open question rather
+than as a story. One possibility that cannot be ruled out with what is measured
+here is that the pulled paths are the truer ones and the model is the thing that
+cannot follow them &mdash; a truer target is harder to hit.
+
+What ships is the bearing, with `crestPull` at zero. The detector is built,
+tested and exported, and nothing in the run depends on it.
 
 ## Where the plates come from
 

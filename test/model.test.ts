@@ -16,7 +16,9 @@ import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
-import { crestOffsetKm, fillGaps, lineamentAt, lineaments, sampleStructure } from '../tools/lib/structure'
+import {
+  crestOffsetKm, fillGaps, fractureZones, lineamentAt, lineaments, sampleStructure,
+} from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
 import { resolve } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -1145,6 +1147,72 @@ describe('finding the line a path should be on', () => {
     let nx = -y * x, ny = 1 - y * y, nz = -y * z
     const nl = Math.hypot(nx, ny, nz)
     expect(crestOffsetKm(field, x, y, z, nx / nl, ny / nl, nz / nl, 300, R0_KM)).toBe(null)
+  })
+})
+
+describe('telling a fracture zone from an abyssal hill', () => {
+  const W = 720
+  const H = 360
+  /**
+   * A patch of sea floor with two kinds of line in it, and an age that rises
+   * northwards so that the travelled direction is north.
+   *
+   * The east-west stripes are abyssal hills: strong, coherent, and square to
+   * the way the crust went. The north-south one is a fracture zone: it runs the
+   * way the crust went. Only the second should survive.
+   */
+  const patch = () => {
+    const samples = new Int16Array(W * H)
+    for (let r = 0; r < H; r++) {
+      for (let c = 0; c < W; c++) {
+        const hills = 400 * Math.sin(r * 0.9)
+        const zone = Math.abs(c - 360) < 2 ? -900 : 0
+        samples[r * W + c] = Math.round(hills + zone)
+      }
+    }
+    return { width: W, height: H, scale: 1, offset: 0, units: 'test', samples } as Grid
+  }
+  /** Age rising northwards everywhere, so the crust travelled north. */
+  const northwards = () => {
+    const age = new Float32Array(W * H)
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) age[r * W + c] = (H - r) * 0.5
+    return age
+  }
+  const strength = (field: ReturnType<typeof fractureZones>, lonDeg: number) => {
+    const column = Math.floor(((lonDeg + 180) / 360) * W)
+    let most = 0
+    for (let r = H / 2 - 20; r < H / 2 + 20; r++) {
+      for (let d = -3; d <= 3; d++) {
+        most = Math.max(most, field.ridgeness[r * W + ((column + d + W) % W)])
+      }
+    }
+    return most
+  }
+
+  it('keeps the line that runs the way the crust went and drops the ones across it', () => {
+    const grid = patch()
+    const sharp = lineaments(grid, R0_KM, 60, 25)
+    const guide = lineaments(grid, R0_KM, 200, 100)
+    const found = fractureZones(sharp, guide, northwards(), W, H, R0_KM)
+    // Longitude 0 is column 360, where the north-south line is.
+    const onTheZone = strength(found, 0)
+    // A quarter of the way round, where there is nothing but hills.
+    const onTheHills = strength(found, -90)
+    expect(onTheZone).toBeGreaterThan(0)
+    expect(onTheHills).toBeLessThan(onTheZone / 2)
+  })
+
+  // Alignment gates rather than weighting, because multiplying strength by
+  // alignment lets a loud half-aligned feature outrank a quiet perfectly
+  // aligned one -- which is exactly what happened on the real grid, where the
+  // strongest detections came out at 44 degrees to the flow.
+  it('throws away a strong line that is square to the flow rather than dimming it', () => {
+    const grid = patch()
+    const sharp = lineaments(grid, R0_KM, 60, 25)
+    const guide = lineaments(grid, R0_KM, 200, 100)
+    const gated = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0.94 })
+    const open = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0 })
+    expect(strength(gated, -90)).toBeLessThan(strength(open, -90))
   })
 })
 

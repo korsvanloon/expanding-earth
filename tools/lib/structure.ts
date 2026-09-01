@@ -502,3 +502,239 @@ export function crestOffsetKm(
   const shift = Math.abs(denominator) > 1e-12 ? (0.5 * (a - c)) / denominator : 0
   return (at - half + Math.max(-0.5, Math.min(0.5, shift))) * spacing
 }
+
+
+/**
+ * Fracture zones, told apart from everything else that makes a line.
+ *
+ * The crest follower failed not because it could not follow a line but because
+ * it was given the wrong lines. At the scale where the gravity grid has crests
+ * sharp enough to aim at, its strong ridges are fracture zones *and* abyssal
+ * hills *and* seamount chains *and* ridge segments, and only the first of those
+ * is a path the crust took. No amount of smoothing separates them, because the
+ * smoothing that removes the hills removes the crest as well. Telling them
+ * apart needs their shape, not their strength.
+ *
+ * Three properties do it, and each one removes a different impostor. It works:
+ * it flags 4.3% of the surveyed globe, and where it fires the lines run a
+ * median 13 degrees from the direction the crust travelled, against 28 to 34
+ * for the ungated lineaments it was picked out of.
+ *
+ * What it is *for* is still open. Handing these lines to the crest follower --
+ * pulling every traced path onto the nearest detected fracture zone -- makes
+ * the reconstruction worse, not better, and the reason is not established. The
+ * obvious explanation, that a fracture zone is an age discontinuity and so the
+ * worst place to read a pair off, is wrong: the age step across a detected line
+ * is a median 1.1 Ma over 80 km, the same as over sea floor the detector
+ * rejected. So this is a measurement looking for its use. See MODEL.md.
+ *
+ * A fracture zone runs *across* the isochrons, because it is the trace of a
+ * transform offset and so lies along the direction the crust travelled. Abyssal
+ * hills are the opposite: they are frozen ridge topography and run *along* the
+ * isochrons. That single test removes the loudest thing in the grid. The
+ * isochron direction comes from the age grid smoothed hard enough to be a
+ * regional spreading direction rather than a local reading -- which is also
+ * what keeps this from being circular, since the age grid's fine detail is the
+ * very thing the tracer is being corrected for.
+ *
+ * A fracture zone is *continuous* over hundreds of kilometres. Averaging along
+ * the lineament's own direction, following it as it bends, rewards a feature
+ * that keeps going and dilutes one that does not: a seamount is a point and a
+ * chain of seamounts is a dotted line, and both fade against a scarp that runs
+ * unbroken.
+ *
+ * And a fracture zone is *narrow*. Keeping only the cells that are a maximum
+ * across their own line thins what is left to a curve one cell wide, which is
+ * what a follower needs to aim at -- a broad smear has no crest.
+ */
+export interface FractureOptions {
+  /** How hard the age grid is smoothed to get a regional spreading direction, km. */
+  isochronSmoothKm?: number
+  /** How far to average along a lineament to test that it keeps going, km. */
+  continuityKm?: number
+  /** How far across a lineament its neighbours are checked, km. */
+  narrownessKm?: number
+  /**
+   * How nearly a lineament must run along the travelled direction to count at
+   * all, as the cosine of the angle between them. 0.87 is thirty degrees.
+   */
+  alignmentGate?: number
+}
+
+export function fractureZones(
+  sharp: Lineaments,
+  /**
+   * The blurred field, used for every direction this takes.
+   *
+   * The sharp field is where the strength is, and its axis is too noisy to walk
+   * along: following it to test that a feature keeps going averages together
+   * cells that have nothing to do with each other, which destroys the very
+   * continuity being tested. The blurred axis is stable to a few degrees over
+   * hundreds of kilometres. Strength from one, bearing from the other, the same
+   * split as everywhere else here.
+   */
+  guide: Lineaments,
+  age: ArrayLike<number>, ageWidth: number, ageHeight: number,
+  r0: number,
+  options: FractureOptions = {},
+): Lineaments {
+  const isochronSmoothKm = options.isochronSmoothKm ?? 250
+  const continuityKm = options.continuityKm ?? 200
+  const narrownessKm = options.narrownessKm ?? 25
+  const alignmentGate = options.alignmentGate ?? 0.87
+  const { width, height } = sharp
+  const size = width * height
+  const cellHeightKm = (Math.PI * r0) / height
+
+  // The age grid on the gravity grid's own cells, box-averaged on the way, so
+  // that the gradient below is a regional spreading direction rather than a
+  // reading of one grey level against the next.
+  const ages = new Float32Array(size)
+  const dated = new Uint8Array(size)
+  const scaleX = ageWidth / width
+  const scaleY = ageHeight / height
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      let sum = 0
+      let seen = 0
+      for (let j = Math.floor(row * scaleY); j < Math.floor((row + 1) * scaleY); j++) {
+        for (let i = Math.floor(column * scaleX); i < Math.floor((column + 1) * scaleX); i++) {
+          const a = age[j * ageWidth + i]
+          if (!Number.isNaN(a)) { sum += a; seen++ }
+        }
+      }
+      if (seen) { ages[row * width + column] = sum / seen; dated[row * width + column] = 1 }
+    }
+  }
+  // Averaged as a weighted mean over the cells that carry an age, not as a
+  // plain mean over the array. Continental crust has no sea-floor age and sits
+  // in the array as a zero, so a plain average drags every coastal reading
+  // towards zero and manufactures an enormous age gradient pointing out to sea
+  // along every margin -- which is a direction the isochrons emphatically do
+  // not run in. Blur the ages and the weights and divide.
+  const weight = Float32Array.from(dated)
+  for (let i = 0; i < size; i++) ages[i] *= weight[i]
+  const rows = Math.max(1, Math.round(isochronSmoothKm / cellHeightKm))
+  boxBlur(ages, width, height, rows, r0)
+  boxBlur(weight, width, height, rows, r0)
+  for (let i = 0; i < size; i++) ages[i] = weight[i] > 1e-6 ? ages[i] / weight[i] : 0
+
+  // How well each cell's lineament runs along the way the crust travelled,
+  // as the squared cosine of the angle between two axes: one where they are
+  // parallel, zero where they are square.
+  const detected = new Float32Array(size)
+  for (let row = 1; row < height - 1; row++) {
+    const lat = Math.PI * (0.5 - (row + 0.5) / height)
+    const widthKm = Math.max(
+      0.01, ((2 * Math.PI * r0) / width) * Math.max(1e-3, Math.cos(lat)),
+    )
+    for (let column = 0; column < width; column++) {
+      const at = row * width + column
+      if (!sharp.known[at] || !dated[at]) continue
+      const e = row * width + ((column + 1) % width)
+      const w = row * width + ((column - 1 + width) % width)
+      if (!dated[e] || !dated[w] || !dated[(row + 1) * width + column]
+        || !dated[(row - 1) * width + column]) continue
+      const gx = (ages[e] - ages[w]) / (2 * widthKm)
+      const gy = (ages[(row - 1) * width + column] - ages[(row + 1) * width + column])
+        / (2 * cellHeightKm)
+      const size2 = gx * gx + gy * gy
+      if (size2 < 1e-12) continue
+      // The travelled direction as a bearing from north, to compare with the
+      // stored axis, which is also a bearing from north.
+      const travelled = Math.atan2(gx, gy)
+      const axis = (guide.axis[at] / 256) * Math.PI
+      // A gate, not a weight. Multiplying strength by alignment lets a loud
+      // feature that is half-aligned outrank a quiet one that is perfectly
+      // aligned, and that is exactly the ordering that went wrong: ranked by
+      // the product, the strongest detections came out at 44 degrees to the
+      // flow -- worse than picking at random -- because the loudest lines in a
+      // gravity grid are seamount chains and plateau edges, not fracture zones.
+      // Everything square to the travelled direction is thrown away outright,
+      // and what survives is ranked on strength alone.
+      const cos = Math.abs(Math.cos(axis - travelled))
+      if (cos < alignmentGate) continue
+      detected[at] = sharp.ridgeness[at]
+    }
+  }
+
+  // Continuity: average along the lineament, following its own bend.
+  const stepKm = Math.max(cellHeightKm, narrownessKm)
+  const along = Math.max(1, Math.round(continuityKm / stepKm))
+  const continuous = new Float32Array(size)
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      const at = row * width + column
+      if (detected[at] <= 0) continue
+      let sum = detected[at]
+      let seen = 1
+      for (const sign of [1, -1]) {
+        let [x, y, z] = cellDirection(column, row, width, height)
+        for (let step = 0; step < along; step++) {
+          const line = lineamentAt(guide, x, y, z)
+          if (!line) break
+          const [nx, ny, nz] = advanceAlong(x, y, z, line.tx * sign, line.ty * sign, line.tz * sign, stepKm / r0)
+          x = nx; y = ny; z = nz
+          const [c, r] = directionToPixel(x, y, z, width, height)
+          sum += detected[r * width + c]
+          seen++
+        }
+      }
+      continuous[at] = sum / seen
+    }
+  }
+
+  // Narrowness: keep only what is a maximum across its own line.
+  const thin = new Float32Array(size)
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      const at = row * width + column
+      const here = continuous[at]
+      if (here <= 0) continue
+      const [x, y, z] = cellDirection(column, row, width, height)
+      const line = lineamentAt(guide, x, y, z)
+      if (!line) continue
+      // Across the line: its axis crossed with the outward normal.
+      let cx = line.ty * z - line.tz * y
+      let cy = line.tz * x - line.tx * z
+      let cz = line.tx * y - line.ty * x
+      const cl = Math.hypot(cx, cy, cz)
+      if (cl < 1e-9) continue
+      cx /= cl; cy /= cl; cz /= cl
+      let peak = true
+      for (const sign of [1, -1]) {
+        const [nx, ny, nz] = advanceAlong(x, y, z, cx * sign, cy * sign, cz * sign, narrownessKm / r0)
+        const [c, r] = directionToPixel(nx, ny, nz, width, height)
+        if (continuous[r * width + c] > here) { peak = false; break }
+      }
+      if (peak) thin[at] = here
+    }
+  }
+
+  // The blurred axis travels with the result: anything following these lines
+  // wants the bearing that can be trusted, not the one the strength came from.
+  return {
+    width, height, axis: guide.axis, coherence: guide.coherence,
+    ridgeness: thin, known: sharp.known,
+  }
+}
+
+/** The unit direction at the centre of a cell. */
+function cellDirection(
+  column: number, row: number, width: number, height: number,
+): [number, number, number] {
+  const lon = ((column + 0.5) / width - 0.5) * 2 * Math.PI
+  const lat = (0.5 - (row + 0.5) / height) * Math.PI
+  const c = Math.cos(lat)
+  return [c * Math.cos(lon), Math.sin(lat), -c * Math.sin(lon)]
+}
+
+/** Move along a tangent direction by an angle, staying on the sphere. */
+function advanceAlong(
+  x: number, y: number, z: number, tx: number, ty: number, tz: number, angle: number,
+): [number, number, number] {
+  const c = Math.cos(angle), s = Math.sin(angle)
+  const px = x * c + tx * s, py = y * c + ty * s, pz = z * c + tz * s
+  const l = Math.hypot(px, py, pz) || 1
+  return [px / l, py / l, pz / l]
+}

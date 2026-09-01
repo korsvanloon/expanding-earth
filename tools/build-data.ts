@@ -23,7 +23,7 @@ import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { readGrid } from './lib/grid.js'
-import { fabricRaster, fillGaps, lineaments, sampleStructure } from './lib/structure.js'
+import { fabricRaster, fillGaps, fractureZones, lineaments, sampleStructure } from './lib/structure.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
@@ -146,6 +146,12 @@ export const CONFIG = {
    * above zero and pass such a field as `crest` and the follower is waiting.
    */
   crestPull: 0,
+  /**
+   * How nearly a line must run along the flow to be a fracture zone, as a
+   * cosine. 0.94 is twenty degrees, and it is a gate rather than a weight for
+   * a reason given in tools/lib/structure.ts.
+   */
+  alignmentGate: 0.94,
   crestReachKm: 60,
   crestMaxShiftKm: 8,
   /**
@@ -336,8 +342,12 @@ function main() {
   const lines = vgg && CONFIG.structureWeight > 0
     ? lineaments(vgg, R0_KM, CONFIG.structureWindowKm, CONFIG.structureSmoothKm)
     : undefined
-  const crest = vgg && CONFIG.crestPull > 0
-    ? lineaments(vgg, R0_KM, CONFIG.crestWindowKm, CONFIG.crestSmoothKm)
+  const crest = vgg && CONFIG.crestPull > 0 && lines
+    ? fractureZones(
+        lineaments(vgg, R0_KM, CONFIG.crestWindowKm, CONFIG.crestSmoothKm),
+        lines, ageMa, ageFull.width, ageFull.height, R0_KM,
+        { alignmentGate: CONFIG.alignmentGate },
+      )
     : undefined
   const traced = traceFlowLines(
     ageMa,
