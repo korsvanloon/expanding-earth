@@ -23,6 +23,7 @@
 import { R0_KM } from '../../shared/model.js'
 import { length3 } from '../../shared/sphere.js'
 import { crestOffsetKm, lineamentAt, type Lineaments } from './structure.js'
+import { flowAt, type FlowField } from './flowfield.js'
 
 /** Present-day radius; the tracks are paths on today's Earth. */
 const RADIUS_KM = R0_KM
@@ -116,6 +117,17 @@ export interface FlowOptions {
   crestSteerDeg?: number
   /** How far sideways to look for that line, km. */
   crestReachKm?: number
+  /**
+   * A fitted direction field to walk instead of the local age gradient.
+   *
+   * The difference is where the direction comes from rather than how far it may
+   * turn. A gradient is a reading of two grey levels a few tens of kilometres
+   * apart and knows nothing outside that; the field was fitted to every
+   * detected fracture zone at once and to the age grid everywhere else, so a
+   * step taken along it is a step along what the whole ocean agrees the crust
+   * did. The age grid still decides where a walk starts and where it stops.
+   */
+  field?: FlowField
   /**
    * How much of the offset to close per step, and the most it may close, km.
    *
@@ -270,6 +282,7 @@ export function traceFlowLines(
   const crestSteer = ((options.crestSteerDeg ?? 0) * Math.PI) / 180
   const crestReachKm = options.crestReachKm ?? 60
   const crest = options.crest ?? options.lineaments
+  const fitted = options.field
   const crestPull = options.crestPull ?? 0
   const crestMaxShiftKm = options.crestMaxShiftKm ?? 8
   const structureMaxCos = Math.cos(((options.structureMaxDeg ?? 40) * Math.PI) / 180)
@@ -357,6 +370,12 @@ export function traceFlowLines(
       // more than the guard, the line is not this crust's path -- an abyssal
       // hill fabric, a seamount chain, a ridge segment -- and it is dropped.
       let wx = g.tx, wy = g.ty, wz = g.tz
+      if (fitted) {
+        // The field is an axis; the end wanted is the one the walk is already
+        // going, which at the first step is the direction it left the ridge on.
+        const flow = flowAt(fitted, x, y, z, [tx, ty, tz])
+        if (flow) { wx = flow.tx; wy = flow.ty; wz = flow.tz }
+      }
       if (structure && structureWeight > 0) {
         const line = lineamentAt(structure, x, y, z)
         if (line) {

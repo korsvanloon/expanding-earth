@@ -354,6 +354,51 @@ breaks into blobs and dashes; and the detector plainly fires on some of the
 Mid-Atlantic Ridge axis itself, which is not a flow line and is a false positive
 the twenty-degree gate should have caught.
 
+## The flow field
+
+The detector finds about sixteen hundred fracture zones, and a fracture zone is
+a flow line that nature happened to draw. It drew perhaps one in a dozen: the
+rest of the crust flowed just the same and left nothing behind. So the sparse
+ones are treated as what they are, anchors, and a direction field is fitted
+through them that says which way the crust travelled at every point of the
+sphere &mdash; held to the scarps where scarps exist, held to the age grid's
+isochrons elsewhere, and smooth in between, which is what carries it across the
+gaps and under the continents.
+
+It is stored as an axis rather than an arrow, at twice the angle. A fracture
+zone knows which line the crust ran along and not which way along it, and the
+two flanks of a ridge run in opposite directions along the same line &mdash; so
+averaging arrows would cancel them to nothing exactly at the ridge, which is the
+one place the answer is certain. At twice the angle, opposite directions land on
+the same point. The sign is put back from the age grid by whoever reads it.
+
+The tracer walks that field now instead of the local age gradient. Two
+properties come with it that no amount of step-by-step steering could buy. A
+single bad reading is one constraint among a quarter of a million and is
+outvoted rather than followed off a cliff, which is what went wrong every time
+the paths were steered or pulled a step at a time. And the answer is smooth by
+construction, so the lines come out as lines.
+
+<!-- from-the-run: pairs -->
+| time | pairs due | median miss | reunited within 200 km | of which merged |
+|---|---|---|---|---|
+| 0 Ma | 67 | 80 km | 100% | 0% |
+| 5 Ma | 158 | 96 km | 93% | 0% |
+| 30 Ma | 119 | 196 km | 51% | 0% |
+| 60 Ma | 91 | 385 km | 21% | 0% |
+| 120 Ma | 42 | 1334 km | 2% | 0% |
+<!-- /from-the-run -->
+
+What it is worth is not yet settled, and the reason is a confound worth naming.
+Against the same tracer walking the gravity bearing alone, the median residual
+goes 228 to 203 km at 40 Ma &mdash; the best figure this model has produced
+&mdash; and 320 to 385 at 60 Ma and 998 to 1334 at 120. But the field also
+produces *more pairs* at every time (132, 124, 91, 63, 42 against 131, 119, 82,
+54, 38), and the extra ones are pairs that previously failed the geometry check,
+which is to say the hard ones. A harder test scoring worse is not the same as a
+worse model, and the two cannot be told apart from these numbers. Comparing the
+two runs on the pairs they share would settle it, and has not been done.
+
 ## Where the plates come from
 
 Nowhere. No plate map is used and none is needed.
@@ -456,11 +501,11 @@ allowed to be a check at all. See `tools/lib/flowlines.ts`.
 <!-- from-the-run: pairs -->
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
-| 0 Ma | 60 | 80 km | 100% | 0% |
-| 5 Ma | 148 | 101 km | 89% | 0% |
-| 30 Ma | 115 | 214 km | 50% | 0% |
-| 60 Ma | 82 | 320 km | 20% | 0% |
-| 120 Ma | 38 | 998 km | 3% | 0% |
+| 0 Ma | 67 | 80 km | 100% | 0% |
+| 5 Ma | 158 | 96 km | 93% | 0% |
+| 30 Ma | 119 | 196 km | 51% | 0% |
+| 60 Ma | 91 | 385 km | 21% | 0% |
+| 120 Ma | 42 | 1334 km | 2% | 0% |
 <!-- /from-the-run -->
 
 Two things keep the figure honest.

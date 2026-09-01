@@ -27,6 +27,7 @@ import { readGrid } from './lib/grid.js'
 import {
   fabricRaster, fillGaps, fractureZones, lineaments, sampleStructure, zoneRaster,
 } from './lib/structure.js'
+import { flowField } from './lib/flowfield.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
@@ -170,6 +171,9 @@ export const CONFIG = {
   minZoneLengthKm: 400,
   crestReachKm: 60,
   crestMaxShiftKm: 8,
+  /** Relaxation sweeps for the flow field, and how hard an anchor holds. */
+  flowPasses: 300,
+  flowAnchorWeight: 0.6,
   /**
    * How near a frame's age a track point has to be to be paired at it, Ma.
    *
@@ -397,6 +401,22 @@ function main() {
     )
   }
   const crest = CONFIG.crestPull > 0 ? zones : undefined
+
+  // The direction field the walk follows, fitted through every detected
+  // fracture zone at once and to the age grid everywhere else. See
+  // tools/lib/flowfield.ts for why this replaces steering step by step.
+  const field = zones && vgg
+    ? flowField(zones, ageMa, ageFull.width, ageFull.height, vgg, R0_KM,
+        { passes: CONFIG.flowPasses, anchorWeight: CONFIG.flowAnchorWeight })
+    : undefined
+  if (field) {
+    let confidence = 0
+    for (const c of field.confidence) confidence += c
+    console.log(
+      `[build-data] flow field ${field.width}x${field.height}, ` +
+        `mean confidence ${(confidence / field.confidence.length).toFixed(2)}`,
+    )
+  }
   const traced = traceFlowLines(
     ageMa,
     ageFull.width,
@@ -408,6 +428,7 @@ function main() {
       structureFloor: CONFIG.structureFloor,
       structureFull: CONFIG.structureFull,
       structureMaxDeg: CONFIG.structureMaxDeg,
+      field,
       crest,
       crestPull: CONFIG.crestPull,
       crestReachKm: CONFIG.crestReachKm,

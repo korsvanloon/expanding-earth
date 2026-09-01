@@ -14,6 +14,7 @@ import {
 import { readTracks, writeTracks } from '../shared/tracks'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
+import { flowAt, flowField } from '../tools/lib/flowfield'
 import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
 import {
@@ -1253,6 +1254,81 @@ describe('painting the detected zones', () => {
       known: new Uint8Array(width * height).fill(1),
     })
     expect(painted.some((v) => v !== 0)).toBe(false)
+  })
+})
+
+describe('fitting a direction to the whole ocean', () => {
+  const W = 180
+  const H = 90
+  const flat: Grid = {
+    width: W, height: H, scale: 1, offset: 0, units: 'test',
+    samples: new Int16Array(W * H).fill(100),
+  }
+  /** Age rising northwards: the crust travelled north everywhere. */
+  const northwards = () => {
+    const age = new Float32Array(W * H)
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) age[r * W + c] = (H - r) * 2
+    return age
+  }
+  /** One anchor patch, running east, square to what the age grid says. */
+  const anchors = (fromCol: number, toCol: number) => {
+    const ridgeness = new Float32Array(W * H)
+    const axis = new Uint8Array(W * H)
+    for (let c = fromCol; c < toCol; c++) {
+      ridgeness[(H / 2) * W + c] = 1
+      // A bearing of ninety degrees east of north, in the stored encoding.
+      axis[(H / 2) * W + c] = 128
+    }
+    return {
+      width: W, height: H, ridgeness, axis,
+      coherence: new Uint8Array(W * H).fill(255),
+      known: new Uint8Array(W * H).fill(1),
+    }
+  }
+  /** The fitted bearing at a place, degrees east of north, folded to 0-180. */
+  const bearing = (field: ReturnType<typeof flowField>, lonDeg: number, latDeg: number) => {
+    const [x, y, z] = lonLatToDirection((lonDeg * Math.PI) / 180, (latDeg * Math.PI) / 180)
+    const flow = flowAt(field, x, y, z, [0, 1, 0])
+    let nx = -y * x, ny = 1 - y * y, nz = -y * z
+    const nl = Math.hypot(nx, ny, nz)
+    nx /= nl; ny /= nl; nz /= nl
+    const ex = ny * z - nz * y, ey = nz * x - nx * z, ez = nx * y - ny * x
+    const deg = (Math.atan2(
+      flow!.tx * ex + flow!.ty * ey + flow!.tz * ez,
+      flow!.tx * nx + flow!.ty * ny + flow!.tz * nz,
+    ) * 180) / Math.PI
+    return ((deg % 180) + 180) % 180
+  }
+
+  // The whole reason for fitting a field rather than reading a gradient: an
+  // anchor is evidence about its neighbourhood, not only about its own cell.
+  it('follows the anchors where they are and the age grid where they are not', () => {
+    const field = flowField(anchors(85, 95), northwards(), W, H, flat, R0_KM, {
+      width: W, height: H, passes: 300,
+    })
+    // Longitude 0 is the middle of the anchor patch, so the answer there runs
+    // east -- but not exactly east, and that is the design rather than a
+    // shortfall. An anchor weighs 0.6, so two fifths of its own cell is still
+    // its neighbours, and out here they are all being told north by the age
+    // grid. It comes out around 82 degrees: firmly the anchor's answer, pulled
+    // a little towards the ocean around it, which is what makes one wrong
+    // anchor survivable.
+    expect(bearing(field, 0, 0)).toBeGreaterThan(70)
+    // A quarter of the way round the world from it, nothing but the age grid
+    // is talking, and the age grid says the crust went north.
+    expect(bearing(field, -90, 0) % 180).toBeCloseTo(0, 0)
+  })
+
+  it('carries an anchor into the ground beside it, and lets go with distance', () => {
+    const field = flowField(anchors(85, 95), northwards(), W, H, flat, R0_KM, {
+      width: W, height: H, passes: 300,
+    })
+    const near = bearing(field, 0, 6)
+    const far = bearing(field, 0, 40)
+    // Near the patch the answer is pulled well off what the age grid alone
+    // would say; far from it, it has gone back.
+    const fromNorth = (deg: number) => Math.min(deg, 180 - deg)
+    expect(fromNorth(near)).toBeGreaterThan(fromNorth(far) + 10)
   })
 })
 
