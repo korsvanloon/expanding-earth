@@ -1148,7 +1148,9 @@ function main() {
   }
   console.log(
     `[solve] ${contactsTotal} island-on-island contacts pushed apart, `
-      + `deepest ${deepestContactKm.toFixed(0)} km`,
+      + `deepest ${deepestContactKm.toFixed(0)} km; `
+      + `${(contactTests / 1e6).toFixed(1)}M point-in-triangle tests, `
+      + `${(contactBucketed / 1e6).toFixed(2)}M faces bucketed`,
   )
   if (mesh.drawnMisses) {
     console.log(
