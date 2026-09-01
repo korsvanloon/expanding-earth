@@ -12,6 +12,7 @@ import { clock, describePicks, onClockMoved, useStore, ZONE_LIMIT, type Pick } f
 import { pairPulls } from '@shared/tracks'
 import { directionToUv } from '@shared/sphere'
 import { PERMANENT_MA } from '@shared/model'
+import { measureSeams } from '@shared/seams'
 import { fragmentShader, vertexShader } from './shaders'
 
 const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, islands: 4, fabric: 5 } as const
@@ -158,6 +159,23 @@ export function Globe({ data }: { data: Dataset }) {
       // in the shell and stretched single triangles across the Pacific.
       working: new Int32Array(data.indices.length),
       index: new Uint32Array(data.indices.length),
+      /**
+       * How far a vertex's triangles reach across crust that is gone, 0 to 1.
+       *
+       * The mesh removes crust that has not been made yet, but the triangles
+       * left behind bridge the seam and still carry their corners' present-day
+       * directions -- so the fragment shader interpolates between them and
+       * paints the inside of a bridging triangle with every scrap of sea floor
+       * that used to lie between its corners, ridge included. Watching the East
+       * Pacific Rise close, the ridge stays there in the middle, growing and
+       * blurring as the triangles around it grow. It is gone from the model and
+       * still on the picture.
+       *
+       * At 38 Ma that is 3.7% of what you see painted from crust more than 300
+       * km wide, and at 200 Ma it is 24.6%. This says where, so the shader can
+       * stop painting sea floor there. See tools/measure-mesh.ts.
+       */
+      seam: new Float32Array(count),
     }
   }, [data])
 
@@ -362,6 +380,7 @@ export function Globe({ data }: { data: Dataset }) {
     g.setAttribute('aDir', new THREE.BufferAttribute(data.dirs, 3))
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
+    g.setAttribute('aSeam', dynamic(buffers.seam, 1))
     g.setIndex(
       new THREE.BufferAttribute(buffers.index, 1).setUsage(THREE.DynamicDrawUsage),
     )
@@ -435,6 +454,8 @@ export function Globe({ data }: { data: Dataset }) {
     const index = geometry.getIndex()
     if (index) index.needsUpdate = true
     geometry.setDrawRange(0, count)
+    measureSeams(data.dirs, buffers.index, count, buffers.seam)
+    geometry.attributes.aSeam.needsUpdate = true
   }
 
   // Fill the buffers before the first render, so nothing is drawn at the origin.

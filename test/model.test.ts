@@ -11,6 +11,7 @@ import { distortion, shapePairs } from '../tools/lib/shape'
 import {
   conjugateFit, conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper,
 } from '../tools/lib/flowlines'
+import { SEAM_FULL_KM, SEAM_START_KM, measureSeams, seamReach } from '../shared/seams'
 import { readTracks, writeTracks } from '../shared/tracks'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
@@ -1217,6 +1218,61 @@ describe('telling a fracture zone from an abyssal hill', () => {
     const gated = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0.94 })
     const open = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0 })
     expect(strength(gated, -90)).toBeLessThan(strength(open, -90))
+  })
+})
+
+describe('telling crust from seam', () => {
+  /**
+   * Two triangles sharing an edge: one is a normal mesh triangle, the other has
+   * had a collapse either side of it and now bridges a thousand kilometres of
+   * sea floor that does not exist at this time.
+   *
+   * The one that matters is the second. Its inside is painted by interpolating
+   * between its corners, so without this it shows a thousand kilometres of
+   * ocean floor -- ridge and all -- squeezed into one triangle. That is what a
+   * reader watching the East Pacific Rise close saw: the ridge still there in
+   * the middle, growing and blurring as the triangles around it grew.
+   */
+  const at = (lonDeg: number, latDeg: number) => {
+    const lon = (lonDeg * Math.PI) / 180
+    const lat = (latDeg * Math.PI) / 180
+    const c = Math.cos(lat)
+    return [c * Math.cos(lon), Math.sin(lat), -c * Math.sin(lon)]
+  }
+
+  it('marks a triangle that bridges crust that is gone, and leaves the rest alone', () => {
+    // Four points: a tight triangle of three, plus one a long way east.
+    const dirs = Float32Array.from([
+      ...at(0, 0), ...at(1, 0), ...at(0.5, 1), ...at(12, 0),
+    ])
+    // Face 0 is the tight one; face 1 reaches out to the distant point.
+    const index = Uint32Array.from([0, 1, 2, 1, 2, 3])
+    const seam = new Float32Array(4)
+    measureSeams(dirs, index, index.length, seam)
+    // A degree is 111 km, so the tight triangle spans well under the threshold.
+    expect(seam[0]).toBe(0)
+    // The far corner and the two it reaches back to are all on the seam: eleven
+    // degrees is more than 1200 km.
+    expect(seam[3]).toBe(1)
+    expect(seam[1]).toBe(1)
+    expect(seam[2]).toBe(1)
+  })
+
+  it('ramps rather than switching, so a closing ocean does not flicker', () => {
+    expect(seamReach(SEAM_START_KM - 1)).toBe(0)
+    expect(seamReach(SEAM_START_KM + 1)).toBeGreaterThan(0)
+    expect(seamReach((SEAM_START_KM + SEAM_FULL_KM) / 2)).toBeCloseTo(0.5, 2)
+    expect(seamReach(SEAM_FULL_KM * 10)).toBe(1)
+  })
+
+  it('leaves a present-day mesh entirely unmarked', () => {
+    // The whole point of the threshold: at 0 Ma nothing has collapsed, so
+    // nothing may be tinted. The widest triangle in the shipped mesh spans
+    // 132 km, well inside the 220 the ramp starts at.
+    const dirs = Float32Array.from([...at(0, 0), ...at(1, 0), ...at(0.5, 1)])
+    const seam = new Float32Array(3)
+    measureSeams(dirs, Uint32Array.from([0, 1, 2]), 3, seam)
+    expect([...seam]).toEqual([0, 0, 0])
   })
 })
 

@@ -6,12 +6,14 @@ in float aIsland;
 in float aAge;
 in float aStrain;
 in float aRigidity;
+in float aSeam;
 
 out vec3 vDir;
 out float vIsland;
 out float vAge;
 out float vStrain;
 out float vRigidity;
+out float vSeam;
 out vec3 vNormal;
 
 void main() {
@@ -20,6 +22,7 @@ void main() {
   vAge = aAge;
   vStrain = aStrain;
   vRigidity = aRigidity;
+  vSeam = aSeam;
   // The mesh is always a sphere, so the outward normal is just the position.
   vNormal = normalize(mat3(modelMatrix) * normalize(position));
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -55,6 +58,17 @@ in float vIsland;
 in float vAge;
 in float vStrain;
 in float vRigidity;
+/**
+ * How far this fragment's triangle reaches across crust that is gone, 0 to 1.
+ *
+ * See measureSeams in src/scene/Globe.tsx. Everything a fragment knows about
+ * the crust -- the map, the age, the strain -- is interpolated between the
+ * corners of its triangle, and a triangle bridging a closed ocean has corners
+ * on either side of crust that does not exist yet. Interpolating across that is
+ * how the East Pacific Rise stayed visible, blurring and growing, in a
+ * reconstruction that had already removed it.
+ */
+in float vSeam;
 in vec3 vNormal;
 
 out vec4 fragColor;
@@ -222,6 +236,21 @@ void main() {
       : ageRamp(vAge);
   } else {
     base = strainRamp(vStrain);
+  }
+
+  // Where a triangle bridges a closed ocean, stop painting sea floor.
+  //
+  // The crust between its corners does not exist at this time, so nothing that
+  // is interpolated across it means anything: the map paints the ridge that has
+  // already gone, the age paints a spread of ages nothing has, the strain a
+  // deformation no rock underwent. What is true is that two pieces of crust
+  // which are hundreds of kilometres apart today are in contact here, and that
+  // is what the seam colour says. It is deliberately not a sea-floor colour and
+  // not one of the overlay colours: this is the model's own suture, and it
+  // should be impossible to mistake for the surface.
+  if (vSeam > 0.001) {
+    vec3 suture = srgbToLinear(vec3(0.21, 0.19, 0.25));
+    base = mix(base, suture, min(1.0, vSeam));
   }
 
   // The fracture zones the gravity grid was searched for, over whatever else is

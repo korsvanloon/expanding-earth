@@ -839,6 +839,62 @@ and its knobs have been deleted rather than left to describe a path that could
 not run. **The table above belongs to that older pipeline and is not comparable
 with the figures in this document.**
 
+## The seam: what a triangle paints when its inside is gone
+
+A reader winding the East Pacific Rise back from today to 38 Ma reported the
+ridge still sitting there in the middle, growing and blurring as the triangles
+around it grew, and put their finger on it exactly: *eigenlijk zou het midden
+helemaal verdwenen moeten zijn.* The middle should be gone.
+
+It is gone. The mesh collapses crust that has not been made yet, and the count
+of triangles falls with the shell's area &mdash; 81,920 faces at 6,371 km,
+32,538 at 3,905, about 6,000 km&sup2; of crust per triangle at both ends. The
+model is not carrying the ridge.
+
+The *picture* is. A collapse merges two points into one, and the triangles round
+that point now have corners that were far apart on today's Earth. Every
+per-vertex thing the shader knows about the crust is interpolated between those
+corners &mdash; the present-day direction most of all, since that is what the
+surface map is sampled at &mdash; so the inside of a bridging triangle gets
+painted with every scrap of sea floor that used to lie between its corners.
+Ridge included. That is not a smear of the ridge; it is a faithful painting of
+crust that does not exist.
+
+Measured, per frame, as the widest distance between a triangle's corners on
+today's sphere against the 129 km the icosphere's own edges span:
+
+| | 0 Ma | 13 Ma | 38 Ma | 60 Ma | 120 Ma | 200 Ma |
+|---|---|---|---|---|---|---|
+| widest triangle, 99th percentile | 132 km | 420 km | 991 km | 1694 km | 3470 km | 4269 km |
+| share of the visible area painted from crust over 300 km wide | 0.0% | 1.0% | 3.7% | 6.6% | 11.7% | 24.6% |
+| &hellip; over 1000 km wide | 0.0% | 0.0% | 0.9% | 2.4% | 4.9% | 13.3% |
+
+So at 38 Ma one part in twenty-seven of what a reader is looking at is sea floor
+that the model has already removed, and by 200 Ma it is a quarter. The worst
+single triangles paint a strip four thousand kilometres wide.
+
+The fix is in the picture, because there is nothing wrong with the model here.
+Where a triangle bridges a closed ocean the shader stops painting sea floor and
+paints a seam colour instead &mdash; deliberately neither a sea-floor colour nor
+one of the overlay colours, because the one true thing about that ground is that
+two pieces of crust hundreds of kilometres apart today are in contact there. The
+ramp runs from 220 km, well past the widest present-day triangle, to 520 km.
+
+One honest cost. The seam is carried per vertex, not per triangle, because the
+geometry is indexed and a vertex is shared by six faces: a per-face attribute
+would mean expanding the mesh threefold and writing three times as much every
+frame, and WebGL2 has no `gl_PrimitiveID` in a fragment shader to avoid it. So a
+corner of a bridging triangle carries the seam into its good triangles too,
+which about doubles the area tinted against the area that strictly earns it
+&mdash; 2.0% against 1.0% at 13 Ma, 31% against 25% at 200. It reads as a soft
+band rather than a hard cut. `tools/measure-mesh.ts` prints both columns.
+
+What it looks like is worth saying, because it is the first time the closing has
+been visible as itself: at 13 Ma the seam traces the Mid-Atlantic Ridge and the
+East Pacific Rise as narrow bands, which is exactly the strip of crust younger
+than 13 Ma; by 120 Ma it is most of the Atlantic. The ocean now reads as zipped
+shut along a scar instead of as a ghost ridge.
+
 ## Known weaknesses
 
 - **The crust tiles, and this is now evidence rather than an artefact.** An
