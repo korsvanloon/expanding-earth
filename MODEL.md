@@ -263,15 +263,32 @@ the continuity it is meant to test.
 And it is *narrow*: only cells that are a maximum across their own line survive,
 which thins the result to a curve a cell wide.
 
+A fourth property had to be added after the other three were built, measured,
+and found to be finding nothing. Every one of them is a test of *shape*, and
+shape without scale finds shapes in noise: non-maximum suppression keeps a local
+maximum whatever its size, so a whisper of anisotropic noise pointing the right
+way survived exactly as a scarp did. The profile taken across the detected lines
+came back dead flat &mdash; no trough, no bright flank, nothing &mdash; on
+ground of merely median roughness, which is precisely what a reader looking at
+the fabric map reported before the measurement was taken. With a strength cut
+the same profile peaks where it should: the roughness on the line is at the 76th
+percentile of all sea floor against the 71st forty kilometres off it, and at a
+harder cut the 83rd against the 76th.
+
 Alignment gates rather than weights, and that is the difference between working
 and not. Multiplying strength by alignment lets a loud half-aligned feature
 outrank a quiet perfectly aligned one, and ranked that way the strongest
 detections came out at 44 degrees to the flow &mdash; worse than picking at
 random, because the loudest lines in a gravity grid are seamount chains and
 plateau edges. Gated at twenty degrees and ranked on strength alone, the
-detector flags 4.3% of the surveyed globe and the lines it keeps run a median 13
+detector flags 0.6% of the surveyed globe and the lines it keeps run a median 13
 degrees from the direction the crust travelled, against 28 to 34 for the
-ungated lineaments they were picked out of.
+ungated lineaments they were picked out of. Crust younger than 8 Ma is skipped
+outright: at a spreading centre the age rises in both directions, so the
+travelled direction computed from it is whatever the two sides fail to cancel,
+and the detector was lighting up lengths of the Mid-Atlantic Ridge axis in
+consequence &mdash; the one line on the sea floor that is certainly not a path
+the crust took.
 
 So the detector works. What it is *for* is still open, because pulling the
 traced paths onto its lines makes the reconstruction worse:

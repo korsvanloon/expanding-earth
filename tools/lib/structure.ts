@@ -515,10 +515,17 @@ export function crestOffsetKm(
  * smoothing that removes the hills removes the crest as well. Telling them
  * apart needs their shape, not their strength.
  *
- * Three properties do it, and each one removes a different impostor. It works:
- * it flags 4.3% of the surveyed globe, and where it fires the lines run a
- * median 13 degrees from the direction the crust travelled, against 28 to 34
- * for the ungated lineaments it was picked out of.
+ * Four properties do it, and each one removes a different impostor: the fourth
+ * is plain strength, added after the other three had been built and measured
+ * and found to be finding nothing. Every one of the others is a test of
+ * *shape*, and shape without scale finds shapes in noise -- the profile taken
+ * across the detected lines came back dead flat, no trough and no bright flank,
+ * on ground of merely median roughness. With a strength cut the same profile
+ * peaks where it should: on the line the roughness is at the 76th percentile of
+ * all sea floor against the 71st forty kilometres off it, and at a harder cut
+ * the 83rd against the 76th. It flags 0.6% of the surveyed globe, and where it
+ * fires the lines run a median 13 degrees from the direction the crust
+ * travelled, against 28 to 34 for the ungated lineaments it came out of.
  *
  * What it is *for* is still open. Handing these lines to the crest follower --
  * pulling every traced path onto the nearest detected fracture zone -- makes
@@ -559,6 +566,29 @@ export interface FractureOptions {
    * all, as the cosine of the angle between them. 0.87 is thirty degrees.
    */
   alignmentGate?: number
+  /**
+   * How strong a line has to be in absolute terms, as a quantile of every
+   * aligned cell's strength.
+   *
+   * Without this the detector fired on nothing. Non-maximum suppression keeps
+   * every local maximum whatever its size, so a whisper of anisotropic noise
+   * that happened to point the right way survived exactly as a scarp did, and
+   * the profile taken across the detected lines came back flat: no trough, no
+   * bright flank, no structure of any kind, on ground of merely median
+   * roughness. Every other test in here is about *shape*, and shape without
+   * scale finds shapes in noise.
+   */
+  strengthQuantile?: number
+  /**
+   * Crust younger than this is the ridge axis and is skipped, Ma.
+   *
+   * At a spreading centre the age rises in both directions, so the gradient
+   * there is whatever the two sides fail to cancel, and the travelled direction
+   * computed from it is meaningless. The detector was lighting up lengths of
+   * the Mid-Atlantic Ridge in consequence -- a ridge axis being the one line on
+   * the sea floor that is certainly not a path the crust took.
+   */
+  ridgeAgeMa?: number
 }
 
 export function fractureZones(
@@ -582,6 +612,8 @@ export function fractureZones(
   const continuityKm = options.continuityKm ?? 200
   const narrownessKm = options.narrownessKm ?? 25
   const alignmentGate = options.alignmentGate ?? 0.87
+  const strengthQuantile = options.strengthQuantile ?? 0.9
+  const ridgeAgeMa = options.ridgeAgeMa ?? 8
   const { width, height } = sharp
   const size = width * height
   const cellHeightKm = (Math.PI * r0) / height
@@ -652,9 +684,24 @@ export function fractureZones(
       // gravity grid are seamount chains and plateau edges, not fracture zones.
       // Everything square to the travelled direction is thrown away outright,
       // and what survives is ranked on strength alone.
+      if (ages[at] < ridgeAgeMa) continue
       const cos = Math.abs(Math.cos(axis - travelled))
       if (cos < alignmentGate) continue
       detected[at] = sharp.ridgeness[at]
+    }
+  }
+
+  // And it has to be a strong line, not merely a line-shaped one. Taken as a
+  // quantile of what survived the alignment gate rather than as an absolute
+  // number in Eotvos, because the right cut depends on the grid and on how hard
+  // it was smoothed, and a quantile travels with both.
+  {
+    const aligned: number[] = []
+    for (let i = 0; i < size; i++) if (detected[i] > 0) aligned.push(detected[i])
+    if (aligned.length) {
+      const sorted = Float64Array.from(aligned).sort()
+      const floor = sorted[Math.min(sorted.length - 1, Math.floor(strengthQuantile * sorted.length))]
+      for (let i = 0; i < size; i++) if (detected[i] < floor) detected[i] = 0
     }
   }
 

@@ -164,7 +164,7 @@ export function Panel({ data }: { data: Dataset }) {
               checked={showTracks}
               onChange={(e) => setShowTracks(e.target.checked)}
             />
-            Fracture zones
+            Flow lines and pairs
           </label>
           <label className="toggle">
             <input
@@ -172,16 +172,17 @@ export function Panel({ data }: { data: Dataset }) {
               checked={showZones}
               onChange={(e) => setShowZones(e.target.checked)}
             />
-            Detected fracture zones
+            Fracture zones (from gravity)
           </label>
           <p className="caption">
-            In turquoise, and read from the gravity grid rather than from the age
-            grid &mdash; an independent instrument. A line is kept only where it
-            runs within twenty degrees of the way the crust travelled, keeps
-            going for hundreds of kilometres, and is narrow: 4.3% of the sea
-            floor survives that. Put them under the magenta paths and judge for
-            yourself whether the two agree. Drawn about three times wider than
-            they were measured, or they would be invisible.
+            In turquoise: not paths, but the scarps a fracture zone leaves in the
+            gravity field, found without ever reading the age grid. A line is
+            kept only where it is strong, narrow, keeps going for hundreds of
+            kilometres, and runs within twenty degrees of the way the crust
+            travelled &mdash; 0.6% of the sea floor survives all four. They are
+            the flow lines nature drew for us, and the ones to hang the rest of
+            the family on. Drawn about three times wider than measured, or they
+            would be invisible.
           </p>
           <p className="caption">
             The paths the crust took away from the ridges, in magenta &mdash; read off the age grid,

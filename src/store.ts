@@ -78,15 +78,22 @@ interface State {
   showGrid: boolean
   /** Draw the shell as glass with its triangles on top; see src/scene/Globe.tsx. */
   showMesh: boolean
-  /** Draw the fracture zones and the pairs due to meet now; see shared/tracks.ts. */
+  /**
+   * Draw the traced flow lines and the pairs due to meet now.
+   *
+   * These are paths, one per track, read off the age grid by walking away from
+   * a ridge -- what the model believes the crust did. See shared/tracks.ts.
+   */
   showTracks: boolean
   /**
    * Paint the fracture zones the gravity grid was searched for.
    *
-   * Not the same thing as showTracks at all, and the pair is the point: those
-   * are the paths the model traced, these are the lines a detector found in an
-   * independent dataset, and putting one over the other is how a reader judges
-   * whether they agree. See fractureZones in tools/lib/structure.ts.
+   * Not the same thing as showTracks, and the pair of them is the point. Those
+   * are paths: continuous, one per track, covering the ocean, and inferred.
+   * These are evidence: scarps a fracture zone left in an independent dataset,
+   * sparse, broken where nothing was left behind, and observed. Putting the two
+   * on the same crust is how a reader judges whether the inference matches the
+   * evidence. See fractureZones in tools/lib/structure.ts.
    */
   showZones: boolean
   endTimeMa: number
