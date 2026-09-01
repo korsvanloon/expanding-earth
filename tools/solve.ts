@@ -59,7 +59,7 @@ import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh
 import { cellBuckets, coverage, probeCells, probeDirections } from './lib/coverage.js'
 import { distortion, shapePairs } from './lib/shape.js'
 import { conjugateFit } from './lib/flowlines.js'
-import { readTracks } from '../shared/tracks.js'
+import { pairPulls as pairIsHeldIn, readTracks } from '../shared/tracks.js'
 import { unstretching } from './lib/unstretching.js'
 
 import { buildIcosphere } from './lib/icosphere.js'
@@ -330,7 +330,7 @@ function main() {
     }
     let pulling = 0
     for (let i = 0; i < tracks.pairAgeMa.length; i++) {
-      if (tracks.pairTrack[i] % 2 === 0) { pairPulls[i] = 1; pulling++ }
+      if (pairIsHeldIn(tracks, i)) { pairPulls[i] = 1; pulling++ }
       const a = place(tracks.pairAVerts, tracks.pairAWeights, i)
       const b = place(tracks.pairBVerts, tracks.pairBWeights, i)
       const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))

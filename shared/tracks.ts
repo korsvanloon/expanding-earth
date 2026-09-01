@@ -118,3 +118,13 @@ export function readTracks(buffer: ArrayBuffer): Tracks {
     pairTrack: u32(pairCount),
   }
 }
+
+/**
+ * Whether a pair pulls on the crust, or is held back to score it.
+ *
+ * One rule, shared, because the solver and the viewer both need it and they
+ * must not disagree: a pair the solver was told to close would look like a
+ * triumph in the viewer and mean nothing. Split by track and not by pair --
+ * two pairs a few million years apart on one walk are nearly the same claim.
+ */
+export const pairPulls = (tracks: Tracks, i: number) => tracks.pairTrack[i] % 2 === 0

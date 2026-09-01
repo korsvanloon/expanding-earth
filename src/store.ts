@@ -25,6 +25,23 @@ export interface Pick {
   island: number
   block: number
   /**
+   * The conjugate pair this click landed on, if it landed on one.
+   *
+   * Worth reporting separately from the point because a pair is a different
+   * kind of claim: not "here is some crust" but "these two pieces were one
+   * piece at this age". Since the solver started pulling on them, judging a
+   * pair is the most useful thing anyone can do to this model -- a wrong one no
+   * longer merely mis-scores the answer, it drags the crust.
+   */
+  pair?: {
+    ageMa: number
+    gapKm: number
+    /** Whether it pulls on the crust, or was held back to score it. */
+    pulls: boolean
+    otherLon: number
+    otherLat: number
+  }
+  /**
    * How worked the crust is here, Eotvos per 100 km of the gravity gradient.
    * A platform reads under 40, an orogen over 200. It is in a pick because it
    * is the number that says whether a point is allowed to move relative to its
@@ -134,7 +151,13 @@ export function describePicks(picks: Pick[]): string {
       `#${p.vertex}  today (${place(p.todayLon, p.todayLat)})`
       + `  at ${p.timeMa.toFixed(0)} Ma (${place(p.thenLon, p.thenLat)})`
       + `  ${p.ageMa === null ? 'continental' : `sea floor ${p.ageMa.toFixed(0)} Ma`}`
-      + `  island ${p.island}  block ${p.block}  fabric ${p.fabric.toFixed(0)}`),
+      + `  island ${p.island}  block ${p.block}  fabric ${p.fabric.toFixed(0)}`
+      + (p.pair
+        ? `\n        ^ on a conjugate pair: was one point at ${p.pair.ageMa.toFixed(0)} Ma `
+          + `with (${place(p.pair.otherLon, p.pair.otherLat)}); `
+          + `${p.pair.gapKm.toFixed(0)} km apart in this frame; `
+          + `${p.pair.pulls ? 'pulls on the crust' : 'held back to score the model'}`
+        : '')),
   ].join('\n')
 }
 

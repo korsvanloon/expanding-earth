@@ -6,9 +6,10 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
-import { buildIndex, sampleFrame, type Dataset } from '@/data'
+import { buildIndex, radiusAt, sampleFrame, type Dataset } from '@/data'
 import { buildReferenceRotations } from '@/frames'
 import { clock, describePicks, onClockMoved, useStore, type Pick } from '@/store'
+import { pairPulls } from '@shared/tracks'
 import { directionToUv } from '@shared/sphere'
 import { PERMANENT_MA } from '@shared/model'
 import { fragmentShader, vertexShader } from './shaders'
@@ -450,6 +451,58 @@ export function Globe({ data }: { data: Dataset }) {
       Math.round(clock.timeMa / data.meta.frameStepMa), data.meta.frameCount - 1,
     )
     const age = data.vertexAge[vertex]
+
+    /**
+     * If the click landed on a yellow segment, say which pair it was.
+     *
+     * Only the pairs drawn at this moment are considered, because those are the
+     * ones a reader can see and therefore the ones they can be pointing at. The
+     * reach is generous -- a segment is a few pixels wide and a click is not
+     * surgery -- and the nearest end wins.
+     */
+    const t = data.tracks
+    let pair: Pick['pair']
+    if (t) {
+      const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
+      const shell = Math.hypot(
+        buffers.positions[vertex * 3],
+        buffers.positions[vertex * 3 + 1],
+        buffers.positions[vertex * 3 + 2],
+      ) || 1
+      const spot = (verts: Uint32Array, weights: Float32Array, i: number) => {
+        let x = 0, y = 0, z = 0
+        for (let k = 0; k < 3; k++) {
+          const v = verts[i * 3 + k] * 3
+          const w = weights[i * 3 + k]
+          x += buffers.positions[v] * w
+          y += buffers.positions[v + 1] * w
+          z += buffers.positions[v + 2] * w
+        }
+        const l = Math.hypot(x, y, z) || 1
+        return [x / l, y / l, z / l] as const
+      }
+      let best = Infinity
+      for (let i = 0; i < t.pairAgeMa.length; i++) {
+        if (t.pairAgeMa[i] !== frameMa) continue
+        const a = spot(t.pairAVerts, t.pairAWeights, i)
+        const b = spot(t.pairBVerts, t.pairBWeights, i)
+        for (const [near, far] of [[a, b], [b, a]] as const) {
+          const d = (near[0] * shell - event.point.x) ** 2
+            + (near[1] * shell - event.point.y) ** 2
+            + (near[2] * shell - event.point.z) ** 2
+          if (d >= best) continue
+          best = d
+          const gap = Math.acos(Math.min(1, Math.max(-1,
+            a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * radiusAt(data, clock.timeMa)
+          const [otherLon, otherLat] = degrees(far[0], far[1], far[2])
+          pair = { ageMa: t.pairAgeMa[i], gapKm: gap, pulls: pairPulls(t, i), otherLon, otherLat }
+        }
+      }
+      // A click well away from every segment is a click on the crust, not on a
+      // pair. Two degrees of arc, which is about how wide the drawn line is.
+      if (Math.sqrt(best) > 0.035 * shell) pair = undefined
+    }
+
     const pick: Pick = {
       vertex,
       todayLon,
@@ -461,6 +514,7 @@ export function Globe({ data }: { data: Dataset }) {
       island: data.islands[vertex],
       block: data.plates[frame * data.vertexCount + vertex],
       fabric: data.gravityRoughness[vertex],
+      pair,
       referenceFrame,
     }
     const { addPick, picks } = useStore.getState()

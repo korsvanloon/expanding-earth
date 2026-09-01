@@ -447,6 +447,14 @@ Most of the rest of the run improved with it. Median strain falls from 3.6% to
 to 0.22%, and the record ends on seven blocks instead of two. Craton strain does
 not move.
 
+Because they pull, judging a pair is now the most useful thing anyone can do to
+this model: a wrong one no longer merely mis-scores the answer, it drags the
+crust. So a right-click that lands on a yellow segment reports the pair rather
+than only the point &mdash; both ends, the age they were one point, how far apart
+this frame leaves them, and whether that particular pair pulls or was held back.
+The held-in rule lives in one place, `pairPulls` in shared/tracks.ts, so that the
+viewer and the solver cannot come to disagree about which half is which.
+
 One thing got worse and it is not small. The worst held island loses 52% of its
 own shape by 200 Ma, against 17% before. At 120 Ma it is 19% against 17%, so
 this is confined to the very end of the record &mdash; and the pairs run out
