@@ -1023,6 +1023,16 @@ the sweeps are not the whole of a step.
 Past 110 Ma nothing improves, which is where the sea floor is running out and
 the tracks with it: 241 segments left at 120 Ma against 3,328 at 38.
 
+Eighty is the knee and not simply as much as could be afforded. At a hundred and
+sixty the stretch goes on falling a little &mdash; the median at 60 Ma from 1.04
+to 1.01, the ninetieth percentile from 1.55 to 1.51 &mdash; but the corners stop
+coming out, 6.3% of turns over thirty degrees at 60 Ma against 6.6%, and the
+reconstruction turns back down: South America and Africa from 37% to 30%,
+Greenland and North America from 37% to 34%, the folded crust at 200 Ma from
+0.23% to 0.34% and the doubled from 0.11% to 0.30%. The refused collapses climb
+too, 46,408 to 60,787, which is a mesh relaxed so tight that closing it tears.
+Whatever the remaining stretch is, it is no longer the sweeps' to give back.
+
 `tools/measure-tracks.ts` is the instrument, and it is the only thing in the
 model that can see any of this &mdash; the fold diagnostic reads 0.05% at 60 Ma
 because no triangle is inverted, and the strain diagnostic is an area, so a line
