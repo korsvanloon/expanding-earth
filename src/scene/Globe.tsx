@@ -128,9 +128,11 @@ export function Globe({ data }: { data: Dataset }) {
     // referred to by an index.
     const verts: number[] = []
     const weights: number[] = []
+    const age: number[] = []
     const at = (p: number) => {
       verts.push(t.pointVerts[p * 3], t.pointVerts[p * 3 + 1], t.pointVerts[p * 3 + 2])
       weights.push(t.pointWeights[p * 3], t.pointWeights[p * 3 + 1], t.pointWeights[p * 3 + 2])
+      age.push(t.ageMa[p])
     }
     for (let i = 0; i < t.ridge.length; i++) {
       for (let p = t.offsets[i]; p + 1 < t.offsets[i + 1]; p++) {
@@ -175,6 +177,10 @@ export function Globe({ data }: { data: Dataset }) {
     return {
       pathVerts: Uint32Array.from(verts),
       pathWeights: Float32Array.from(weights),
+      pathAgeMa: Float32Array.from(age),
+      // Room for every segment; only the ones whose crust exists get written.
+      shownVerts: new Uint32Array(verts.length),
+      shownWeights: new Float32Array(weights.length),
       pathLine: line(weights.length / 3, '#ff4fa3', 2.5),
       // Every pair gets room; only the ones due at the drawn frame are written.
       gapLine: line(t.pairAgeMa.length * 2, '#ffd24a', 4),
@@ -215,7 +221,18 @@ export function Globe({ data }: { data: Dataset }) {
         y += buffers.positions[v + 1] * w
         z += buffers.positions[v + 2] * w
       }
-      const scale = LIFT / (Math.hypot(x, y, z) || 1)
+      // The corners carry the shell's radius: the globe shrinks by having its
+      // points moved inward, not by being scaled, so a position at 120 Ma is
+      // 0.69 long rather than 1. Normalising the mix to a unit vector put every
+      // line at today's radius on a planet at two thirds of it -- a thousand
+      // kilometres of empty space between the line and its own crust, which is
+      // what made them look like they were floating. Put back on the shell at
+      // the radius the corners are at instead.
+      const corner = verts[i * 3] * 3
+      const shell = Math.hypot(
+        buffers.positions[corner], buffers.positions[corner + 1], buffers.positions[corner + 2],
+      )
+      const scale = (LIFT * shell) / (Math.hypot(x, y, z) || 1)
       line.points[i * 3] = x * scale
       line.points[i * 3 + 1] = y * scale
       line.points[i * 3 + 2] = z * scale
@@ -233,10 +250,29 @@ export function Globe({ data }: { data: Dataset }) {
   )
   const refreshOverlay = () => {
     if (!overlay || !data.tracks) return
-    drawLines(
-      overlay.pathLine, overlay.pathVerts, overlay.pathWeights,
-      overlay.pathWeights.length / 3,
-    )
+    /**
+     * Only the crust that exists yet.
+     *
+     * A track is a path the sea floor took away from a ridge, and its far ends
+     * are its oldest crust. Wind back past the moment a stretch of it erupted
+     * and it was not there -- so the whole line was being drawn over ocean that
+     * had not opened, riding on triangles the mesh had already collapsed away,
+     * which is what made it look like it was floating over the globe rather
+     * than lying on it. Dropping each segment at the moment its crust un-forms
+     * makes the pair of flanks retract towards their ridge as the ocean shuts,
+     * and whether they arrive there together is the thing worth watching.
+     */
+    let shown = 0
+    for (let seg = 0; seg + 1 < overlay.pathAgeMa.length; seg += 2) {
+      if (overlay.pathAgeMa[seg] < clock.timeMa) continue
+      if (overlay.pathAgeMa[seg + 1] < clock.timeMa) continue
+      for (let k = 0; k < 6; k++) {
+        overlay.shownVerts[shown * 3 + k] = overlay.pathVerts[seg * 3 + k]
+        overlay.shownWeights[shown * 3 + k] = overlay.pathWeights[seg * 3 + k]
+      }
+      shown += 2
+    }
+    drawLines(overlay.pathLine, overlay.shownVerts, overlay.shownWeights, shown)
     const t = data.tracks
     const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
     let n = 0
