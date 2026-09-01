@@ -111,6 +111,44 @@ export const CONFIG = {
   /** How wide the tensor's own window is, km. */
   structureWindowKm: 200,
   /**
+   * The sharper field the paths are pulled onto, and how hard.
+   *
+   * A quarter of the smoothing and a third of the window: at the blurred scale
+   * a point picked at random already carries 89% of the strongest line-strength
+   * within sixty kilometres, so there is no crest to aim at. At 25/60 that
+   * share is 71% and the strong ridges come 133 km apart.
+   */
+  crestSmoothKm: 25,
+  crestWindowKm: 60,
+  /**
+   * Off, and measured before being switched off.
+   *
+   * The mechanism works: at 0.2 it takes the median distance from a path to the
+   * strongest line beside it from 31 km to 23, and lifts the line-strength a
+   * path sits on from 0.70 of the best nearby to 0.77. Through the solver it
+   * makes the reconstruction worse -- 215 km at 40 Ma against 228, but 364 at 60
+   * against 320, 615 at 90 against 507, and 1062 at 120 against 998, on the same
+   * number of pairs. At 90 Ma that is worse than using no gravity data at all.
+   *
+   * Which says what the lines at this scale are. Smoothed at 25 km the strong
+   * ridges are not only fracture zones: they are also abyssal-hill fabric,
+   * seamount chains and ridge segments, and none of those is a path the crust
+   * took. Pulling onto the nearest strong ridge therefore sometimes moves a
+   * path onto a feature that is not a flow line, after which it follows the
+   * wrong thing for thousands of kilometres -- which is why the median track end
+   * moved 2,724 km.
+   *
+   * And it cannot be fixed by choosing a better smoothing, because the two
+   * requirements pull opposite ways: the smoothing that removes the hills from
+   * the direction (100 km) is the smoothing that flattens the crest away. What
+   * this needs is a field of flow-line features only, which means telling a
+   * fracture zone from an abyssal hill before following either. Set crestPull
+   * above zero and pass such a field as `crest` and the follower is waiting.
+   */
+  crestPull: 0,
+  crestReachKm: 60,
+  crestMaxShiftKm: 8,
+  /**
    * How near a frame's age a track point has to be to be paired at it, Ma.
    *
    * Every million years of slack is a few tens of kilometres of spreading the
@@ -289,11 +327,17 @@ function main() {
   // The gravity grid's own idea of which way the lineaments run, mixed into the
   // age gradient at every step. See tools/lib/structure.ts for the instrument
   // and CONFIG.structureWeight for how far it is trusted.
-  const lines = CONFIG.structureWeight > 0
-    ? lineaments(
-        readGrid(readFileSync(resolve(ROOT, 'data-src/vgg.grid'))),
-        R0_KM, CONFIG.structureWindowKm, CONFIG.structureSmoothKm,
-      )
+  // Two lineament fields at two scales, because one cannot do both jobs. The
+  // blurred one says which way the lines run; the sharp one says where they
+  // are. See the crest options in tools/lib/flowlines.ts for why.
+  const vgg = CONFIG.structureWeight > 0 || CONFIG.crestPull > 0
+    ? readGrid(readFileSync(resolve(ROOT, 'data-src/vgg.grid')))
+    : undefined
+  const lines = vgg && CONFIG.structureWeight > 0
+    ? lineaments(vgg, R0_KM, CONFIG.structureWindowKm, CONFIG.structureSmoothKm)
+    : undefined
+  const crest = vgg && CONFIG.crestPull > 0
+    ? lineaments(vgg, R0_KM, CONFIG.crestWindowKm, CONFIG.crestSmoothKm)
     : undefined
   const traced = traceFlowLines(
     ageMa,
@@ -306,6 +350,10 @@ function main() {
       structureFloor: CONFIG.structureFloor,
       structureFull: CONFIG.structureFull,
       structureMaxDeg: CONFIG.structureMaxDeg,
+      crest,
+      crestPull: CONFIG.crestPull,
+      crestReachKm: CONFIG.crestReachKm,
+      crestMaxShiftKm: CONFIG.crestMaxShiftKm,
     },
   )
   console.log(

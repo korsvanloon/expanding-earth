@@ -22,7 +22,7 @@
  */
 import { R0_KM } from '../../shared/model.js'
 import { length3 } from '../../shared/sphere.js'
-import { lineamentAt, type Lineaments } from './structure.js'
+import { crestOffsetKm, lineamentAt, type Lineaments } from './structure.js'
 
 /** Present-day radius; the tracks are paths on today's Earth. */
 const RADIUS_KM = R0_KM
@@ -98,6 +98,55 @@ export interface FlowOptions {
    */
   structureFloor?: number
   structureFull?: number
+  /**
+   * How hard the path is steered back onto the line it is following, degrees
+   * per step at full offset.
+   *
+   * Aligning the step's direction with the lineament is not enough and was
+   * never going to be: it says which way to point, never whether you are on the
+   * line. A path a hundred kilometres off a fracture zone runs exactly parallel
+   * to it for ever, perfectly aligned and perfectly wrong. So the offset itself
+   * is measured -- how far sideways the nearest trough or crest of the gravity
+   * field sits -- and the heading is turned towards it in proportion, the way a
+   * driver holds a lane rather than teleporting into it. Turning rather than
+   * shifting the position on purpose: a shift can hop the path onto the next
+   * fracture zone in one step, and a turn cannot, because the turn limit still
+   * applies to the sum of everything asked of this step.
+   */
+  crestSteerDeg?: number
+  /** How far sideways to look for that line, km. */
+  crestReachKm?: number
+  /**
+   * How much of the offset to close per step, and the most it may close, km.
+   *
+   * Steering was tried first and cannot do this. A two-degree correction over a
+   * forty-kilometre step buys 1.4 km sideways, so closing a thirty-kilometre
+   * offset takes eight hundred kilometres of walking -- by which time the line
+   * has moved. The path has to be shifted, not merely aimed.
+   *
+   * Bounded on purpose and twice over. A fraction rather than the whole offset
+   * so it converges instead of oscillating, and a hard cap per step so that no
+   * single step can carry the path onto the next fracture zone: the strong
+   * ridges are 133 km apart and the cap is a few kilometres, so a hop takes
+   * dozens of steps of consistent evidence and cannot happen on one bad read.
+   */
+  crestPull?: number
+  crestMaxShiftKm?: number
+  /**
+   * A second, sharper lineament field, read only for where the lines are.
+   *
+   * Two scales because one cannot do both jobs, and the measurement says so
+   * plainly. Smoothing the gravity field at a hundred kilometres is what makes
+   * the *direction* usable -- it is what removes the abyssal-hill fabric that
+   * runs square across the flow -- and the same smoothing flattens the strength
+   * of the lines until there is no crest left to aim at: at that scale a point
+   * picked at random already has 89% of the strongest line-strength within
+   * sixty kilometres of it, so steering towards the best of them moves nothing.
+   * Smoothed at twenty-five instead, that share falls to 71% and the strong
+   * ridges come 133 km apart, which is fracture-zone spacing. So the bearing is
+   * read from the blurred field and the lane from the sharp one.
+   */
+  crest?: Lineaments
   /**
    * How far the lineament may disagree with the age gradient before it is
    * thrown away entirely, degrees.
@@ -218,6 +267,11 @@ export function traceFlowLines(
   const structureWeight = options.structureWeight ?? 0.6
   const structureFloor = options.structureFloor ?? 0.15
   const structureFull = options.structureFull ?? 0.35
+  const crestSteer = ((options.crestSteerDeg ?? 0) * Math.PI) / 180
+  const crestReachKm = options.crestReachKm ?? 60
+  const crest = options.crest ?? options.lineaments
+  const crestPull = options.crestPull ?? 0
+  const crestMaxShiftKm = options.crestMaxShiftKm ?? 8
   const structureMaxCos = Math.cos(((options.structureMaxDeg ?? 40) * Math.PI) / 180)
   // Blur over roughly the distance a step covers, in whatever cells this grid
   // has. On a coarse grid that is none at all and the field is read raw.
@@ -322,6 +376,34 @@ export function traceFlowLines(
           }
         }
       }
+      // And having pointed along the line, get back onto it. The offset is
+      // signed across the path, so the correction has a side as well as a size,
+      // and it is proportional rather than absolute: a path already on the line
+      // is not steered at all, and one at the edge of the reach is steered the
+      // full amount. Both the alignment above and this are folded into the same
+      // requested direction, so the turn limit below bounds their sum -- which
+      // is why neither of them can throw the path off a bend.
+      if (crest && crestSteer > 0) {
+        // Across the path, in the tangent plane: the heading crossed with the
+        // outward normal, which at a point of the unit sphere is the point.
+        let cx = wy * z - wz * y
+        let cy = wz * x - wx * z
+        let cz = wx * y - wy * x
+        const cl = length3(cx, cy, cz)
+        if (cl > 1e-9) {
+          cx /= cl; cy /= cl; cz /= cl
+          const offset = crestOffsetKm(crest, x, y, z, cx, cy, cz, crestReachKm, r)
+          if (offset !== null) {
+            const turn = crestSteer * Math.max(-1, Math.min(1, offset / crestReachKm))
+            const cos = Math.cos(turn), sin = Math.sin(turn)
+            const sx = wx * cos + cx * sin
+            const sy = wy * cos + cy * sin
+            const sz = wz * cos + cz * sin
+            const sl = length3(sx, sy, sz)
+            if (sl > 1e-9) { wx = sx / sl; wy = sy / sl; wz = sz / sl }
+          }
+        }
+      }
       // Uphill, but not free to turn wherever the local gradient points. A
       // fracture zone is a path the crust actually took, so it bends slowly;
       // letting each step choose its own direction lets a path turn along an
@@ -338,9 +420,38 @@ export function traceFlowLines(
       } else {
         tx = wx; ty = wy; tz = wz
       }
-      const [px, py, pz] = advance(x, y, z, tx, ty, tz, stepAngle)
-      const a = field.at(px, py, pz)
+      let [px, py, pz] = advance(x, y, z, tx, ty, tz, stepAngle)
+      let a = field.at(px, py, pz)
       if (Number.isNaN(a)) break
+
+      // Having stepped, slide sideways onto the line. Measured across the new
+      // heading at the new place, so what is corrected is where the path has
+      // just arrived rather than where it was.
+      //
+      // The shift is refused rather than clamped if it would break the rule
+      // that the age keeps rising: sliding across a fracture zone lands on
+      // crust of a different age entirely, and that is the one move this must
+      // never make -- it is how a path stops being one piece of crust's history
+      // and becomes two.
+      if (crest && crestPull > 0) {
+        let sx = ty * pz - tz * py
+        let sy = tz * px - tx * pz
+        let sz = tx * py - ty * px
+        const sl = length3(sx, sy, sz)
+        if (sl > 1e-9) {
+          sx /= sl; sy /= sl; sz /= sl
+          const offset = crestOffsetKm(crest, px, py, pz, sx, sy, sz, crestReachKm, r)
+          if (offset !== null) {
+            const move = Math.max(-crestMaxShiftKm, Math.min(crestMaxShiftKm, offset * crestPull))
+            const [qx, qy, qz] = advance(px, py, pz, sx, sy, sz, move / r)
+            const shifted = field.at(qx, qy, qz)
+            if (!Number.isNaN(shifted) && shifted >= last - 1) {
+              px = qx; py = qy; pz = qz
+              a = shifted
+            }
+          }
+        }
+      }
       // The age has to keep rising. Where it does not, the path has left the
       // flank it started on -- crossed a transform, or run into a piece of
       // crust from another ridge entirely.

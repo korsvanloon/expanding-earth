@@ -235,6 +235,27 @@ export interface Lineaments {
    * follow; near one over a clean trough.
    */
   coherence: Uint8Array
+  /**
+   * How much of a line there is here, as against which way it points.
+   *
+   * An axis cannot say whether you are on the line or a hundred kilometres
+   * beside it, and that second question is the one that matters: a path
+   * perfectly parallel to a fracture zone and a hundred kilometres off it is
+   * perfectly aligned and perfectly wrong.
+   *
+   * The measure is the tensor's coherence times the size of the gradient it was
+   * built from -- how line-like, times how much there is of it. Coherence alone
+   * says a featureless plain with a faint trend is a clean line; gradient alone
+   * says a seamount is. The product is close to what an eye picks out of the
+   * fabric image, which is what a person tracing these by hand is following.
+   *
+   * The low-passed field itself was tried first and was useless for this: after
+   * smoothing at a hundred kilometres, every point on Earth has a turning point
+   * within ten of it, so "distance to the nearest crest" came back at 9 km
+   * everywhere and moved not at all when the steering was turned on.
+   */
+  ridgeness: Float32Array
+  known: Uint8Array
 }
 
 export function lineaments(
@@ -301,6 +322,7 @@ export function lineaments(
 
   const axis = new Uint8Array(size)
   const coherence = new Uint8Array(size)
+  const ridgeness = new Float32Array(size)
   for (let i = 0; i < size; i++) {
     const a = xx[i]
     const b = xy[i]
@@ -309,6 +331,10 @@ export function lineaments(
     const spread = Math.sqrt(half * half + b * b)
     const trace = a + c
     if (trace < 1e-12) continue
+    // The trace is the mean squared gradient over the window, so its root is
+    // the size of the gradient; times the anisotropy that is how strong a line
+    // this is.
+    ridgeness[i] = Math.sqrt(trace) * Math.min(1, (2 * spread) / trace)
     // The long axis of the ellipse is across the line and a quarter turn from
     // it is along the line, which is the direction worth having.
     //
@@ -328,7 +354,7 @@ export function lineaments(
     axis[i] = Math.min(255, Math.round((folded / Math.PI) * 256))
     coherence[i] = Math.round(255 * Math.min(1, (2 * spread) / trace))
   }
-  return { width, height, axis, coherence }
+  return { width, height, axis, coherence, ridgeness, known }
 }
 
 /**
@@ -409,4 +435,70 @@ export function lineamentAt(
   const c = Math.cos(angle)
   const s = Math.sin(angle)
   return { tx: nx * c + ex * s, ty: ny * c + ey * s, tz: nz * c + ez * s, coherence }
+}
+
+
+/**
+ * How far sideways the nearest crest or trough of the field is, in kilometres.
+ *
+ * Signed along `n`, the direction across the path. Sampled at a fixed spacing
+ * out to `reachKm` either way, looking for the nearest interior sample that is
+ * larger or smaller than both its neighbours -- either will do, because a
+ * fracture zone shows in the gravity gradient as a trough on one side of the
+ * offset and a rise on the other and which one a given path is riding is not
+ * something worth deciding in advance.
+ *
+ * The reach matters and is a judgement: fracture zones are a few tens of
+ * kilometres wide and a few hundred apart, so a reach of sixty kilometres can
+ * find the line a path has slipped off and cannot reach the next one over.
+ *
+ * Returns null where there is no turning point within reach, or where the
+ * survey has a gap in the way -- both meaning there is nothing to steer towards.
+ */
+export function crestOffsetKm(
+  f: Lineaments,
+  x: number, y: number, z: number,
+  nx: number, ny: number, nz: number,
+  reachKm: number, r0: number, samples = 13,
+): number | null {
+  const half = (samples - 1) / 2
+  const spacing = reachKm / half
+  const values = new Float64Array(samples)
+  for (let i = 0; i < samples; i++) {
+    const angle = ((i - half) * spacing) / r0
+    const c = Math.cos(angle), s = Math.sin(angle)
+    const px = x * c + nx * s, py = y * c + ny * s, pz = z * c + nz * s
+    const l = Math.hypot(px, py, pz) || 1
+    const [column, row] = directionToPixel(px / l, py / l, pz / l, f.width, f.height)
+    const at = row * f.width + column
+    if (!f.known[at]) return null
+    values[i] = f.ridgeness[at]
+  }
+  // The strongest line within reach, not the nearest turning point. Nearest was
+  // the first attempt and it found noise: what is wanted is the fracture zone
+  // this path belongs to, and if the path has slipped a long way off it, the
+  // whole point is to be pulled the long way back.
+  let best = -1
+  let at = -1
+  for (let i = 1; i < samples - 1; i++) {
+    const a = values[i - 1], b = values[i], c = values[i + 1]
+    if (!(b > a && b >= c)) continue
+    if (b <= best) continue
+    best = b
+    at = i
+  }
+  if (at < 0) return null
+  // A line has to stand out from the ground around it to be worth steering
+  // towards. Half again as strong as the weakest sample in reach is a low bar
+  // deliberately: the guard that matters is that there is a peak at all.
+  let floor = Infinity
+  for (const v of values) floor = Math.min(floor, v)
+  if (!(best > 1.5 * Math.max(floor, 1e-9))) return null
+
+  // Parabolic interpolation, so the answer is not quantised to the sample
+  // spacing and the path does not hunt between two samples for ever.
+  const a = values[at - 1], b = values[at], c = values[at + 1]
+  const denominator = a - 2 * b + c
+  const shift = Math.abs(denominator) > 1e-12 ? (0.5 * (a - c)) / denominator : 0
+  return (at - half + Math.max(-0.5, Math.min(0.5, shift))) * spacing
 }

@@ -185,12 +185,60 @@ by itself evidence of a worse tracer. Where they disagree, this takes the
 geometric measure, because that is the one a reader can check against the
 picture, and it keeps the weight low enough that the paths are the same paths.
 
-It is not fixed. Eighteen degrees of median wander around an axis that is stable
-to a few degrees is still wander, and it happens because the mechanism aligns
-the step's *direction* with the line without ever pulling the step back onto the
-line. Once a path is a hundred kilometres off a fracture zone, nothing in this
-draws it back. Following the crest rather than the bearing is the next thing to
-build, and it is not built here.
+### Following the crest, and why it is switched off
+
+Eighteen degrees of median wander around an axis stable to a few degrees is
+still wander, and the reason is structural: aligning the step's *direction* with
+the line never says whether you are *on* the line. A path a hundred kilometres
+off a fracture zone runs exactly parallel to it for ever, perfectly aligned and
+perfectly wrong. So the offset was measured and the path pulled onto it. The
+mechanism is in the code, it is tested, and it is off. This is what it cost to
+find that out.
+
+Steering does not work at all. Turning the heading two degrees buys 1.4 km
+sideways over a forty-kilometre step, so closing a thirty-kilometre offset takes
+eight hundred kilometres of walking, by which time the line has moved. The path
+has to be shifted, not aimed. Shifting works, bounded by a fraction of the
+offset per step and a hard cap of eight kilometres so that no single step can
+carry a path onto the next fracture zone.
+
+Finding the line needs a different scale from following its bearing, and that
+is the interesting part. The smoothing that makes the bearing usable is the
+smoothing that destroys the crest: at 100 km, a point picked at random already
+carries 89% of the strongest line-strength within sixty kilometres of it, so
+there is nothing to aim at and switching the pull on moved nothing measurable.
+At 25 km that share is 71% and the strong ridges come 133 km apart, which is
+fracture-zone spacing. Two fields, then: the blurred one for which way, the
+sharp one for where.
+
+With both, the pull does what it says. The median distance from a path to the
+strongest line beside it falls from 31 km to 23, and the line-strength a path
+sits on rises from 0.70 of the best nearby to 0.77.
+
+And the reconstruction gets worse.
+
+| | 20 Ma | 40 Ma | 60 Ma | 90 Ma | 120 Ma |
+|---|---|---|---|---|---|
+| age grid alone | 173 km | 246 km | 374 km | 558 km | 1073 km |
+| bearing only | 176 km | 228 km | 320 km | 507 km | 998 km |
+| pulled onto the crest | 178 km | 215 km | 364 km | 615 km | 1062 km |
+
+Better at 40 Ma and worse everywhere else, on the same number of pairs, and at
+90 Ma worse than using no gravity data at all. The median track end moved 2,724
+km, which is the tell: these are not the same paths corrected, they are
+different paths.
+
+So the sharp field's strong ridges are not all flow lines. At 25 km they include
+abyssal-hill fabric, seamount chains and ridge segments, and none of those is a
+path the crust took &mdash; and a path pulled onto one of them follows the wrong
+thing for thousands of kilometres. Nor can a better smoothing fix it, because
+the two requirements pull opposite ways: removing the hills from the bearing is
+what flattens the crest away.
+
+What this needs is a field containing flow-line features and nothing else, which
+means telling a fracture zone from an abyssal hill before following either. That
+is a detector, not a filter. The follower is waiting for one: pass it as `crest`
+and set `crestPull` above zero.
 
 ## Where the plates come from
 

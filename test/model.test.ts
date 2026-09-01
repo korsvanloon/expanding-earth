@@ -16,7 +16,7 @@ import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
-import { fillGaps, lineamentAt, lineaments, sampleStructure } from '../tools/lib/structure'
+import { crestOffsetKm, fillGaps, lineamentAt, lineaments, sampleStructure } from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
 import { resolve } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -1089,6 +1089,62 @@ describe('which way the lineaments run', () => {
     for (const lat of [0, 30, 60]) {
       expect(bearing(eastWest, 0, lat)!.deg, `${lat} deg north`).toBeCloseTo(90, 0)
     }
+  })
+})
+
+describe('finding the line a path should be on', () => {
+  // One strong ridge running east-west at the equator, and nothing else. A path
+  // heading east across it should be told how far north or south it is.
+  const W = 720
+  const H = 360
+  const ridgeAt = (row: number) => {
+    const samples = new Int16Array(W * H)
+    for (let r = 0; r < H; r++) {
+      for (let c = 0; c < W; c++) {
+        // A step in the field across the ridge row: its gradient peaks there.
+        samples[r * W + c] = r < row ? 0 : 300
+      }
+    }
+    return { width: W, height: H, scale: 1, offset: 0, units: 'test', samples } as Grid
+  }
+  /** Looking north from a point, how far to the ridge. */
+  const offsetFrom = (latDeg: number, ridgeRow: number) => {
+    const field = lineaments(ridgeAt(ridgeRow), R0_KM, 60, 25)
+    const [x, y, z] = lonLatToDirection(0, (latDeg * Math.PI) / 180)
+    // North at that point, which is the direction across an east-west line.
+    let nx = -y * x, ny = 1 - y * y, nz = -y * z
+    const nl = Math.hypot(nx, ny, nz)
+    return crestOffsetKm(field, x, y, z, nx / nl, ny / nl, nz / nl, 300, R0_KM)
+  }
+
+  it('says which side the line is on and how far', () => {
+    // Row 180 of 360 is the equator and rows count southward, so a ridge at row
+    // 178 sits north of a point on the equator and one at 182 sits south. Two
+    // rows of a 360-row grid is one degree, about 110 km -- kept well inside the
+    // 300 km reach, because a peak at the very edge of the reach falls on the
+    // outermost sample, which has no outer neighbour to be a peak against.
+    const north = offsetFrom(0, 178)
+    const south = offsetFrom(0, 182)
+    expect(north).not.toBe(null)
+    expect(south).not.toBe(null)
+    expect(north!).toBeGreaterThan(0)
+    expect(south!).toBeLessThan(0)
+    for (const found of [north!, south!]) {
+      expect(Math.abs(found)).toBeGreaterThan(40)
+      expect(Math.abs(found)).toBeLessThan(220)
+    }
+  })
+
+  it('finds nothing to steer towards in a field with no line in it', () => {
+    const flat: Grid = {
+      width: W, height: H, scale: 1, offset: 0, units: 'test',
+      samples: new Int16Array(W * H).fill(100),
+    }
+    const field = lineaments(flat, R0_KM, 60, 25)
+    const [x, y, z] = lonLatToDirection(0, 0)
+    let nx = -y * x, ny = 1 - y * y, nz = -y * z
+    const nl = Math.hypot(nx, ny, nz)
+    expect(crestOffsetKm(field, x, y, z, nx / nl, ny / nl, nz / nl, 300, R0_KM)).toBe(null)
   })
 })
 
