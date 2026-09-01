@@ -150,3 +150,52 @@ export function fillGaps(field: Float32Array, indices: ArrayLike<number>): numbe
   }
   return filled
 }
+
+/**
+ * The roughness of the whole grid, at the grid's own resolution.
+ *
+ * The per-vertex figures above are what a point of crust carries, and they are
+ * carried at the mesh's resolution: a hundred and twelve kilometres between
+ * points, against eleven to the grid cell. Measured against the raw field, the
+ * mesh keeps a little over half its variation -- and subdividing once more, at
+ * four times the cost of every run, takes that only to about two thirds. So
+ * looking at this through the vertices is the wrong way round. A raster
+ * painted on the crust rides along with it exactly as the surface maps do, and
+ * loses nothing.
+ *
+ * Encoded as a byte per cell, on the same logarithmic scale the viewer's ramp
+ * uses, because roughness runs from single figures over a platform to six
+ * hundred along an arc and a linear scale renders every ocean and every shield
+ * the same near-black. Zero is reserved for ground the survey never reached, so
+ * the ice caps read as unknown rather than as undisturbed.
+ */
+export const FABRIC_UNSURVEYED = 0
+const FABRIC_FLOOR = 4
+const FABRIC_CEILING = 512
+
+export function fabricRaster(grid: Grid, r0: number): Uint8Array {
+  const out = new Uint8Array(grid.width * grid.height)
+  const cellHeightKm = (Math.PI * r0) / grid.height
+  const span = Math.log2(FABRIC_CEILING / (FABRIC_FLOOR * 2))
+  for (let row = 1; row < grid.height - 1; row++) {
+    const lat = Math.PI * (0.5 - (row + 0.5) / grid.height)
+    const widthKm = Math.max(
+      0.01, ((2 * Math.PI * r0) / grid.width) * Math.max(1e-3, Math.cos(lat)),
+    )
+    for (let column = 0; column < grid.width; column++) {
+      const east = grid.samples[row * grid.width + ((column + 1) % grid.width)]
+      const west = grid.samples[row * grid.width + ((column - 1 + grid.width) % grid.width)]
+      const south = grid.samples[(row + 1) * grid.width + column]
+      const north = grid.samples[(row - 1) * grid.width + column]
+      if (east === GRID_GAP || west === GRID_GAP
+        || south === GRID_GAP || north === GRID_GAP) continue
+      const dx = ((east - west) * grid.scale) / (2 * widthKm)
+      const dy = ((north - south) * grid.scale) / (2 * cellHeightKm)
+      const roughness = 100 * Math.sqrt(dx * dx + dy * dy)
+      const t = Math.min(1, Math.max(0,
+        Math.log2(Math.max(roughness, FABRIC_FLOOR) / (FABRIC_FLOOR * 2)) / span))
+      out[row * grid.width + column] = 1 + Math.round(t * 254)
+    }
+  }
+  return out
+}

@@ -157,6 +157,11 @@ function main() {
   const textures = Object.fromEntries(
     SURFACE_MAPS.map((m) => [m.file, uri('image/jpeg', shrinkTexture(m.file))]),
   )
+  // The crustal fabric goes in halved, like the rest. What the artifact draws
+  // it from is then 22 km to the cell rather than 11 -- still five times finer
+  // than the mesh, and a megabyte instead of the five that the full raster
+  // would cost as base64 in a page that is already eight.
+  textures['data/fabric.jpg'] = uri('image/jpeg', shrinkRaster(resolve(DATA, 'fabric.jpg')))
 
   // The artifact host supplies a charset, but this file is also opened straight
   // off disk, and there UTF-8 is guessed at rather than declared -- which turned
@@ -267,6 +272,38 @@ function shrinkTexture(file: string) {
       }
       const k = (y * width + x) * 4
       out[k] = r / n; out[k + 1] = g / n; out[k + 2] = b / n; out[k + 3] = 255
+    }
+  }
+  return Buffer.from(jpeg.encode({ data: out, width, height }, TEXTURE_QUALITY).data)
+}
+
+/**
+ * The same halving for a grey PNG that carries a measurement.
+ *
+ * Averaged rather than sampled: the fabric is a roughness field, and taking
+ * every other cell would drop the narrow lineaments -- a fracture zone is one
+ * or two cells wide -- while averaging keeps them as something dimmer.
+ */
+function shrinkRaster(file: string) {
+  const source = jpeg.decode(readFileSync(file), { useTArray: true })
+  const width = TEXTURE_WIDTH
+  const height = width / 2
+  const out = new Uint8Array(width * height * 4)
+  const sx = source.width / width
+  const sy = source.height / height
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let sum = 0
+      let n = 0
+      for (let j = Math.floor(y * sy); j < Math.floor((y + 1) * sy); j++) {
+        for (let i = Math.floor(x * sx); i < Math.floor((x + 1) * sx); i++) {
+          sum += source.data[(j * source.width + i) * 4]
+          n++
+        }
+      }
+      const k = (y * width + x) * 4
+      out[k] = out[k + 1] = out[k + 2] = n ? sum / n : 0
+      out[k + 3] = 255
     }
   }
   return Buffer.from(jpeg.encode({ data: out, width, height }, TEXTURE_QUALITY).data)

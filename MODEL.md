@@ -98,6 +98,20 @@ real. The spread inside each type is the part that matters: an orogen runs from
 quiet to violent across its own extent, and no classification with eleven names
 in it can say which end of that range a given triangle is at.
 
+The table is read at the mesh's vertices, and the mesh is the coarser
+instrument by far: a hundred and twelve kilometres between points against
+eleven to the grid cell. Measured against the raw field, the vertices keep 54%
+of its variation. Subdividing the shell once more &mdash; four times the points,
+four times the length of every run, and the triangulation's corner indices
+widened past sixteen bits &mdash; would take that to 64%. Ten points for four
+times the cost is not a resolution problem worth solving that way.
+
+So the picture is not read through the vertices at all. `public/data/fabric.jpg`
+is the roughness at the grid's own eleven kilometres, painted on the crust like
+any other surface map, sampled by the crust's own direction so that it deforms
+with the reconstruction and keeps every cell. The per-vertex numbers stay for
+what needs a number at a point: the table above, and what a right-click reports.
+
 It is a measurement in the viewer &mdash; the *Crustal fabric* mode &mdash; and
 nothing else yet. Nothing in the solve depends on it. Using it to decide where
 deformation is allowed to go is the obvious next thing to try, and it is not

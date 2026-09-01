@@ -1,5 +1,5 @@
 import { useFrame, useLoader, useThree, type ThreeEvent } from '@react-three/fiber'
-import { useEffect, useMemo, useRef } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
 import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
@@ -14,6 +14,10 @@ import { PERMANENT_MA } from '@shared/model'
 import { fragmentShader, vertexShader } from './shaders'
 
 const MODES = { surface: 0, age: 1, strain: 2, rigidity: 3, islands: 4, fabric: 5 } as const
+
+/** Bound to the fabric sampler until the raster has been fetched. */
+const BLANK = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255]), 1, 1)
+BLANK.needsUpdate = true
 
 /** How much of the crust survives in the mesh view. Enough to read, not to hide. */
 const GLASS_OPACITY = 1
@@ -35,6 +39,40 @@ export function Globe({ data }: { data: Dataset }) {
   const showMesh = useStore((s) => s.showMesh)
   const showTracks = useStore((s) => s.showTracks)
   const surfaceMap = useStore((s) => s.surfaceMap)
+
+  /**
+   * The crustal fabric, as a raster rather than a vertex attribute.
+   *
+   * The gravity grid is eleven kilometres to the cell against a hundred and
+   * twelve between mesh points, so reading it through the vertices threw away
+   * nearly half of what it says; sampled by the crust's own direction it rides
+   * along with the reconstruction and keeps all of it. See
+   * tools/lib/structure.ts.
+   *
+   * Fetched on first use rather than up front, and not through useLoader, which
+   * suspends: at full resolution this is five megabytes, and making every
+   * visitor wait for it before the globe appears would be paying for a view
+   * most of them will never open.
+   */
+  const [fabric, setFabric] = useState<THREE.Texture | null>(null)
+  useEffect(() => {
+    if (mode !== 'fabric' || fabric) return
+    let live = true
+    new THREE.TextureLoader().loadAsync(asset('data/fabric.jpg')).then((texture) => {
+      if (!live) {
+        texture.dispose()
+        return
+      }
+      // Read raw: this is a measurement encoded as a byte, not a picture, and
+      // an sRGB decode would bend the scale it was written on.
+      texture.colorSpace = THREE.NoColorSpace
+      texture.wrapS = THREE.RepeatWrapping
+      texture.anisotropy = 8
+      setFabric(texture)
+    })
+    return () => { live = false }
+  }, [mode, fabric])
+  useEffect(() => () => fabric?.dispose(), [fabric])
   const referenceFrame = useStore((s) => s.referenceFrame)
   // Fitting the rotations walks every frame once; cache them per continent.
   const rotations = useMemo(
@@ -193,7 +231,6 @@ export function Globe({ data }: { data: Dataset }) {
     g.setAttribute('aDir', new THREE.BufferAttribute(data.dirs, 3))
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
-    g.setAttribute('aFabric', new THREE.BufferAttribute(data.gravityRoughness, 1))
     g.setIndex(
       new THREE.BufferAttribute(buffers.index, 1).setUsage(THREE.DynamicDrawUsage),
     )
@@ -208,6 +245,9 @@ export function Globe({ data }: { data: Dataset }) {
   const uniforms = useMemo(
     () => ({
       uMap: { value: map },
+      // Swapped in useFrame once the raster has arrived; a one-pixel stand-in
+      // until then, because a sampler with nothing bound to it is undefined.
+      uFabric: { value: BLANK },
       uTimeMa: { value: 0 },
       uMaxAgeMa: { value: data.meta.maxAgeMa },
       uMode: { value: 0 },
@@ -368,6 +408,7 @@ export function Globe({ data }: { data: Dataset }) {
     }
     if (material.current) {
       material.current.uniforms.uMap.value = map
+      material.current.uniforms.uFabric.value = fabric ?? BLANK
       material.current.uniforms.uTimeMa.value = clock.timeMa
       material.current.uniforms.uMode.value = MODES[mode]
       material.current.uniforms.uGrid.value = showGrid ? 1 : 0

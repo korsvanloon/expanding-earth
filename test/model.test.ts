@@ -14,6 +14,7 @@ import {
 import { readTracks, writeTracks } from '../shared/tracks'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
+import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
 import { fillGaps, sampleStructure } from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
@@ -659,6 +660,36 @@ describe('the built dataset', () => {
         expect(Object.keys(blocks), `${name} asks for an unknown block`).toContain(asked)
       }
       expect(fillBlocks(text, blocks), `${name} is stale; run pnpm docs`).toBe(text)
+    }
+  })
+
+  // The raster is written into a buffer that pngjs and jpeg-js both keep four
+  // bytes wide whatever colour they are asked for, and setting a grey field
+  // straight into it filled the red, green, blue and alpha of the first quarter
+  // of the rows and left the rest black. On the globe that is a north polar cap
+  // of real data on a blank planet, which looks exactly like a texture that has
+  // half loaded -- so it is checked by latitude rather than in total.
+  it.runIf(existsSync(resolve(data, 'fabric.jpg')))('paints the fabric over the whole globe', () => {
+    const image = jpeg.decode(readFileSync(resolve(data, 'fabric.jpg')), { useTArray: true })
+    expect([image.width, image.height]).toEqual([3600, 1800])
+
+    // Lossy, so a cell the survey never reached comes back near zero rather
+    // than at it. Anything this dark is a gap whatever the encoder did.
+    const unsurveyed = (from: number, to: number) => {
+      let dark = 0
+      let seen = 0
+      for (let row = from; row < to; row += 3) {
+        for (let column = 0; column < image.width; column += 3) {
+          if (image.data[(row * image.width + column) * 4] < 4) dark++
+          seen++
+        }
+      }
+      return dark / seen
+    }
+    // Everything but the ice caps, band by band, so a raster written into the
+    // wrong quarter of its buffer cannot pass by averaging out.
+    for (let band = 100; band < 1700; band += 200) {
+      expect(unsurveyed(band, band + 200), `rows ${band}-${band + 200}`).toBeLessThan(0.25)
     }
   })
 

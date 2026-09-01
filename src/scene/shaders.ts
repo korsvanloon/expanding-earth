@@ -4,14 +4,12 @@ in float aIsland;
 in float aAge;
 in float aStrain;
 in float aRigidity;
-in float aFabric;
 
 out vec3 vDir;
 out float vIsland;
 out float vAge;
 out float vStrain;
 out float vRigidity;
-out float vFabric;
 out vec3 vNormal;
 
 void main() {
@@ -20,7 +18,6 @@ void main() {
   vAge = aAge;
   vStrain = aStrain;
   vRigidity = aRigidity;
-  vFabric = aFabric;
   // The mesh is always a sphere, so the outward normal is just the position.
   vNormal = normalize(mat3(modelMatrix) * normalize(position));
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
@@ -31,6 +28,7 @@ export const fragmentShader = /* glsl */ `
 precision highp float;
 
 uniform sampler2D uMap;
+uniform sampler2D uFabric;
 uniform float uTimeMa;
 uniform float uMaxAgeMa;
 uniform int uMode;        // 0 surface, 1 crustal age, 2 strain, 3 rigidity, 4 islands, 5 fabric
@@ -44,7 +42,6 @@ in float vIsland;
 in float vAge;
 in float vStrain;
 in float vRigidity;
-in float vFabric;
 in vec3 vNormal;
 
 out vec4 fragColor;
@@ -140,12 +137,21 @@ vec3 islandRamp(float id) {
  * crust has been left alone and bright where it has been cut about, because
  * this is a magnitude and not two things either side of a middle.
  *
- * The scale is logarithmic on purpose. Roughness runs from about 7 Eotvos per
- * 100 km over a platform to over 600 along a continental arc, and on a linear
- * ramp the whole ocean floor and every shield come out the same near-black.
+ * Read from a raster rather than from the vertices, and that is the whole
+ * point: the grid is eleven kilometres to the cell and the mesh is a hundred
+ * and twelve between points, so carrying this as a vertex attribute threw away
+ * nearly half of what the field says. Sampled by the crust's own direction, so
+ * it rides along with the reconstruction exactly as the surface maps do.
+ *
+ * The byte is already on a logarithmic scale -- roughness runs from single
+ * figures over a platform to six hundred along an arc, and linearly the whole
+ * ocean floor and every shield come out the same near-black. Zero means the
+ * altimetry never reached there.
  */
-vec3 fabricRamp(float roughness) {
-  float t = clamp(log2(max(roughness, 4.0) / 8.0) / log2(512.0 / 8.0), 0.0, 1.0);
+vec3 fabricRamp(vec3 dir) {
+  float encoded = texture(uFabric, dirToUv(dir)).r;
+  if (encoded < 0.5 / 255.0) return srgbToLinear(vec3(0.20, 0.20, 0.22));
+  float t = clamp((encoded * 255.0 - 1.0) / 254.0, 0.0, 1.0);
   vec3 quiet = vec3(0.09, 0.11, 0.16);
   vec3 middle = vec3(0.29, 0.42, 0.55);
   vec3 busy = vec3(0.97, 0.87, 0.62);
@@ -178,7 +184,7 @@ void main() {
   } else if (uMode == 3) {
     base = rigidityRamp(vRigidity);
   } else if (uMode == 5) {
-    base = fabricRamp(vFabric);
+    base = fabricRamp(vDir);
   } else if (uMode == 4) {
     // Crust belonging to no island is the ground that is free to deform, and
     // it is shown as the surface it is rather than as a blank, so the islands

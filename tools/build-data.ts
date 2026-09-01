@@ -17,12 +17,13 @@
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import jpeg from 'jpeg-js'
 import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { readGrid } from './lib/grid.js'
-import { fillGaps, sampleStructure } from './lib/structure.js'
+import { fabricRaster, fillGaps, sampleStructure } from './lib/structure.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
@@ -40,6 +41,9 @@ import {
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const TEXTURES = resolve(ROOT, 'public/textures')
 const OUT = resolve(ROOT, 'public/data')
+
+/** Quality of the crustal-fabric raster; see where it is written. */
+const FABRIC_QUALITY = 90
 
 export const CONFIG = {
   /**
@@ -647,6 +651,34 @@ function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
  */
 function sampleGravityStructure(shell: Shell, crustType: Uint8Array) {
   const grid = readGrid(readFileSync(resolve(ROOT, 'data-src/vgg.grid')))
+
+  // The picture, at the grid's own resolution rather than the mesh's. It is
+  // painted on the crust like any other surface map, so it deforms with the
+  // reconstruction while keeping every one of its eleven-kilometre cells --
+  // where the per-vertex figures below, at a hundred and twelve kilometres
+  // apart, keep a little over half of what the field says.
+  const raster = fabricRaster(grid, R0_KM)
+  // Written lossy, and deliberately. The exact field is the per-vertex array
+  // below, which is what anything computing on it reads; this is the picture,
+  // already quantised to a byte on a logarithmic scale, and the difference a
+  // quality-90 JPEG makes to that byte is under a level. What it buys is the
+  // difference between 3.6 MB and the 17.7 MB the same raster costs as a PNG:
+  // a gradient taken cell by cell is noisy at the cell, and lossless coding
+  // spends most of its bits on that noise rather than on the lineaments.
+  const pixels = new Uint8Array(grid.width * grid.height * 4)
+  for (let i = 0; i < raster.length; i++) {
+    pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = raster[i]
+    pixels[i * 4 + 3] = 255
+  }
+  const encoded = jpeg.encode(
+    { data: pixels, width: grid.width, height: grid.height }, FABRIC_QUALITY,
+  ).data
+  writeFileSync(resolve(OUT, 'fabric.jpg'), encoded)
+  console.log(
+    `[build-data] wrote public/data/fabric.jpg, ${grid.width}x${grid.height} ` +
+      `(${(encoded.length / 1e6).toFixed(1)} MB)`,
+  )
+
   const vertexCount = shell.positions.length / 3
   // Mesh spacing: an icosphere of this many vertices covers 4*pi*R^2, so each
   // vertex owns about that much of it, and the spacing is the width of that

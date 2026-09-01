@@ -7,6 +7,7 @@ dist
 # Reproducible, so not committed.
 /public/data/*.bin
 /public/data/*.json
+/public/data/*.jpg
 
 # TypeScript incremental build state
 *.tsbuildinfo
