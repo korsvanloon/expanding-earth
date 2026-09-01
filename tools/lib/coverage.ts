@@ -83,7 +83,11 @@ export function probeDirections(count: number): Float64Array {
 }
 
 /** Which cell of the lookup grid a direction falls in. */
-function cellOf(x: number, y: number, z: number): number {
+/**
+ * The grid cell a direction falls in. Exported so the island contact test can
+ * look faces up in the same buckets `bucketFace` fills.
+ */
+export function cellOf(x: number, y: number, z: number): number {
   const length = Math.sqrt(x * x + y * y + z * z) || 1
   const lat = Math.asin(Math.min(1, Math.max(-1, y / length)))
   const lon = Math.atan2(z / length, x / length)

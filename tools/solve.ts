@@ -57,6 +57,7 @@ import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topo
 import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
 import { cellBuckets, coverage, probeCells, probeDirections } from './lib/coverage.js'
+import { separateIslands, type IslandContacts } from './lib/contact.js'
 import { distortion, shapePairs } from './lib/shape.js'
 import { conjugateFit } from './lib/flowlines.js'
 import { pairPulls as pairIsHeldIn, readTracks } from '../shared/tracks.js'
@@ -190,6 +191,16 @@ const CONFIG = {
    */
   trackStiffness: Number(process.env.TRACK_K ?? 0),
   trackTurnDeg: 12,
+  /**
+   * How hard two islands of strong crust are pushed apart where one has got
+   * inside the other.
+   *
+   * A share of the depth per sweep rather than the whole of it, like every
+   * other constraint here: eighty sweeps of a third converge on contact
+   * without the shove that a full correction in one pass would give a craton.
+   * Zero switches it off, which is how the run it was built for was measured.
+   */
+  islandContactStiffness: Number(process.env.CONTACT_K ?? 0.35),
   radialStiffness: Number(process.env.RADIAL_K ?? 0.35),
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,
@@ -407,6 +418,27 @@ function main() {
   const cells = probeCells(probes)
   const buckets = cellBuckets()
   const faceIsland = new Uint16Array(faceCount)
+  // A second set of buckets, holding only the island faces, so the contact
+  // test and the coverage pass do not overwrite each other's lists.
+  const contactBuckets = cellBuckets()
+
+  /**
+   * Which island each triangle belongs to.
+   *
+   * Worked out fresh whenever the mesh has changed, because it does: a
+   * collapse renames a face's corners and a flip replaces one, so a face is
+   * not made of the crust it started with. All three corners have to agree or
+   * an island's own ragged edge reads as an overlap with whatever it borders.
+   */
+  const markIslands = () => {
+    for (let f = 0; f < faceCount; f++) {
+      if (!mesh.faceAlive[f]) { faceIsland[f] = 0; continue }
+      const ia = islands.vertexIsland[mesh.faceVerts[f * 3]]
+      const ib = islands.vertexIsland[mesh.faceVerts[f * 3 + 1]]
+      const ic = islands.vertexIsland[mesh.faceVerts[f * 3 + 2]]
+      faceIsland[f] = ia !== 0 && ia === ib && ib === ic ? ia : 0
+    }
+  }
 
   const frames: Int16Array[] = []
   const strains: Uint8Array[] = []
@@ -606,17 +638,7 @@ function main() {
     }
     strains.push(vertexStrain)
     const held = distortion(heldPairs, pos, radiusAt(t))
-    // Which island each triangle belongs to, worked out fresh because the mesh
-    // redraws itself: a face's corners are not the ones it started with. All
-    // three have to agree, or an island's own ragged edge would read as an
-    // overlap with whatever it borders.
-    for (let f = 0; f < faceCount; f++) {
-      if (!mesh.faceAlive[f]) { faceIsland[f] = 0; continue }
-      const ia = islands.vertexIsland[mesh.faceVerts[f * 3]]
-      const ib = islands.vertexIsland[mesh.faceVerts[f * 3 + 1]]
-      const ic = islands.vertexIsland[mesh.faceVerts[f * 3 + 2]]
-      faceIsland[f] = ia !== 0 && ia === ib && ib === ic ? ia : 0
-    }
+    markIslands()
     const tiled = coverage(pos, mesh, faceCount, probes, cells, buckets, faceIsland)
     // Should be impossible; said out loud rather than trusted, because when the
     // probes did sit on the mesh this went wrong in total silence.
@@ -903,7 +925,11 @@ function main() {
   let flippedTotal = 0
   let easedTotal = 0
   let foldedNow = 0
+  let contacts: IslandContacts = { found: 0, deepestKm: 0 }
+  let contactsTotal = 0
+  let deepestContactKm = 0
   for (let t = CONFIG.stepMa; t <= endTimeMa; t += CONFIG.stepMa) {
+    let contactsNow = 0
     const rPrev = radiusAt(t - CONFIG.stepMa)
     const rNext = radiusAt(t)
     previous.set(pos)
@@ -916,6 +942,7 @@ function main() {
 
     // Un-make the crust that had not been made yet.
     const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
+    markIslands()
     refusedTotal += closed.refused
     easedTotal += closed.eased
     settleCollapsed()
@@ -962,6 +989,16 @@ function main() {
       }
       closeConjugates(pos, t, rNext)
       straightenTracks(pos, t)
+      // Rigid crust may not pass through rigid crust. Rebuilt only on the
+      // first sweep: a sweep moves points by kilometres and a grid cell is two
+      // degrees, so the lists are still right at the end of the step.
+      contacts = separateIslands(
+        pos, mesh, faceCount, vertexCount, islands.vertexIsland, faceIsland,
+        mesh.vertexAlive, rNext, CONFIG.islandContactStiffness, contactBuckets,
+        sweep === 0,
+      )
+      contactsNow += contacts.found
+      if (contacts.deepestKm > deepestContactKm) deepestContactKm = contacts.deepestKm
       unfold(
         pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin,
@@ -989,6 +1026,7 @@ function main() {
     settleCollapsed()
     followRegions(rNext)
 
+    contactsTotal += contactsNow
     if (tracing && t % 10 === 0) console.log(`[stretch] ${t} Ma  ${trace.join('  ')}`)
     if (t % meta.frameStepMa === 0) {
       record(t)
@@ -1108,6 +1146,10 @@ function main() {
         `${net > 1 ? `x${(seen.walked / net).toFixed(1)}` : '(went nowhere)'}`,
     )
   }
+  console.log(
+    `[solve] ${contactsTotal} island-on-island contacts pushed apart, `
+      + `deepest ${deepestContactKm.toFixed(0)} km`,
+  )
   if (mesh.drawnMisses) {
     console.log(
       `[solve] WARNING: ${mesh.drawnMisses} flips could not be named in the drawn `

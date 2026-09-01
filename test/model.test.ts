@@ -7,6 +7,7 @@ import {
 import { crustScale, sampleCurve, MIN_SCALE, TAU_MA, type Meta } from '../shared/model'
 import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
+import { separateIslands } from '../tools/lib/contact'
 import { distortion, shapePairs } from '../tools/lib/shape'
 import {
   conjugateFit, conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper,
@@ -1267,6 +1268,91 @@ describe('remembering how the globe was set up', () => {
     // 4 islands, 5 fabric. The renderer indexes this list to get that number,
     // so the order here is load-bearing.
     expect(VIEW_MODES).toEqual(['surface', 'age', 'strain', 'rigidity', 'islands', 'fabric'])
+  })
+})
+
+describe('keeping rigid crust out of rigid crust', () => {
+  /**
+   * One triangle of island 1, and a point of island 2 sitting inside it.
+   *
+   * The point is deliberately off centre, so the shallowest way out is a
+   * particular edge and not a matter of taste: a contact pushes a continent out
+   * the way it came, and out the far side would carry a craton clean across its
+   * neighbour.
+   */
+  const setUp = (lonDeg: number, latDeg: number) => {
+    const at = (lon: number, lat: number) => {
+      const a = (lon * Math.PI) / 180
+      const b = (lat * Math.PI) / 180
+      const c = Math.cos(b)
+      return [c * Math.cos(a), Math.sin(b), -c * Math.sin(a)]
+    }
+    // Corners 0..2 are the triangle; vertex 3 is the intruder.
+    const pos = Float64Array.from([
+      ...at(0, 0), ...at(6, 0), ...at(3, 5), ...at(lonDeg, latDeg),
+    ].map((v) => v * R0_KM))
+    const mesh = {
+      faceVerts: Uint32Array.from([0, 1, 2]),
+      faceAlive: Uint8Array.from([1]),
+    }
+    return { pos, mesh }
+  }
+  const vertexIsland = Uint16Array.from([1, 1, 1, 2])
+  const faceIsland = Uint16Array.from([1])
+  const alive = Uint8Array.from([1, 1, 1, 1])
+
+  it('pushes a point of one island out of another, the shallow way', () => {
+    // Just inside the bottom edge, which runs along the equator.
+    const { pos, mesh } = setUp(3, 0.4)
+    const before = pos[10] // the intruder's y, which is its latitude
+    const report = separateIslands(
+      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, cellBuckets(),
+    )
+    expect(report.found).toBe(1)
+    // 0.4 degrees of a 6371 km sphere is about 44 km.
+    expect(report.deepestKm).toBeGreaterThan(30)
+    expect(report.deepestKm).toBeLessThan(60)
+    // Out across the equator, southwards, not up over the far corner.
+    expect(pos[10]).toBeLessThan(before)
+  })
+
+  it('leaves a point of the same island alone, however deep inside', () => {
+    const { pos, mesh } = setUp(3, 1)
+    const same = Uint16Array.from([1, 1, 1, 1])
+    const kept = Float64Array.from(pos)
+    const report = separateIslands(
+      pos, mesh, 1, 4, same, faceIsland, alive, R0_KM, 1, cellBuckets(),
+    )
+    expect(report.found).toBe(0)
+    expect([...pos]).toEqual([...kept])
+  })
+
+  it('leaves two islands that merely touch alone', () => {
+    // Outside the triangle by half a degree: contact, not interpenetration,
+    // and pushing here would open every closed ocean back up.
+    const { pos, mesh } = setUp(3, -0.5)
+    const kept = Float64Array.from(pos)
+    const report = separateIslands(
+      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, cellBuckets(),
+    )
+    expect(report.found).toBe(0)
+    expect([...pos]).toEqual([...kept])
+  })
+
+  it('moves the triangle back as far as it moves the point out', () => {
+    const { pos, mesh } = setUp(3, 0.4)
+    const before = [0, 1, 2, 3].map((v) => [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]])
+    separateIslands(
+      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, cellBuckets(),
+    )
+    // The four points' centre of mass must not have moved: a contact that
+    // pushed only the intruder would walk the pair of islands across the globe.
+    for (let k = 0; k < 3; k++) {
+      const was = before.reduce((sum, p) => sum + p[k], 0)
+      let now = 0
+      for (let v = 0; v < 4; v++) now += pos[v * 3 + k]
+      expect(now).toBeCloseTo(was, 6)
+    }
   })
 })
 
