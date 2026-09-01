@@ -41,6 +41,10 @@ function main() {
   const [vertexCount, faceCount] = new Uint32Array(mesh, 0, 4)
   const dirs = new Float32Array(mesh, 16, vertexCount * 3)
   const indices = new Uint32Array(mesh, 16 + vertexCount * 12, faceCount * 3)
+  // When the crust under each triangle came into existence, Ma. A live face
+  // whose age is below the frame time is a triangle of sea floor that has not
+  // erupted yet -- crust the model is drawing before it exists.
+  const faceAge = new Float32Array(mesh, 16 + vertexCount * 12 + faceCount * 12, faceCount)
   const deltas = readTopology(topology, faceCount)
   const radiusKm = meta.crustModels[0].radiusKm
 
@@ -56,25 +60,35 @@ function main() {
   }
 
   console.log('  Ma   R km   faces   median span km   p90   p99   share of area painted from crust')
-  console.log('                     (on the sphere)              >100 / >300 / >1000 km away   tinted   triangles/sphere')
+  console.log('                     (on the sphere)              >100 / >300 / >1000 km away   tinted   tri/sphere   not yet erupted')
   for (const timeMa of [0, 13, 20, 38, 60, 90, 120, 160, 200]) {
     const frame = Math.round(timeMa / meta.frameStepMa)
     if (frame >= meta.frameCount) continue
-    const live = applyTopology(indices, deltas, frame - 1, working, out) / 3
+    // applyTopology compacts the live faces into `out`, so out's slot f is not
+    // face f -- reading faceAge[f] against it lines a triangle up with another
+    // triangle's age, which is how a first pass at this reported that 63% of
+    // the shell at 200 Ma had not erupted yet. `working` keeps every face in
+    // its own slot, with -1 for the ones that are gone.
+    applyTopology(indices, deltas, frame - 1, working, out)
     const base = frame * vertexCount * 3
     const radius = sampleCurve(radiusKm, timeMa, meta.radiusStepMa)
 
     const spans: number[] = []
     let area = 0
     let tinted = 0
+    let unborn = 0
+    let unbornFaces = 0
     const smeared = [0, 0, 0]
     const cuts = [100, 300, 1000]
     // The same ramp the viewer paints with, so the last column says how much of
     // the globe actually goes grey rather than how much strictly earns it. They
     // differ because the seam is carried per vertex and a vertex is shared.
     const seam = new Float32Array(vertexCount)
-    for (let f = 0; f < live; f++) {
-      const a = out[f * 3], b = out[f * 3 + 1], c = out[f * 3 + 2]
+    let live = 0
+    for (let f = 0; f < faceCount; f++) {
+      const a = working[f * 3], b = working[f * 3 + 1], c = working[f * 3 + 2]
+      if (a < 0) continue
+      live++
       // How far apart the three corners are on today's Earth: the width of the
       // strip of sea floor this one triangle is painted from.
       let span = 0
@@ -95,6 +109,7 @@ function main() {
       const faceArea = 0.5 * Math.hypot(cx, cy, cz) * radius * radius
       area += faceArea
       for (let i = 0; i < cuts.length; i++) if (span > cuts[i]) smeared[i] += faceArea
+      if (faceAge[f] < timeMa) { unborn += faceArea; unbornFaces++ }
       const r = seamReach(span)
       if (r > seam[a]) seam[a] = r
       if (r > seam[b]) seam[b] = r
@@ -103,8 +118,9 @@ function main() {
     // Second pass, now that every vertex knows the widest triangle around it:
     // a fragment's tint is the barycentric blend of its corners', so the mean
     // of the three is the face's share.
-    for (let f = 0; f < live; f++) {
-      const a = out[f * 3], b = out[f * 3 + 1], c = out[f * 3 + 2]
+    for (let f = 0; f < faceCount; f++) {
+      const a = working[f * 3], b = working[f * 3 + 1], c = working[f * 3 + 2]
+      if (a < 0) continue
       const px = frames[base + a * 3] * k, py = frames[base + a * 3 + 1] * k, pz = frames[base + a * 3 + 2] * k
       const qx = frames[base + b * 3] * k, qy = frames[base + b * 3 + 1] * k, qz = frames[base + b * 3 + 2] * k
       const rx = frames[base + c * 3] * k, ry = frames[base + c * 3 + 1] * k, rz = frames[base + c * 3 + 2] * k
@@ -122,7 +138,8 @@ function main() {
       + `${q(0.99).toFixed(0).padStart(7)}   `
       + smeared.map((s) => `${(100 * s / area).toFixed(1)}%`).join('  ')
       + `   ${(100 * tinted / area).toFixed(1)}%`
-      + `   ${(100 * area / (4 * Math.PI * radius * radius)).toFixed(1)}%`,
+      + `   ${(100 * area / (4 * Math.PI * radius * radius)).toFixed(1)}%`
+      + `   ${(100 * unborn / area).toFixed(1)}% (${unbornFaces})`,
     )
   }
 }
