@@ -18,12 +18,15 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import jpeg from 'jpeg-js'
+import { PNG } from 'pngjs'
 import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { readGrid } from './lib/grid.js'
-import { fabricRaster, fillGaps, fractureZones, lineaments, sampleStructure } from './lib/structure.js'
+import {
+  fabricRaster, fillGaps, fractureZones, lineaments, sampleStructure, zoneRaster,
+} from './lib/structure.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
@@ -342,13 +345,36 @@ function main() {
   const lines = vgg && CONFIG.structureWeight > 0
     ? lineaments(vgg, R0_KM, CONFIG.structureWindowKm, CONFIG.structureSmoothKm)
     : undefined
-  const crest = vgg && CONFIG.crestPull > 0 && lines
+  // Detected whether or not anything steers by them, because they are worth
+  // looking at: the viewer paints them on the crust so that a reader can put
+  // them beside the traced paths and see for themselves whether the two agree.
+  const zones = vgg && lines
     ? fractureZones(
         lineaments(vgg, R0_KM, CONFIG.crestWindowKm, CONFIG.crestSmoothKm),
         lines, ageMa, ageFull.width, ageFull.height, R0_KM,
         { alignmentGate: CONFIG.alignmentGate },
       )
     : undefined
+  if (zones) {
+    const raster = zoneRaster(zones)
+    const pixels = new Uint8Array(zones.width * zones.height * 4)
+    let lit = 0
+    for (let i = 0; i < raster.length; i++) {
+      pixels[i * 4] = pixels[i * 4 + 1] = pixels[i * 4 + 2] = raster[i]
+      pixels[i * 4 + 3] = 255
+      if (raster[i]) lit++
+    }
+    const png = new PNG({ width: zones.width, height: zones.height, colorType: 0 })
+    png.data.set(pixels)
+    const encoded = PNG.sync.write(png)
+    writeFileSync(resolve(OUT, 'zones.png'), encoded)
+    console.log(
+      `[build-data] wrote public/data/zones.png -- fracture zones on ` +
+        `${((100 * lit) / raster.length).toFixed(1)}% of the grid's cells ` +
+        `(${(encoded.length / 1e6).toFixed(1)} MB)`,
+    )
+  }
+  const crest = CONFIG.crestPull > 0 ? zones : undefined
   const traced = traceFlowLines(
     ageMa,
     ageFull.width,

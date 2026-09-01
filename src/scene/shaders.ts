@@ -29,6 +29,8 @@ precision highp float;
 
 uniform sampler2D uMap;
 uniform sampler2D uFabric;
+uniform sampler2D uZones;
+uniform float uZonesOn;
 uniform float uTimeMa;
 uniform float uMaxAgeMa;
 uniform int uMode;        // 0 surface, 1 crustal age, 2 strain, 3 rigidity, 4 islands, 5 fabric
@@ -209,6 +211,17 @@ void main() {
       : ageRamp(vAge);
   } else {
     base = strainRamp(vStrain);
+  }
+
+  // The fracture zones the gravity grid was searched for, over whatever else is
+  // being shown. Painted rather than drawn as lines because that is the shape
+  // the detector answers in -- every cell it fired on, not a chosen sample of
+  // them -- and because a raster on the crust deforms with the crust for free.
+  if (uZonesOn > 0.5) {
+    float zone = texture(uZones, dirToUv(vDir)).r;
+    if (zone > 0.004) {
+      base = mix(base, srgbToLinear(vec3(0.20, 0.95, 0.80)), 0.35 + 0.55 * zone);
+    }
   }
 
   if (uGrid > 0.5) {

@@ -80,6 +80,15 @@ interface State {
   showMesh: boolean
   /** Draw the fracture zones and the pairs due to meet now; see shared/tracks.ts. */
   showTracks: boolean
+  /**
+   * Paint the fracture zones the gravity grid was searched for.
+   *
+   * Not the same thing as showTracks at all, and the pair is the point: those
+   * are the paths the model traced, these are the lines a detector found in an
+   * independent dataset, and putting one over the other is how a reader judges
+   * whether they agree. See fractureZones in tools/lib/structure.ts.
+   */
+  showZones: boolean
   endTimeMa: number
   /** Points picked off the globe, oldest first; see Pick. */
   picks: Pick[]
@@ -93,6 +102,7 @@ interface State {
   setShowGrid: (showGrid: boolean) => void
   setShowMesh: (showMesh: boolean) => void
   setShowTracks: (showTracks: boolean) => void
+  setShowZones: (showZones: boolean) => void
   setEndTime: (endTimeMa: number) => void
   seek: (timeMa: number) => void
 }
@@ -130,6 +140,7 @@ export const useStore = create<State>((set) => ({
   showGrid: false,
   showMesh: false,
   showTracks: false,
+  showZones: false,
   endTimeMa: 200,
   picks: [],
   // Six is enough for a claim about a handful of points and few enough that the
@@ -145,6 +156,7 @@ export const useStore = create<State>((set) => ({
   setShowGrid: (showGrid) => set({ showGrid }),
   setShowMesh: (showMesh) => set({ showMesh }),
   setShowTracks: (showTracks) => set({ showTracks }),
+  setShowZones: (showZones) => set({ showZones }),
   setEndTime: (endTimeMa) => set({ endTimeMa }),
   seek: (timeMa) => {
     clock.timeMa = timeMa

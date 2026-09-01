@@ -36,7 +36,7 @@ export function Panel({ data }: { data: Dataset }) {
   const timeMa = useClockTime(8)
   const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
     surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame,
-    showTracks, setShowTracks } = useStore()
+    showTracks, setShowTracks, showZones, setShowZones } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
   /**
@@ -166,6 +166,23 @@ export function Panel({ data }: { data: Dataset }) {
             />
             Fracture zones
           </label>
+          <label className="toggle">
+            <input
+              type="checkbox"
+              checked={showZones}
+              onChange={(e) => setShowZones(e.target.checked)}
+            />
+            Detected fracture zones
+          </label>
+          <p className="caption">
+            In turquoise, and read from the gravity grid rather than from the age
+            grid &mdash; an independent instrument. A line is kept only where it
+            runs within twenty degrees of the way the crust travelled, keeps
+            going for hundreds of kilometres, and is narrow: 4.3% of the sea
+            floor survives that. Put them under the magenta paths and judge for
+            yourself whether the two agree. Drawn about three times wider than
+            they were measured, or they would be invisible.
+          </p>
           <p className="caption">
             The paths the crust took away from the ridges, in magenta &mdash; read off the age grid,
             not drawn. Each line runs from one coast, through the ridge, to the coast it left. Scrub

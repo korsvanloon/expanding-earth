@@ -162,6 +162,10 @@ function main() {
   // than the mesh, and a megabyte instead of the five that the full raster
   // would cost as base64 in a page that is already eight.
   textures['data/fabric.jpg'] = uri('image/jpeg', shrinkRaster(resolve(DATA, 'fabric.jpg')))
+  // The detected zones go in whole. They are a sparse mask of thin curves, so a
+  // PNG of them is under a megabyte where the fabric is 3.6, and halving them
+  // would break the lines they are made of rather than blurring them.
+  textures['data/zones.png'] = uri('image/png', readFileSync(resolve(DATA, 'zones.png')))
 
   // The artifact host supplies a charset, but this file is also opened straight
   // off disk, and there UTF-8 is guessed at rather than declared -- which turned

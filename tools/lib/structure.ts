@@ -738,3 +738,44 @@ function advanceAlong(
   const l = Math.hypot(px, py, pz) || 1
   return [px / l, py / l, pz / l]
 }
+
+
+/**
+ * The detected zones as a raster, ready to be painted on the crust.
+ *
+ * The detector thins its answer to a curve one cell wide, which at eleven
+ * kilometres a cell is invisible on a globe unless you are almost inside it, so
+ * this widens each line by a cell either side before encoding. That is a
+ * drawing decision and not a measurement: what is painted is about 33 km across
+ * and what was detected is about 11.
+ *
+ * Zero means nothing was detected. Everything else is the strength, on a scale
+ * where the field's own ninety-ninth percentile is full, so that a handful of
+ * enormous readings cannot leave the rest of the map black.
+ */
+export function zoneRaster(zones: Lineaments, dilateCells = 1): Uint8Array {
+  const { width, height, ridgeness } = zones
+  const positives: number[] = []
+  for (let i = 0; i < ridgeness.length; i++) if (ridgeness[i] > 0) positives.push(ridgeness[i])
+  if (!positives.length) return new Uint8Array(width * height)
+  const sorted = Float64Array.from(positives).sort()
+  const full = sorted[Math.floor(0.99 * sorted.length)] || sorted[sorted.length - 1]
+
+  const out = new Uint8Array(width * height)
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      const value = ridgeness[row * width + column]
+      if (value <= 0) continue
+      const level = 1 + Math.round(254 * Math.min(1, value / full))
+      for (let dr = -dilateCells; dr <= dilateCells; dr++) {
+        const r = row + dr
+        if (r < 0 || r >= height) continue
+        for (let dc = -dilateCells; dc <= dilateCells; dc++) {
+          const c = ((column + dc) % width + width) % width
+          if (out[r * width + c] < level) out[r * width + c] = level
+        }
+      }
+    }
+  }
+  return out
+}

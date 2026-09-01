@@ -38,6 +38,7 @@ export function Globe({ data }: { data: Dataset }) {
   const showGrid = useStore((s) => s.showGrid)
   const showMesh = useStore((s) => s.showMesh)
   const showTracks = useStore((s) => s.showTracks)
+  const showZones = useStore((s) => s.showZones)
   const surfaceMap = useStore((s) => s.surfaceMap)
 
   /**
@@ -55,24 +56,32 @@ export function Globe({ data }: { data: Dataset }) {
    * most of them will never open.
    */
   const [fabric, setFabric] = useState<THREE.Texture | null>(null)
-  useEffect(() => {
-    if (mode !== 'fabric' || fabric) return
+  const [zones, setZones] = useState<THREE.Texture | null>(null)
+  /** Fetch one of the measurement rasters, once, when something first wants it. */
+  const raster = (
+    file: string, wanted: boolean, held: THREE.Texture | null,
+    keep: (texture: THREE.Texture) => void,
+  ) => useEffect(() => {
+    if (!wanted || held) return
     let live = true
-    new THREE.TextureLoader().loadAsync(asset('data/fabric.jpg')).then((texture) => {
+    new THREE.TextureLoader().loadAsync(asset(file)).then((texture) => {
       if (!live) {
         texture.dispose()
         return
       }
-      // Read raw: this is a measurement encoded as a byte, not a picture, and
-      // an sRGB decode would bend the scale it was written on.
+      // Read raw: these are measurements encoded as bytes, not pictures, and an
+      // sRGB decode would bend the scale they were written on.
       texture.colorSpace = THREE.NoColorSpace
       texture.wrapS = THREE.RepeatWrapping
       texture.anisotropy = 8
-      setFabric(texture)
-    })
+      keep(texture)
+    }).catch(() => {})
     return () => { live = false }
-  }, [mode, fabric])
+  }, [wanted, held, file])
+  raster('data/fabric.jpg', mode === 'fabric', fabric, setFabric)
+  raster('data/zones.png', showZones, zones, setZones)
   useEffect(() => () => fabric?.dispose(), [fabric])
+  useEffect(() => () => zones?.dispose(), [zones])
   const referenceFrame = useStore((s) => s.referenceFrame)
   // Fitting the rotations walks every frame once; cache them per continent.
   const rotations = useMemo(
@@ -325,6 +334,8 @@ export function Globe({ data }: { data: Dataset }) {
       // Swapped in useFrame once the raster has arrived; a one-pixel stand-in
       // until then, because a sampler with nothing bound to it is undefined.
       uFabric: { value: BLANK },
+      uZones: { value: BLANK },
+      uZonesOn: { value: 0 },
       uTimeMa: { value: 0 },
       uMaxAgeMa: { value: data.meta.maxAgeMa },
       uMode: { value: 0 },
@@ -486,6 +497,8 @@ export function Globe({ data }: { data: Dataset }) {
     if (material.current) {
       material.current.uniforms.uMap.value = map
       material.current.uniforms.uFabric.value = fabric ?? BLANK
+      material.current.uniforms.uZones.value = zones ?? BLANK
+      material.current.uniforms.uZonesOn.value = showZones && zones ? 1 : 0
       material.current.uniforms.uTimeMa.value = clock.timeMa
       material.current.uniforms.uMode.value = MODES[mode]
       material.current.uniforms.uGrid.value = showGrid ? 1 : 0

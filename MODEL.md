@@ -290,8 +290,21 @@ than as a story. One possibility that cannot be ruled out with what is measured
 here is that the pulled paths are the truer ones and the model is the thing that
 cannot follow them &mdash; a truer target is harder to hit.
 
-What ships is the bearing, with `crestPull` at zero. The detector is built,
-tested and exported, and nothing in the run depends on it.
+What ships is the bearing, with `crestPull` at zero. Nothing in the run depends
+on the detector &mdash; but it is painted on the globe, as *Detected fracture
+zones*, in turquoise under the magenta paths. It is drawn about three times
+wider than it was measured or it would be invisible at eleven kilometres a cell,
+and that is a drawing decision rather than a measurement.
+
+It is there to be argued with. Two instruments that never saw each other's data
+now sit on the same crust: the paths come from the age grid, the turquoise from
+the gravity grid, and where they agree that is worth something no aggregate
+number in this file can say. On the shipped run they agree well down the
+south-west Atlantic, where the turquoise runs in long unbroken streaks along the
+magenta; they agree poorly in the central North Atlantic, where the turquoise
+breaks into blobs and dashes; and the detector plainly fires on some of the
+Mid-Atlantic Ridge axis itself, which is not a flow line and is a false positive
+the twenty-degree gate should have caught.
 
 ## Where the plates come from
 

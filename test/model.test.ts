@@ -17,7 +17,7 @@ import { loadRaster } from '../tools/lib/raster'
 import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
 import {
-  crestOffsetKm, fillGaps, fractureZones, lineamentAt, lineaments, sampleStructure,
+  crestOffsetKm, fillGaps, fractureZones, lineamentAt, lineaments, sampleStructure, zoneRaster,
 } from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
 import { resolve } from 'node:path'
@@ -1213,6 +1213,45 @@ describe('telling a fracture zone from an abyssal hill', () => {
     const gated = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0.94 })
     const open = fractureZones(sharp, guide, northwards(), W, H, R0_KM, { alignmentGate: 0 })
     expect(strength(gated, -90)).toBeLessThan(strength(open, -90))
+  })
+})
+
+describe('painting the detected zones', () => {
+  // The detector answers in curves a cell wide, which at eleven kilometres a
+  // cell is invisible on a globe. The raster widens them so they can be seen,
+  // and the widening must not invent detections where there were none: a lone
+  // cell becomes a small patch, and empty ground stays empty.
+  it('widens a detection without spreading it across the map', () => {
+    const width = 40
+    const height = 20
+    const ridgeness = new Float32Array(width * height)
+    ridgeness[10 * width + 20] = 5
+    const painted = zoneRaster({
+      width, height, ridgeness,
+      axis: new Uint8Array(width * height),
+      coherence: new Uint8Array(width * height),
+      known: new Uint8Array(width * height).fill(1),
+    }, 1)
+    expect(painted[10 * width + 20]).toBeGreaterThan(0)
+    expect(painted[10 * width + 21]).toBeGreaterThan(0)
+    expect(painted[9 * width + 19]).toBeGreaterThan(0)
+    expect(painted[10 * width + 23]).toBe(0)
+    let lit = 0
+    for (const v of painted) if (v) lit++
+    expect(lit).toBe(9)
+  })
+
+  it('paints nothing at all when nothing was detected', () => {
+    const width = 20
+    const height = 10
+    const painted = zoneRaster({
+      width, height,
+      ridgeness: new Float32Array(width * height),
+      axis: new Uint8Array(width * height),
+      coherence: new Uint8Array(width * height),
+      known: new Uint8Array(width * height).fill(1),
+    })
+    expect(painted.some((v) => v !== 0)).toBe(false)
   })
 })
 
