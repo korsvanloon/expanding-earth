@@ -222,6 +222,11 @@ export function Panel({ data }: { data: Dataset }) {
           series={[
             { values: meta.diagnostics.map((d) => 100 * d.gapFraction), color: '#e0a355', label: 'bare sphere' },
             { values: meta.diagnostics.map((d) => 100 * d.overlapFraction), color: '#d3685f', label: 'covered twice' },
+            {
+              values: meta.diagnostics.map((d) => 100 * (d.islandOverlapFraction ?? 0)),
+              color: '#c07fd0',
+              label: 'two rigid islands at once',
+            },
             { values: meta.diagnostics.map((d) => 100 * d.foldFraction), color: '#b98cd0', label: 'inside out' },
             { values: meta.diagnostics.map((d) => 100 * d.medianStrain), color: '#6fbf9f', label: 'median strain' },
           ]}

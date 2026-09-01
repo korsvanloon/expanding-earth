@@ -160,7 +160,7 @@ export function inside(
  * column range that row's latitude actually needs. Near a pole that is the
  * whole row, which is the case a fixed margin in columns can never get right.
  */
-function bucketFace(
+export function bucketFace(
   pos: Float64Array, mesh: Tiling, f: number, buckets: number[][],
 ): void {
   let cx = 0, cy = 0, cz = 0
@@ -227,6 +227,15 @@ export interface Coverage {
   /** Fraction covered by more than one at once. */
   overlapFraction: number
   /**
+   * Fraction covered by two *different* islands of strong crust at once.
+   *
+   * The sharp version of the line above, and the one that cannot be excused.
+   * Ordinary crust overlapping itself while an ocean closes is the mesh being
+   * clumsy; two rigid blocks in the same place is two continents in the same
+   * place, and the model has no business allowing it at any size.
+   */
+  islandOverlapFraction: number
+  /**
    * Probes that landed exactly in an edge plane, where the inside test has no
    * right answer and skips the edge.
    *
@@ -241,6 +250,18 @@ export interface Coverage {
 export function coverage(
   pos: Float64Array, mesh: Tiling, faceCount: number, probes: Float64Array,
   cells: Uint32Array, buckets: number[][],
+  /**
+   * Which island of strong crust each face belongs to, 0 for none.
+   *
+   * Optional, and the reason it is here is that `overlapFraction` cannot see
+   * the failure that matters most. It counts sky covered by more than one
+   * triangle whoever owns them, so a triangle overlapping its own neighbour
+   * during a closure and a craton lying on top of another craton read the same
+   * -- and the second is not a soft failure at all. An island is the part of
+   * the model that is not allowed to deform; two of them in the same place is
+   * two continents in the same place.
+   */
+  faceIsland?: Uint16Array,
 ): Coverage {
   // Which triangles could possibly cover which part of the sky. A triangle is
   // about a degree across to start with and a few degrees once its neighbours
@@ -254,27 +275,36 @@ export function coverage(
   const probeCount = probes.length / 3
   let covered = 0
   let doubled = 0
+  let islandDoubled = 0
   let boundaryHits = 0
   const unit = [0, 0, 0]
   const boundary: number[] = []
+  const islandsHere: number[] = []
   for (let p = 0; p < probeCount; p++) {
     const dx = probes[p * 3], dy = probes[p * 3 + 1], dz = probes[p * 3 + 2]
     let hits = 0
     let onAnEdge = false
+    islandsHere.length = 0
     for (const f of buckets[cells[p]]) {
       const a = mesh.faceVerts[f * 3] * 3
       const b = mesh.faceVerts[f * 3 + 1] * 3
       const c = mesh.faceVerts[f * 3 + 2] * 3
-      if (inside(pos, a, b, c, dx, dy, dz, unit, boundary)) hits++
+      if (inside(pos, a, b, c, dx, dy, dz, unit, boundary)) {
+        hits++
+        const island = faceIsland?.[f] ?? 0
+        if (island && !islandsHere.includes(island)) islandsHere.push(island)
+      }
       if (boundary.length) onAnEdge = true
     }
     if (hits > 0) covered++
     if (hits > 1) doubled++
+    if (islandsHere.length > 1) islandDoubled++
     if (onAnEdge) boundaryHits++
   }
   return {
     gapFraction: 1 - covered / probeCount,
     overlapFraction: doubled / probeCount,
+    islandOverlapFraction: islandDoubled / probeCount,
     boundaryHits,
   }
 }

@@ -406,6 +406,7 @@ function main() {
   const probes = probeDirections(Number(process.env.PROBES ?? 100000))
   const cells = probeCells(probes)
   const buckets = cellBuckets()
+  const faceIsland = new Uint16Array(faceCount)
 
   const frames: Int16Array[] = []
   const strains: Uint8Array[] = []
@@ -605,7 +606,18 @@ function main() {
     }
     strains.push(vertexStrain)
     const held = distortion(heldPairs, pos, radiusAt(t))
-    const tiled = coverage(pos, mesh, faceCount, probes, cells, buckets)
+    // Which island each triangle belongs to, worked out fresh because the mesh
+    // redraws itself: a face's corners are not the ones it started with. All
+    // three have to agree, or an island's own ragged edge would read as an
+    // overlap with whatever it borders.
+    for (let f = 0; f < faceCount; f++) {
+      if (!mesh.faceAlive[f]) { faceIsland[f] = 0; continue }
+      const ia = islands.vertexIsland[mesh.faceVerts[f * 3]]
+      const ib = islands.vertexIsland[mesh.faceVerts[f * 3 + 1]]
+      const ic = islands.vertexIsland[mesh.faceVerts[f * 3 + 2]]
+      faceIsland[f] = ia !== 0 && ia === ib && ib === ic ? ia : 0
+    }
+    const tiled = coverage(pos, mesh, faceCount, probes, cells, buckets, faceIsland)
     // Should be impossible; said out loud rather than trusted, because when the
     // probes did sit on the mesh this went wrong in total silence.
     if (tiled.boundaryHits > 0 && !warnedBoundary) {

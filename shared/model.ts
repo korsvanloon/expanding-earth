@@ -49,6 +49,19 @@ export interface FrameDiagnostics {
   /** Fraction of the sphere covered by more than one triangle at once. */
   overlapFraction: number
   /**
+   * The same, but counting only where two *different* islands of strong crust
+   * are in the same place.
+   *
+   * An island is the part of the model that is not allowed to deform, so this
+   * is not a soft failure the way a bit of stretching is: it is two continents
+   * occupying the same ground. `overlapFraction` cannot see it -- a triangle
+   * overlapping its own neighbour during a closure counts there just the same,
+   * and at a few tenths of a percent that number looked harmless while Arabia
+   * was riding onto Africa. Nothing in the solver forbids it yet; this is the
+   * measurement that says how much there is to forbid.
+   */
+  islandOverlapFraction: number
+  /**
    * Fraction of the live crust lying inside out.
    *
    * Reported separately from the overlap because the two are measured

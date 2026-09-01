@@ -30,7 +30,8 @@ export function runBlocks(meta: Meta): Record<string, string> {
     const d = at(ma)
     if (!d) return null
     return `| ${ma} Ma | ${d.radiusKm.toFixed(0)} km | ${pct(d.gapFraction)} | ` +
-      `${pct(d.overlapFraction)} | ${pct(d.foldFraction)} | ${pct(d.cratonStrain)} | ` +
+      `${pct(d.overlapFraction)} | ${pct(d.islandOverlapFraction ?? 0, 3)} | ` +
+      `${pct(d.foldFraction)} | ${pct(d.cratonStrain)} | ` +
       `${pct(d.weakStrain, 1)} |`
   }).filter((r) => r !== null)
 
@@ -58,15 +59,16 @@ export function runBlocks(meta: Meta): Record<string, string> {
 
   return {
     reports: [
-      '| time | radius | bare sphere | covered twice | inside out | craton strain | weak strain |',
-      '|---|---|---|---|---|---|---|',
+      '| time | radius | bare sphere | covered twice | two islands at once | inside out '
+        + '| craton strain | weak strain |',
+      '|---|---|---|---|---|---|---|---|',
       ...rows,
     ].join('\n'),
 
     fits: [
       '| pair | joined by | margin in contact today | then | gain | apart then |'
         + ' closest anywhere |',
-      '|---|---|---|---|---|---|---|',
+      '|---|---|---|---|---|---|---|---|',
       ...fits,
     ].join('\n'),
 
