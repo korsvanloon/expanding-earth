@@ -81,8 +81,22 @@ const CONTACT_KM = Number(process.env.CONTACT_KM ?? 200)
 const CONFIG = {
   /** Integration step, Myr. Small enough that each step is a small nudge. */
   stepMa: 1,
-  /** Gauss-Seidel sweeps per step. */
-  sweeps: Number(process.env.SWEEPS ?? 40),
+  /**
+   * Gauss-Seidel sweeps per step.
+   *
+   * Eighty rather than forty, and it is not a comfort setting. Reading the
+   * fracture zones' own length through a step showed the drive adding about
+   * 0.9% to it and forty sweeps giving back 0.7%, with the remainder never
+   * recovered and compounding: 6% of stretch along a material line of crust by
+   * 60 Ma and 20% by 120, on segments whose length cannot change at all, since
+   * the crust between two points of a flow line is older than both of them.
+   *
+   * Doubling the sweeps roughly halves it -- 6.2% to 3.9% at 60 Ma -- and takes
+   * a quarter of the corners out of the traced lines with it, 8.4% of turns
+   * over thirty degrees to 6.3%. It costs 18% of the run, not the double one
+   * might expect, because the sweeps are not the whole of a step.
+   */
+  sweeps: Number(process.env.SWEEPS ?? 80),
   /**
    * How wide a band of isochrons the spreading field is read from, Myr.
    *

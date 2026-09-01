@@ -455,10 +455,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 35 | 80 km | 100% | 0% |
-| 5 Ma | 80 | 95 km | 95% | 0% |
-| 30 Ma | 59 | 156 km | 61% | 0% |
-| 60 Ma | 43 | 239 km | 44% | 0% |
-| 120 Ma | 23 | 501 km | 26% | 0% |
+| 5 Ma | 80 | 86 km | 98% | 0% |
+| 30 Ma | 59 | 170 km | 54% | 0% |
+| 60 Ma | 43 | 222 km | 47% | 0% |
+| 120 Ma | 23 | 366 km | 26% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 127 blocks at its most divided and 5 at 200 Ma.
+The run finds 138 blocks at its most divided and 4 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 16 km/Myr to 2.8, the block count from as many as 127 to 5, and the biggest block grows to 61% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 20 km/Myr to 3.0, the block count from as many as 138 to 4, and the biggest block grows to 83% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 5.7 km/Myr | 86 | 24% | 0.3% |
-| 30 Ma | 0.644%/Myr | 14.0 km/Myr | 127 | 3% | 0.7% |
-| 60 Ma | 0.448%/Myr | 14.1 km/Myr | 101 | 3% | 0.9% |
-| 120 Ma | 0.256%/Myr | 13.6 km/Myr | 55 | 7% | 2.4% |
-| 200 Ma | 0.000%/Myr | 2.8 km/Myr | 5 | 61% | 2.9% |
+| 5 Ma | 0.620%/Myr | 7.5 km/Myr | 100 | 16% | 0.3% |
+| 30 Ma | 0.644%/Myr | 19.2 km/Myr | 138 | 4% | 0.6% |
+| 60 Ma | 0.448%/Myr | 17.5 km/Myr | 109 | 3% | 0.8% |
+| 120 Ma | 0.256%/Myr | 14.3 km/Myr | 59 | 8% | 2.6% |
+| 200 Ma | 0.000%/Myr | 3.0 km/Myr | 4 | 83% | 3.8% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -733,11 +733,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.00% | 0.00% | 0.00% | 0.05% | 1.2% |
-| 30 Ma | 5728 km | 0.00% | 0.00% | 0.00% | 0.20% | 5.0% |
-| 60 Ma | 5197 km | 0.00% | 0.00% | 0.05% | 0.28% | 6.6% |
-| 120 Ma | 4373 km | 0.00% | 0.01% | 0.11% | 0.53% | 9.6% |
-| 200 Ma | 3905 km | 0.00% | 0.15% | 0.16% | 0.64% | 15.5% |
+| 5 Ma | 6272 km | 0.00% | 0.00% | 0.00% | 0.04% | 1.1% |
+| 30 Ma | 5728 km | 0.00% | 0.00% | 0.00% | 0.18% | 4.0% |
+| 60 Ma | 5197 km | 0.00% | 0.00% | 0.02% | 0.26% | 4.2% |
+| 120 Ma | 4373 km | 0.00% | 0.01% | 0.05% | 0.49% | 7.2% |
+| 200 Ma | 3905 km | 0.00% | 0.11% | 0.23% | 0.67% | 13.2% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -751,13 +751,13 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 32% | +32 | 0 km | 0 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 26% | +26 | 0 km | 0 km at 100 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 9% | +9 | 521 km | 0 km at 160 Ma |
-| Greenland &ndash; North America | 60 Ma | 38% | 36% | -2 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 9% | +9 | 0 km | 0 km at 180 Ma |
-| Antarctica &ndash; South America | watched | 0% | 25% | +25 | 20 km | 20 km at 200 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2515 km | 2515 km at 200 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 37% | +37 | 0 km | 0 km at 110 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 25% | +25 | 0 km | 0 km at 90 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 12% | +12 | 273 km | 0 km at 160 Ma |
+| Greenland &ndash; North America | 60 Ma | 38% | 37% | -1 | 0 km | 0 km at 5 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 16% | +16 | 0 km | 0 km at 185 Ma |
+| Antarctica &ndash; South America | watched | 0% | 16% | +16 | 11 km | 11 km at 200 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 1007 km | 1007 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -963,12 +963,70 @@ corners move about as little, 5.1%, and the pairs get *better*, 44% to 49% at 60
 Ma. Non-monotonic between settings is noise, not a result, and the honest
 reading is that it does none of what it was built to do.
 
-That is worth writing down rather than tuning away. A kink is a length problem,
-not a smoothness problem: the line is too long for the space the model has left
-it, and no amount of straightening invents room. The kinks say the crust is
-being compressed along the flow where the model should instead have taken crust
-away at the ridge. The measurement stays &mdash; `tools/measure-tracks.ts` &mdash;
-because it is the only thing here that can see it.
+### Where the corners come from
+
+A kink turned out not to be a smoothness problem at all, and the first guess
+about it &mdash; that the line is too long for the space and buckles &mdash; was
+the wrong sign. Two adjacent points of a track are crust forty kilometres apart,
+and the crust between them is older than both ends, so it survives as long as
+they do and the distance between them cannot change. Measured, it does: the
+median segment reads 1.04 of its present-day length at 38 Ma and 1.21 at 120.
+The lines are being **stretched**, not squeezed, and a corner sits where one
+segment is short and its neighbour long &mdash; a tenth percentile of 0.42
+against 0.87 for everything else.
+
+Two more guesses died before the mechanism turned up. Not the barycentric
+points, though by 120 Ma 43% of track points and 55% of conjugate pair ends sit
+in a triangle that has been flipped or collapsed apart: pairs with a broken
+triple score no worse than pairs with an intact one, 99 km against 132 at 20 Ma
+and 195 against 403 at 90, and the crude fallback of using the heaviest corner
+makes the corners worse because it puts the mesh staircase back
+(`shared/anchor.ts` holds it, switched off, with those numbers). Not the drift
+memory either: letting the crust behind the driven band coast for twice as long
+leaves the gradient exactly where it was and costs fit.
+
+Turning knobs was not going to find it, so the solver now reads the same number
+after each stage of a step, behind `STRETCH_TRACE=1`. At 60 Ma, as the median
+segment's share of its present-day length:
+
+| start | after the shrink | after the collapse | after the drive | after the sweeps |
+|---|---|---|---|---|
+| 1.062 | 1.058 | 1.062 | **1.071** | 1.064 |
+
+The shrink takes 0.4% off and the collapse puts it back, which is crust keeping
+its size while the sphere gets smaller and is exactly right. The flips do
+nothing measurable. The drive adds 0.9%, forty Gauss-Seidel sweeps give back
+0.7%, and the 0.2% left over is never recovered. Over sixty steps that is the
+6%.
+
+So the fix is not a new constraint, it is finishing the one that is already
+there. Doubling the sweeps to eighty:
+
+| | 38 Ma | 60 Ma | 90 Ma | 120 Ma |
+|---|---|---|---|---|
+| median stretch, 40 sweeps | 1.04 | 1.06 | 1.10 | 1.21 |
+| 80 sweeps | 1.02 | 1.04 | 1.08 | 1.23 |
+| 90th percentile, 40 sweeps | 1.45 | 1.81 | 2.26 | 3.52 |
+| 80 sweeps | 1.41 | 1.55 | 1.85 | 3.93 |
+| turns over 30&deg;, 40 sweeps | 5.0% | 8.4% | | |
+| 80 sweeps | 4.4% | 6.3% | | |
+
+and the reconstruction goes with it rather than against it: South America and
+Africa reunite 37% against 32%, North America and Africa 16% against 9%, India
+and Africa 12% against 9% with the gap at the moment of joining falling from 521
+km to 273, and the two pieces of crust furthest apart in the whole scorecard,
+Australia and North America, from 2515 km to 1007. Against that, Antarctica and
+South America fall from 25% to 16% and the conjugate pairs at 90 Ma from 24% to
+15%. It costs 18% of the run rather than the double one might expect, because
+the sweeps are not the whole of a step.
+
+Past 110 Ma nothing improves, which is where the sea floor is running out and
+the tracks with it: 241 segments left at 120 Ma against 3,328 at 38.
+
+`tools/measure-tracks.ts` is the instrument, and it is the only thing in the
+model that can see any of this &mdash; the fold diagnostic reads 0.05% at 60 Ma
+because no triangle is inverted, and the strain diagnostic is an area, so a line
+stretched along its length and squeezed across it costs it nothing.
 
 ## Known weaknesses
 
