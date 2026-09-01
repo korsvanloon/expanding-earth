@@ -112,12 +112,65 @@ any other surface map, sampled by the crust's own direction so that it deforms
 with the reconstruction and keeps every cell. The per-vertex numbers stay for
 what needs a number at a point: the table above, and what a right-click reports.
 
-It is a measurement in the viewer &mdash; the *Crustal fabric* mode &mdash; and
-nothing else yet. Nothing in the solve depends on it. Using it to decide where
-deformation is allowed to go is the obvious next thing to try, and it is not
-tried here, because a strength field is a claim about the present strength of
-rock and this is a record of what has already happened to it. A shield reads
-rougher than a platform, and a shield is stronger.
+The roughness itself is a measurement in the viewer &mdash; the *Crustal fabric*
+mode &mdash; and nothing else. Using it to decide where deformation is allowed
+to go is the obvious next thing to try, and it is not tried here, because a
+strength field is a claim about the present strength of rock and this is a
+record of what has already happened to it. A shield reads rougher than a
+platform, and a shield is stronger.
+
+### Which way the lineaments run, and what that is worth
+
+The same grid answers a second question, and this one is used. A structure
+tensor &mdash; the gradient's outer product, averaged over a window &mdash;
+returns not how much the field varies but along what line, because gradients on
+the two flanks of a trough cancel while their outer products add. That gives
+every point an axis and a coherence, and the tracer mixes the axis into the age
+gradient at every step, weighted by coherence.
+
+Two things had to be right before it was worth anything, and neither was
+obvious.
+
+The abyssal hills had to go. Sea floor is corrugated at a few tens of
+kilometres, and those corrugations run *along* the isochrons, square across the
+direction the crust travelled. They are also the most coherent thing in the
+grid, so widening the tensor's window does not dilute them &mdash; every hill
+points the way the next one does and their outer products add. They come out
+only by low-passing the field before differentiating it, which is a different
+operation from averaging the tensor afterwards. Doing it moved the median angle
+between the lineaments and the traced paths from 39 degrees to 28, where 45 is
+what a coin would give.
+
+And the bearing had to be a bearing. The eigenvector's angle is measured from
+east; what is stored is measured from north. Read as-is the axis came out square
+to the truth, and a lineament field that is ninety degrees wrong is
+indistinguishable on real data from one that has nothing to say: it measured 47
+degrees against the paths, which is a coin. Only a stripe whose direction is
+known by construction shows it, which is why there is now a test made of stripes.
+
+What it buys, against the same pairs measured the same way:
+
+| time | age grid alone | with the lineaments |
+|---|---|---|
+| 20 Ma | 173 km | 162 km |
+| 40 Ma | 246 km | 230 km |
+| 60 Ma | 374 km | 341 km |
+| 90 Ma | 558 km | 518 km |
+| 120 Ma | 1073 km | 992 km |
+
+Six to nine per cent off the median residual, consistently, across the middle of
+the record. Small, and worth stating carefully, because the pairs are both the
+test and a product of the tracer: a change to the tracer changes the test. Two
+things say it is not the test getting easier. The pair counts barely move
+(131, 122, 82, 55, 41 against 131, 123, 81, 57, 39), and the pairs are the same
+distance apart today &mdash; 758 km against 738 at 20 Ma, and identical to the
+kilometre at 40, 60, 90 and 120. The same pairs, the same difficulty, a smaller
+miss.
+
+The weight is 0.4 and not more because the effect is bimodal. At 0.4 the median
+track end moves 15 km and the ninety-fifth percentile 426. At 0.7 the
+ninety-fifth is 5,099 km: a minority of paths stop being refined and start being
+captured by whatever line is loudest near them.
 
 ## Where the plates come from
 
@@ -222,10 +275,10 @@ allowed to be a check at all. See `tools/lib/flowlines.ts`.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 60 | 80 km | 100% | 0% |
-| 5 Ma | 149 | 97 km | 89% | 0% |
-| 30 Ma | 115 | 214 km | 50% | 0% |
-| 60 Ma | 82 | 374 km | 17% | 0% |
-| 120 Ma | 41 | 1073 km | 7% | 0% |
+| 5 Ma | 149 | 98 km | 89% | 0% |
+| 30 Ma | 113 | 202 km | 50% | 0% |
+| 60 Ma | 81 | 341 km | 21% | 0% |
+| 120 Ma | 39 | 992 km | 5% | 0% |
 <!-- /from-the-run -->
 
 Two things keep the figure honest.

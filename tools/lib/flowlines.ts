@@ -22,6 +22,7 @@
  */
 import { R0_KM } from '../../shared/model.js'
 import { length3 } from '../../shared/sphere.js'
+import { lineamentAt, type Lineaments } from './structure.js'
 
 /** Present-day radius; the tracks are paths on today's Earth. */
 const RADIUS_KM = R0_KM
@@ -68,6 +69,32 @@ export interface FlowOptions {
   axisReachKm?: number
   /** Radius of the box average the field is read through, in grid cells. */
   blurCells?: number
+  /**
+   * Which way the lineaments run, if the gravity grid has been read.
+   *
+   * See tools/lib/structure.ts. Where it is not given the walk is the age
+   * gradient alone, which is what it was.
+   */
+  lineaments?: Lineaments
+  /**
+   * How far the lineament may pull the step away from the age gradient, at
+   * full coherence. Zero ignores it; one follows it wherever it goes.
+   */
+  structureWeight?: number
+  /**
+   * How far the lineament may disagree with the age gradient before it is
+   * thrown away entirely, degrees.
+   *
+   * The guard that makes this safe, and it is not optional. A gravity grid over
+   * young sea floor is full of abyssal hills, which are long, strong, coherent
+   * lineaments running *along* the isochrons -- square across the direction the
+   * crust actually travelled. A tracer that followed the strongest line it
+   * could see would leave the flank and walk the length of the ridge, which is
+   * the exact failure the turn limit exists to prevent. So the age grid keeps
+   * the casting vote on where the crust went, and the gravity grid is allowed
+   * only to sharpen it.
+   */
+  structureMaxDeg?: number
   /** Give up on a flank after this far, km. */
   maxLengthKm?: number
   radiusKm?: number
@@ -170,6 +197,9 @@ export function traceFlowLines(
   const departureKm = options.departureKm ?? 200
   const axisReachKm = options.axisReachKm ?? 1000
   const r = options.radiusKm ?? 6371
+  const structure = options.lineaments
+  const structureWeight = options.structureWeight ?? 0.6
+  const structureMaxCos = Math.cos(((options.structureMaxDeg ?? 40) * Math.PI) / 180)
   // Blur over roughly the distance a step covers, in whatever cells this grid
   // has. On a coarse grid that is none at all and the field is read raw.
   const blurCells = options.blurCells
@@ -247,21 +277,45 @@ export function traceFlowLines(
     while (walked < maxLengthKm) {
       const g = gradient(x, y, z)
       if (!g) break
+      // Where the gravity grid shows a clean line running the way the age grid
+      // says the crust went, take the line: it is the same event recorded at a
+      // tenth of a degree instead of at a grey level, and it does not go flat
+      // over a stretch the survey dated all the same. Where the two disagree by
+      // more than the guard, the line is not this crust's path -- an abyssal
+      // hill fabric, a seamount chain, a ridge segment -- and it is dropped.
+      let wx = g.tx, wy = g.ty, wz = g.tz
+      if (structure && structureWeight > 0) {
+        const line = lineamentAt(structure, x, y, z)
+        if (line) {
+          // An axis has no direction of its own; take the end that agrees with
+          // where the crust is already going.
+          const sign = line.tx * tx + line.ty * ty + line.tz * tz < 0 ? -1 : 1
+          const sx = line.tx * sign, sy = line.ty * sign, sz = line.tz * sign
+          if (sx * g.tx + sy * g.ty + sz * g.tz >= structureMaxCos) {
+            const w = structureWeight * line.coherence
+            const bx = g.tx + (sx - g.tx) * w
+            const by = g.ty + (sy - g.ty) * w
+            const bz = g.tz + (sz - g.tz) * w
+            const bl = length3(bx, by, bz)
+            if (bl > 1e-9) { wx = bx / bl; wy = by / bl; wz = bz / bl }
+          }
+        }
+      }
       // Uphill, but not free to turn wherever the local gradient points. A
       // fracture zone is a path the crust actually took, so it bends slowly;
       // letting each step choose its own direction lets a path turn along an
       // isochron and walk the length of the ridge instead of away from it.
-      const dot = Math.min(1, Math.max(-1, g.tx * tx + g.ty * ty + g.tz * tz))
+      const dot = Math.min(1, Math.max(-1, wx * tx + wy * ty + wz * tz))
       const turn = Math.acos(dot)
       if (turn > maxTurn) {
         const blend = maxTurn / turn
-        const nx = tx + (g.tx - tx) * blend
-        const ny = ty + (g.ty - ty) * blend
-        const nz = tz + (g.tz - tz) * blend
+        const nx = tx + (wx - tx) * blend
+        const ny = ty + (wy - ty) * blend
+        const nz = tz + (wz - tz) * blend
         const l = length3(nx, ny, nz) || 1
         tx = nx / l; ty = ny / l; tz = nz / l
       } else {
-        tx = g.tx; ty = g.ty; tz = g.tz
+        tx = wx; ty = wy; tz = wz
       }
       const [px, py, pz] = advance(x, y, z, tx, ty, tz, stepAngle)
       const a = field.at(px, py, pz)

@@ -23,7 +23,7 @@ import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { readGrid } from './lib/grid.js'
-import { fabricRaster, fillGaps, sampleStructure } from './lib/structure.js'
+import { fabricRaster, fillGaps, lineaments, sampleStructure } from './lib/structure.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
@@ -89,6 +89,21 @@ export const CONFIG = {
    * of axis and walk the same fracture zone.
    */
   seedSpacingKm: 250,
+  /**
+   * How far the gravity grid's lineaments may pull a traced step away from the
+   * age gradient, at full coherence. Zero reads the age grid alone.
+   *
+   * 0.4 rather than more because the effect is bimodal: at 0.4 the median track
+   * end moves 15 km and the ninety-fifth percentile 426 km, while at 0.7 the
+   * ninety-fifth is 5,099 km -- a minority of paths stop being refined and
+   * start being captured by whatever line is loudest nearby. Set STRUCTURE in
+   * the environment to try another.
+   */
+  structureWeight: Number(process.env.STRUCTURE ?? 0.4),
+  /** How far the gravity field is low-passed before the tensor, km. */
+  structureSmoothKm: 100,
+  /** How wide the tensor's own window is, km. */
+  structureWindowKm: 200,
   /**
    * How near a frame's age a track point has to be to be paired at it, Ma.
    *
@@ -265,11 +280,24 @@ function main() {
   for (let i = 0; i < ageMa.length; i++) {
     ageMa[i] = ageFull.data[i] === NODATA ? NaN : (ageFull.data[i] / 255) * CONFIG.maxAgeMa
   }
+  // The gravity grid's own idea of which way the lineaments run, mixed into the
+  // age gradient at every step. See tools/lib/structure.ts for the instrument
+  // and CONFIG.structureWeight for how far it is trusted.
+  const lines = CONFIG.structureWeight > 0
+    ? lineaments(
+        readGrid(readFileSync(resolve(ROOT, 'data-src/vgg.grid'))),
+        R0_KM, CONFIG.structureWindowKm, CONFIG.structureSmoothKm,
+      )
+    : undefined
   const traced = traceFlowLines(
     ageMa,
     ageFull.width,
     ageFull.height,
-    { seedSpacingKm: CONFIG.seedSpacingKm },
+    {
+      seedSpacingKm: CONFIG.seedSpacingKm,
+      lineaments: lines,
+      structureWeight: CONFIG.structureWeight,
+    },
   )
   console.log(
     `  ${traced.tracks.length} tracks from ${traced.seeds} ridge seeds; ` +

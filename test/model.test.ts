@@ -16,7 +16,7 @@ import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
-import { fillGaps, sampleStructure } from '../tools/lib/structure'
+import { fillGaps, lineamentAt, lineaments, sampleStructure } from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
 import { resolve } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
@@ -1026,6 +1026,69 @@ describe('a grid of measurements', () => {
     const field = Float32Array.from([NaN, NaN, NaN])
     fillGaps(field, Uint32Array.from([0, 1, 2]))
     expect(field.every(Number.isFinite)).toBe(true)
+  })
+})
+
+describe('which way the lineaments run', () => {
+  const W = 720
+  const H = 360
+  const striped = (f: (column: number, row: number) => number): Grid => {
+    const samples = new Int16Array(W * H)
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) samples[r * W + c] = f(c, r)
+    return { width: W, height: H, scale: 1, offset: 0, units: 'test', samples }
+  }
+  /** The returned axis as a bearing: degrees east of north, folded to 0-180. */
+  const bearing = (grid: Grid, lonDeg: number, latDeg: number) => {
+    const field = lineaments(grid, R0_KM, 300)
+    const [x, y, z] = lonLatToDirection((lonDeg * Math.PI) / 180, (latDeg * Math.PI) / 180)
+    const axis = lineamentAt(field, x, y, z)
+    if (!axis) return null
+    let nx = -y * x, ny = 1 - y * y, nz = -y * z
+    const nl = Math.hypot(nx, ny, nz)
+    nx /= nl; ny /= nl; nz /= nl
+    const ex = ny * z - nz * y, ey = nz * x - nx * z, ez = nx * y - ny * x
+    const deg = (Math.atan2(
+      axis.tx * ex + axis.ty * ey + axis.tz * ez,
+      axis.tx * nx + axis.ty * ny + axis.tz * nz,
+    ) * 180) / Math.PI
+    return { deg: ((deg % 180) + 180) % 180, coherence: axis.coherence }
+  }
+
+  /**
+   * Two conventions meet inside the tensor and getting them the wrong way round
+   * is silent: the eigenvector's angle is measured from east, and what is
+   * stored is a bearing from north. Read as-is the axis came out square to the
+   * truth -- and on real data a lineament field that is ninety degrees wrong is
+   * indistinguishable from one that has nothing to say. It measured 47 degrees
+   * from the paths, where 45 is what a coin would give, and the mistake was
+   * only visible against a stripe whose direction is known by construction.
+   */
+  it('reads a trough as running along itself, not across it', () => {
+    const eastWest = bearing(striped((_, row) => Math.round(200 * Math.sin(row * 0.6))), 0, 0)
+    expect(eastWest!.deg).toBeCloseTo(90, 0)
+    const northSouth = bearing(striped((column) => Math.round(200 * Math.sin(column * 0.6))), 0, 0)
+    expect(northSouth!.deg % 180).toBeCloseTo(0, 0)
+    const diagonal = bearing(
+      striped((column, row) => Math.round(200 * Math.sin((column + row) * 0.4))), 0, 0,
+    )
+    expect(diagonal!.deg).toBeCloseTo(45, 0)
+  })
+
+  it('is certain about a clean stripe and says nothing about a flat field', () => {
+    const clean = bearing(striped((_, row) => Math.round(200 * Math.sin(row * 0.6))), 0, 0)
+    expect(clean!.coherence).toBeGreaterThan(0.9)
+    expect(bearing(striped(() => 100), 0, 0)).toBe(null)
+  })
+
+  // A bearing is only a bearing next to a north, and away from the equator the
+  // grid's rows stop being straight lines. A stripe that follows a parallel is
+  // running east there just as it is at the equator, and the axis has to say so
+  // rather than reporting the projection it was read out of.
+  it('answers in bearings away from the equator too', () => {
+    const eastWest = striped((_, row) => Math.round(200 * Math.sin(row * 0.6)))
+    for (const lat of [0, 30, 60]) {
+      expect(bearing(eastWest, 0, lat)!.deg, `${lat} deg north`).toBeCloseTo(90, 0)
+    }
   })
 })
 

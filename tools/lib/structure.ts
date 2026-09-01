@@ -199,3 +199,214 @@ export function fabricRaster(grid: Grid, r0: number): Uint8Array {
   }
   return out
 }
+
+
+/**
+ * Which way the lineaments run, from the same gravity grid.
+ *
+ * The roughness above says how worked a piece of crust is. This says along what
+ * line, which is the part a tracer can use: a fracture zone is a trough running
+ * away from the ridge, and its own direction is a better guide to where the
+ * crust went than the age grid's gradient, which is quantised to a grey level
+ * and flat over any stretch the survey dated the same.
+ *
+ * The instrument is a structure tensor. Take the field's gradient at each cell,
+ * form the outer product of that gradient with itself, and average those
+ * matrices over a window. Averaging the matrices rather than the gradients is
+ * the whole trick: gradients on the two flanks of a trough point in opposite
+ * directions and cancel, while their outer products are identical and add. What
+ * comes back is an ellipse whose long axis is across the lineament and whose
+ * short axis is along it, and the ratio of the two says how line-like the
+ * neighbourhood is at all.
+ *
+ * The axis has no sign -- a line does not know which end is which -- so
+ * whatever uses it has to choose the direction itself.
+ */
+export interface Lineaments {
+  width: number
+  height: number
+  /** Along-lineament direction as an angle east of north, 0-255 over 180 deg. */
+  axis: Uint8Array
+  /**
+   * How line-like the neighbourhood is, 0-255.
+   *
+   * (long - short) / (long + short) of the tensor's two eigenvalues. Zero where
+   * the field varies the same in every direction and there is no line to
+   * follow; near one over a clean trough.
+   */
+  coherence: Uint8Array
+}
+
+export function lineaments(
+  grid: Grid, r0: number, windowKm: number, smoothKm = 0,
+): Lineaments {
+  const { width, height } = grid
+  const cellHeightKm = (Math.PI * r0) / height
+  const size = width * height
+  // The three independent entries of the tensor, before averaging.
+  const xx = new Float32Array(size)
+  const xy = new Float32Array(size)
+  const yy = new Float32Array(size)
+
+  /**
+   * The field the gradient is taken of, low-passed if asked.
+   *
+   * This is not the same as averaging the tensor afterwards, and the difference
+   * is the whole reason it is here. Sea floor is corrugated with abyssal hills,
+   * a few tens of kilometres from crest to crest, and they run *along* the
+   * isochrons -- square across the direction the crust travelled. They are also
+   * the most coherent thing in the grid, so a wider window over the tensor does
+   * not dilute them: every hill's gradient points the same way as the next
+   * one's, and their outer products add rather than cancel. Widening the window
+   * made the fabric louder, not quieter. Taking them out of the field before
+   * differentiating it is the only thing that removes them.
+   */
+  const field = new Float32Array(size)
+  const known = new Uint8Array(size)
+  for (let i = 0; i < size; i++) {
+    if (grid.samples[i] === GRID_GAP) continue
+    field[i] = grid.samples[i] * grid.scale + grid.offset
+    known[i] = 1
+  }
+  if (smoothKm > 0) {
+    boxBlur(field, width, height, Math.max(1, Math.round(smoothKm / cellHeightKm)), r0)
+  }
+
+  for (let row = 1; row < height - 1; row++) {
+    const lat = Math.PI * (0.5 - (row + 0.5) / height)
+    const widthKm = Math.max(
+      0.01, ((2 * Math.PI * r0) / width) * Math.max(1e-3, Math.cos(lat)),
+    )
+    for (let column = 0; column < width; column++) {
+      const e = row * width + ((column + 1) % width)
+      const w = row * width + ((column - 1 + width) % width)
+      const so = (row + 1) * width + column
+      const no = (row - 1) * width + column
+      if (!known[e] || !known[w] || !known[so] || !known[no]) continue
+      const east = field[e], west = field[w], south = field[so], north = field[no]
+      const gx = (east - west) / (2 * widthKm)
+      const gy = (north - south) / (2 * cellHeightKm)
+      const i = row * width + column
+      xx[i] = gx * gx
+      xy[i] = gx * gy
+      yy[i] = gy * gy
+    }
+  }
+
+  // Averaged with two one-dimensional passes rather than one square window: the
+  // box average separates, and at nine cells a side the square costs eighty-one
+  // reads a cell against eighteen.
+  const rows = Math.max(1, Math.round(windowKm / cellHeightKm))
+  for (const plane of [xx, xy, yy]) boxBlur(plane, width, height, rows, r0)
+
+  const axis = new Uint8Array(size)
+  const coherence = new Uint8Array(size)
+  for (let i = 0; i < size; i++) {
+    const a = xx[i]
+    const b = xy[i]
+    const c = yy[i]
+    const half = (a - c) / 2
+    const spread = Math.sqrt(half * half + b * b)
+    const trace = a + c
+    if (trace < 1e-12) continue
+    // The long axis of the ellipse is across the line and a quarter turn from
+    // it is along the line, which is the direction worth having.
+    //
+    // Two conventions meet here and getting them the wrong way round is silent.
+    // The eigenvector formula returns an angle measured from the *first* axis,
+    // which is east, because the gradient's first component is the derivative
+    // eastwards. What is stored is an angle measured from *north*, towards
+    // east, which is how a bearing is written. Turning one into the other flips
+    // the sign, and the quarter turn to get from across to along cancels the
+    // quarter turn between the two conventions -- so the along-lineament
+    // bearing is simply the negative of the eigenvector's angle. Read as-is it
+    // came out square to the truth, which on real data is indistinguishable
+    // from a gravity grid that has nothing to say.
+    const along = -0.5 * Math.atan2(2 * b, a - c)
+    // Folded into half a turn, because an axis and its opposite are one axis.
+    const folded = ((along % Math.PI) + Math.PI) % Math.PI
+    axis[i] = Math.min(255, Math.round((folded / Math.PI) * 256))
+    coherence[i] = Math.round(255 * Math.min(1, (2 * spread) / trace))
+  }
+  return { width, height, axis, coherence }
+}
+
+/**
+ * A separable box average over a raster that wraps in longitude.
+ *
+ * The column window widens towards the poles so that it covers the same ground
+ * as the row window does, for the same reason the gradients are taken per
+ * kilometre: a window measured in cells is a window that shrinks with the
+ * cosine of the latitude.
+ */
+function boxBlur(
+  plane: Float32Array, width: number, height: number, rows: number, r0: number,
+) {
+  const scratch = new Float32Array(width * height)
+  const cellWidthKm = (2 * Math.PI * r0) / width
+  const spanKm = rows * ((Math.PI * r0) / height)
+
+  for (let row = 0; row < height; row++) {
+    const lat = Math.PI * (0.5 - (row + 0.5) / height)
+    const columns = Math.min(
+      width >> 1,
+      Math.max(1, Math.round(spanKm / Math.max(0.01, cellWidthKm * Math.max(1e-3, Math.cos(lat))))),
+    )
+    let sum = 0
+    for (let d = -columns; d <= columns; d++) sum += plane[row * width + ((d % width) + width) % width]
+    const span = 2 * columns + 1
+    for (let column = 0; column < width; column++) {
+      scratch[row * width + column] = sum / span
+      const out = ((column - columns) % width + width) % width
+      const into = ((column + columns + 1) % width + width) % width
+      sum += plane[row * width + into] - plane[row * width + out]
+    }
+  }
+  for (let column = 0; column < width; column++) {
+    for (let row = 0; row < height; row++) {
+      let sum = 0
+      let seen = 0
+      for (let d = -rows; d <= rows; d++) {
+        const r = row + d
+        if (r < 0 || r >= height) continue
+        sum += scratch[r * width + column]
+        seen++
+      }
+      plane[row * width + column] = sum / seen
+    }
+  }
+}
+
+/**
+ * Read the lineament axis at a direction on the sphere, as a tangent vector.
+ *
+ * The stored angle is measured east of north in the cell's own tangent plane,
+ * so it is turned back into three dimensions using the same north and east that
+ * `basis` in flowlines.ts uses. Returns null where there is no line to speak of.
+ */
+export function lineamentAt(
+  field: Lineaments, x: number, y: number, z: number,
+): { tx: number; ty: number; tz: number; coherence: number } | null {
+  const l = Math.hypot(x, y, z) || 1
+  const [column, row] = directionToPixel(x / l, y / l, z / l, field.width, field.height)
+  const i = row * field.width + column
+  const coherence = field.coherence[i] / 255
+  if (coherence <= 0) return null
+  const angle = (field.axis[i] / 256) * Math.PI
+
+  // North and east at this point. Degenerate at the poles, where there is no
+  // east; the caller gets nothing rather than a direction made up out of
+  // rounding error.
+  const ux = x / l, uy = y / l, uz = z / l
+  let nx = -uy * ux, ny = 1 - uy * uy, nz = -uy * uz
+  const nl = Math.hypot(nx, ny, nz)
+  if (nl < 1e-6) return null
+  nx /= nl; ny /= nl; nz /= nl
+  const ex = ny * uz - nz * uy
+  const ey = nz * ux - nx * uz
+  const ez = nx * uy - ny * ux
+
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  return { tx: nx * c + ex * s, ty: ny * c + ey * s, tz: nz * c + ez * s, coherence }
+}
