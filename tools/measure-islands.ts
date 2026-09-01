@@ -82,7 +82,7 @@ function main() {
   for (const timeMa of [0, 20, 38, 60, 90, 120, 160, 200]) {
     const frame = Math.round(timeMa / meta.frameStepMa)
     if (frame >= meta.frameCount) continue
-    applyTopology(indices, deltas, frame - 1, working, out)
+    applyTopology(indices, deltas, frame, working, out)
     const radius = sampleCurve(meta.crustModels[0].radiusKm, timeMa, meta.radiusStepMa)
     const base = frame * vertexCount * 3
     for (let v = 0; v < vertexCount * 3; v++) pos[v] = frames[base + v]

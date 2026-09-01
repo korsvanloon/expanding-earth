@@ -59,6 +59,56 @@ function main() {
     return Math.acos(Math.min(1, Math.max(-1, d / (la * lb))))
   }
 
+  /**
+   * How far a triangle is from the size and shape it has today.
+   *
+   * The span above says which crust a triangle is painted from; this says what
+   * the solver has done to the triangle itself. A reader watching the mesh
+   * noticed some triangles growing very large while others stayed small, which
+   * is not something an area-conserving shell should do to itself.
+   *
+   * Reported as the ratio of a face's area now to its area today, corrected for
+   * the sphere having shrunk -- so 1.00 is a triangle carrying exactly its own
+   * crust and nothing has to be read against the radius.
+   */
+  const restArea = new Float64Array(faceCount)
+  {
+    const area = (a: number, b: number, c: number, p: ArrayLike<number>, scale: number) => {
+      const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2]
+      const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2]
+      const cx = uy * vz - uz * vy, cy = uz * vx - ux * vz, cz = ux * vy - uy * vx
+      return 0.5 * Math.hypot(cx, cy, cz) * scale * scale
+    }
+    for (let f = 0; f < faceCount; f++) {
+      restArea[f] = area(
+        indices[f * 3] * 3, indices[f * 3 + 1] * 3, indices[f * 3 + 2] * 3, dirs, R0_KM,
+      )
+    }
+    console.log('how far each triangle is from its own size today')
+    console.log('  Ma      p10    p25   median    p75    p90    p99')
+    for (const timeMa of [0, 38, 60, 90, 120, 160, 200]) {
+      const frame = Math.round(timeMa / meta.frameStepMa)
+      if (frame >= meta.frameCount) continue
+      applyTopology(indices, deltas, frame, working, out)
+      const base = frame * vertexCount * 3
+      const radius = sampleCurve(radiusKm, timeMa, meta.radiusStepMa)
+      const ratios: number[] = []
+      for (let f = 0; f < faceCount; f++) {
+        if (working[f * 3] < 0 || restArea[f] <= 0) continue
+        const a = working[f * 3] * 3, b = working[f * 3 + 1] * 3, c = working[f * 3 + 2] * 3
+        ratios.push(area(a, b, c, frames.subarray(base), radius / 32767) / restArea[f])
+      }
+      ratios.sort((x, y) => x - y)
+      const q = (p: number) => ratios[Math.min(ratios.length - 1, Math.floor(p * ratios.length))]
+      console.log(
+        `${String(timeMa).padStart(4)}${q(0.1).toFixed(2).padStart(9)}${q(0.25).toFixed(2).padStart(7)}`
+        + `${q(0.5).toFixed(2).padStart(9)}${q(0.75).toFixed(2).padStart(7)}`
+        + `${q(0.9).toFixed(2).padStart(7)}${q(0.99).toFixed(2).padStart(7)}`,
+      )
+    }
+    console.log()
+  }
+
   console.log('  Ma   R km   faces   median span km   p90   p99   share of area painted from crust')
   console.log('                     (on the sphere)              >100 / >300 / >1000 km away   tinted   tri/sphere   not yet erupted')
   for (const timeMa of [0, 13, 20, 38, 60, 90, 120, 160, 200]) {
@@ -69,7 +119,10 @@ function main() {
     // triangle's age, which is how a first pass at this reported that 63% of
     // the shell at 200 Ma had not erupted yet. `working` keeps every face in
     // its own slot, with -1 for the ones that are gone.
-    applyTopology(indices, deltas, frame - 1, working, out)
+    // Delta i is the change that arrives *at* frame i -- record(0) pushes an
+    // empty one -- so the topology at a frame is every delta up to and
+    // including it. This read frame - 1 and was quietly a frame behind.
+    applyTopology(indices, deltas, frame, working, out)
     const base = frame * vertexCount * 3
     const radius = sampleCurve(radiusKm, timeMa, meta.radiusStepMa)
 

@@ -128,7 +128,7 @@ function main() {
     for (const timeMa of [0, 13, 20, 38, 60, 90, 120]) {
       const frame = Math.round(timeMa / meta.frameStepMa)
       if (frame >= meta.frameCount) continue
-      applyTopology(indices, deltas, frame - 1, working, out)
+      applyTopology(indices, deltas, frame, working, out)
       const live = new Set<string>()
       for (let f = 0; f < fc; f++) {
         if (working[f * 3] < 0) continue
@@ -181,7 +181,7 @@ function main() {
     for (const timeMa of [20, 40, 60, 90, 120]) {
       const frame = Math.round(timeMa / meta.frameStepMa)
       if (frame >= meta.frameCount) continue
-      applyTopology(indices3, deltas3, frame - 1, working3, out3)
+      applyTopology(indices3, deltas3, frame, working3, out3)
       const live = new Set<string>()
       for (let f = 0; f < fc3; f++) {
         if (working3[f * 3] < 0) continue

@@ -445,8 +445,26 @@ export function Globe({ data }: { data: Dataset }) {
   /** The clock reading the vertex buffers currently hold. */
   const sampledTime = useRef(Number.NaN)
   const retopo = () => {
+    /**
+     * The triangulation lags rather than rounds.
+     *
+     * Positions are interpolated between keyframes five million years apart;
+     * the triangulation cannot be, so it has to change at some instant. It used
+     * to change at the nearest keyframe, which put the change in the middle of
+     * the gap -- and at 117.5 Ma a face that will be collapsed away at 120 is
+     * only half closed, so removing it there is a triangle popping out of
+     * existence at half its size. Whole patches appeared and disappeared over a
+     * single million years.
+     *
+     * Taking the keyframe behind instead means a face is not removed until the
+     * moment its own points have finished merging: at 119.9 Ma they are 98% of
+     * the way together, the face is nearly degenerate, and it vanishes without
+     * being seen to. A flip pops either way -- it swaps a diagonal, and there
+     * is no moment at which that is free -- but a flip changes two triangles
+     * and a collapse changes a neighbourhood.
+     */
     const frame = Math.min(
-      Math.round(clock.timeMa / data.meta.frameStepMa),
+      Math.floor(clock.timeMa / data.meta.frameStepMa),
       data.meta.frameCount - 1,
     )
     if (frame === drawnFrame.current) return
