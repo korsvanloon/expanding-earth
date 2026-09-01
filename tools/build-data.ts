@@ -507,6 +507,7 @@ function main() {
       pairBVerts: Uint32Array.from(conjugates.pairs.flatMap((p) => p.b.v)),
       pairBWeights: Float32Array.from(conjugates.pairs.flatMap((p) => p.b.w)),
       pairAgeMa: Float32Array.from(conjugates.pairs, (p) => p.ageMa),
+      pairTrack: Uint32Array.from(conjugates.pairs, (p) => p.track),
     })),
   )
   console.log(

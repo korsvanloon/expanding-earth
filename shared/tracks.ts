@@ -47,6 +47,16 @@ export interface Tracks {
   pairBVerts: Uint32Array
   pairBWeights: Float32Array
   pairAgeMa: Float32Array
+  /**
+   * Which drawn track each pair came off.
+   *
+   * The solver holds half of the tracks back. A pair used to pull the
+   * reconstruction together cannot also be evidence that it came together, so
+   * the ones that constrain and the ones that score are different tracks --
+   * different tracks and not merely different pairs, because two pairs a few
+   * million years apart on the same walk say almost the same thing.
+   */
+  pairTrack: Uint32Array
 }
 
 export function writeTracks(t: Tracks): ArrayBuffer {
@@ -56,7 +66,7 @@ export function writeTracks(t: Tracks): ArrayBuffer {
   // header, the offsets (one more than there are tracks), the ridge indices,
   // eight words per point -- three corners, three weights, an age and a
   // distance -- and thirteen per pair.
-  const words = 3 + (trackCount + 1) + trackCount + pointCount * 8 + pairCount * 13
+  const words = 3 + (trackCount + 1) + trackCount + pointCount * 8 + pairCount * 14
   const buffer = new ArrayBuffer(words * 4)
   const u32 = new Uint32Array(buffer)
   const f32 = new Float32Array(buffer)
@@ -74,7 +84,8 @@ export function writeTracks(t: Tracks): ArrayBuffer {
   f32.set(t.pairAWeights, at); at += pairCount * 3
   u32.set(t.pairBVerts, at); at += pairCount * 3
   f32.set(t.pairBWeights, at); at += pairCount * 3
-  f32.set(t.pairAgeMa, at)
+  f32.set(t.pairAgeMa, at); at += pairCount
+  u32.set(t.pairTrack, at)
   return buffer
 }
 
@@ -104,5 +115,6 @@ export function readTracks(buffer: ArrayBuffer): Tracks {
     pairBVerts: u32(pairCount * 3),
     pairBWeights: f32(pairCount * 3),
     pairAgeMa: f32(pairCount),
+    pairTrack: u32(pairCount),
   }
 }

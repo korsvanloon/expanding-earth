@@ -384,11 +384,11 @@ construction, so the lines come out as lines.
 <!-- from-the-run: pairs -->
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
-| 0 Ma | 67 | 80 km | 100% | 0% |
-| 5 Ma | 158 | 96 km | 93% | 0% |
-| 30 Ma | 119 | 196 km | 51% | 0% |
-| 60 Ma | 91 | 385 km | 21% | 0% |
-| 120 Ma | 42 | 1334 km | 2% | 0% |
+| 0 Ma | 28 | 80 km | 100% | 0% |
+| 5 Ma | 76 | 95 km | 95% | 0% |
+| 30 Ma | 62 | 159 km | 53% | 0% |
+| 60 Ma | 49 | 247 km | 39% | 0% |
+| 120 Ma | 23 | 441 km | 26% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -414,10 +414,46 @@ reconstruction has always been worth, and the older figures were flattering it
 at depth. But it is a statement about the measurement, not about the model, and
 this file said otherwise until the frames were compared.
 
-Feeding the pairs to the solver as constraints &mdash; asking the reconstruction
-to bring conjugate points together rather than only scoring it on how far apart
-it leaves them &mdash; is the change that would make any of this move the model.
-It is not built.
+### Feeding them in
+
+So the pairs now pull. At every step, a pair whose crust erupted at age *A* is
+drawn towards being one point: the target closes linearly from where its halves
+sit today to nothing at *A*, and the stiffness does the opposite, near zero at
+the present and full at formation, so most of the pull lands where the claim is
+real and the straight-line guess in between is barely enforced. Each end is a
+point inside a triangle, so the correction goes to that triangle's three corners
+by weight, and pulling the point pulls the crust it is part of.
+
+That destroys them as a test, so half of them are held back. Split by track and
+not by pair: two pairs five million years apart on the same walk are nearly the
+same claim, and a pair-by-pair split would put a near-copy of every constraint
+into the test set. 1,179 pull; 1,282 are never shown to the solver and are the
+only ones scored.
+
+On those held-back pairs:
+
+| | 20 Ma | 40 Ma | 60 Ma | 90 Ma | 120 Ma |
+|---|---|---|---|---|---|
+| before | 187 km, 52% | 222 km, 43% | 306 km, 27% | 506 km, 16% | 1068 km, 0% |
+| pairs pulling | 151 km, 67% | 196 km, 51% | 247 km, 39% | 340 km, 22% | 441 km, 26% |
+
+Better at every time, and not by a little at depth: 1068 km to 441 at 120 Ma,
+and the share reunited within 200 km goes from none of them to a quarter. This
+is the first change in a long stretch of work that moved the reconstruction
+rather than the ruler, and it is measured on pairs the solver never saw.
+
+Most of the rest of the run improved with it. Median strain falls from 3.6% to
+3.1% at 200 Ma, folded crust from 0.42% to 0.21%, crust covered twice from 0.46%
+to 0.22%, and the record ends on seven blocks instead of two. Craton strain does
+not move.
+
+One thing got worse and it is not small. The worst held island loses 52% of its
+own shape by 200 Ma, against 17% before. At 120 Ma it is 19% against 17%, so
+this is confined to the very end of the record &mdash; and the pairs run out
+around 160 Ma, so nothing is pulling there directly. It is a knock-on: the
+constrained path through the middle of the record leaves the shell in a
+different state by the time it arrives. Which island, and why it gives way, is
+not established; the diagnostics record the worst figure but not its owner.
 
 ## Where the plates come from
 
@@ -433,7 +469,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 125 blocks at its most divided and 2 at 200 Ma.
+The run finds 135 blocks at its most divided and 7 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -446,7 +482,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 16 km/Myr to 2.5, the block count from as many as 125 to 2, and the biggest block grows to 96% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 16 km/Myr to 3.0, the block count from as many as 135 to 7, and the biggest block grows to 62% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -473,11 +509,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 5.1 km/Myr | 76 | 26% | 0.3% |
-| 30 Ma | 0.644%/Myr | 13.6 km/Myr | 125 | 3% | 0.7% |
-| 60 Ma | 0.448%/Myr | 13.0 km/Myr | 103 | 4% | 1.0% |
-| 120 Ma | 0.256%/Myr | 12.7 km/Myr | 57 | 6% | 2.1% |
-| 200 Ma | 0.000%/Myr | 2.5 km/Myr | 2 | 96% | 2.9% |
+| 5 Ma | 0.620%/Myr | 5.7 km/Myr | 75 | 24% | 0.3% |
+| 30 Ma | 0.644%/Myr | 14.7 km/Myr | 135 | 3% | 0.7% |
+| 60 Ma | 0.448%/Myr | 14.1 km/Myr | 109 | 3% | 1.1% |
+| 120 Ma | 0.256%/Myr | 11.5 km/Myr | 55 | 8% | 2.0% |
+| 200 Ma | 0.000%/Myr | 3.0 km/Myr | 7 | 62% | 4.2% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -619,11 +655,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.00% | 0.00% | 0.00% | 0.06% | 1.2% |
-| 30 Ma | 5728 km | 0.00% | 0.00% | 0.00% | 0.21% | 5.2% |
-| 60 Ma | 5197 km | 0.00% | 0.00% | 0.02% | 0.29% | 7.4% |
-| 120 Ma | 4373 km | 0.00% | 0.03% | 0.14% | 0.50% | 9.6% |
-| 200 Ma | 3905 km | 0.00% | 0.46% | 0.42% | 0.70% | 17.1% |
+| 5 Ma | 6272 km | 0.00% | 0.00% | 0.00% | 0.05% | 1.2% |
+| 30 Ma | 5728 km | 0.00% | 0.00% | 0.00% | 0.20% | 5.0% |
+| 60 Ma | 5197 km | 0.00% | 0.00% | 0.04% | 0.29% | 6.6% |
+| 120 Ma | 4373 km | 0.00% | 0.02% | 0.08% | 0.52% | 9.3% |
+| 200 Ma | 3905 km | 0.00% | 0.22% | 0.21% | 0.65% | 15.7% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -637,13 +673,13 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 21% | +21 | 0 km | 0 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 16% | +16 | 71 km | 21 km at 165 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 9% | +9 | 96 km | 79 km at 105 Ma |
-| Greenland &ndash; North America | 60 Ma | 38% | 36% | -2 | 0 km | 0 km at 10 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 9% | +9 | 96 km | 94 km at 180 Ma |
-| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 0 km | 0 km at 120 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2689 km | 2689 km at 200 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 28% | +28 | 0 km | 0 km at 120 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 19% | +19 | 0 km | 0 km at 100 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 6% | +6 | 164 km | 0 km at 145 Ma |
+| Greenland &ndash; North America | 60 Ma | 38% | 36% | -2 | 0 km | 0 km at 5 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 11% | +11 | 111 km | 110 km at 185 Ma |
+| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 0 km | 0 km at 105 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2083 km | 2083 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and

@@ -144,6 +144,16 @@ const CONFIG = {
    * globe do, and the leftover radial deviation is itself a prediction: it is
    * where the model demands the crust buckled.
    */
+  /**
+   * How hard a conjugate pair pulls its two halves together, per sweep.
+   *
+   * Modest on purpose. The pairs are read off the age grid by a tracer, and a
+   * tracer that is wrong somewhere would otherwise drag the crust there with
+   * the full authority of a measurement. At this stiffness a pair nudges and
+   * the springs argue back, so what survives is what many pairs and the age
+   * grid agree on.
+   */
+  conjugateStiffness: 0.15,
   radialStiffness: Number(process.env.RADIAL_K ?? 0.35),
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,
@@ -288,6 +298,48 @@ function main() {
       }
     }
     for (let v = 0; v < vertexCount; v++) if (share[v]) vertexRigidity[v] /= share[v]
+  }
+
+  /**
+   * The conjugate pairs, split into the ones that pull and the ones that judge.
+   *
+   * Until now these only judged: they reached conjugateFit and nothing else, so
+   * every change to how they were traced moved the yardstick and left the
+   * reconstruction byte for byte identical. Feeding them in is the change that
+   * makes them matter -- and it destroys them as a test unless some are kept
+   * back, because a pair the solver was told to close is no evidence that it
+   * closed.
+   *
+   * Split by track, not by pair. Two pairs five million years apart on the same
+   * walk are nearly the same claim, so splitting pair by pair would put a
+   * near-copy of every constraint into the test set and score the model on what
+   * it had been told.
+   */
+  const pairPulls = new Uint8Array(tracks.pairAgeMa.length)
+  const pairRestKm = new Float64Array(tracks.pairAgeMa.length)
+  {
+    const place = (verts: Uint32Array, weights: Float32Array, i: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = verts[i * 3 + k] * 3
+        const w = weights[i * 3 + k]
+        x += w * dirs[v]; y += w * dirs[v + 1]; z += w * dirs[v + 2]
+      }
+      const l = length3(x, y, z) || 1
+      return [x / l, y / l, z / l]
+    }
+    let pulling = 0
+    for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+      if (tracks.pairTrack[i] % 2 === 0) { pairPulls[i] = 1; pulling++ }
+      const a = place(tracks.pairAVerts, tracks.pairAWeights, i)
+      const b = place(tracks.pairBVerts, tracks.pairBWeights, i)
+      const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
+      pairRestKm[i] = Math.acos(dot) * r0
+    }
+    console.log(
+      `[solve] ${pulling} conjugate pairs pull on the crust, ` +
+        `${tracks.pairAgeMa.length - pulling} are held back to score it`,
+    )
   }
 
   const identity = Uint32Array.from({ length: vertexCount }, (_, v) => v)
@@ -543,6 +595,7 @@ function main() {
           ageMa: tracks.pairAgeMa,
         },
         t, pos, radiusAt(t), CONTACT_KM, (v) => mesh.survivor(v),
+        (i) => !pairPulls[i],
       ),
     })
   }
@@ -550,6 +603,75 @@ function main() {
   record(0)
   followRegions(radiusAt(0))
   const started = Date.now()
+
+  /**
+   * Pull the pairs that were once one point towards being one point again.
+   *
+   * The claim a conjugate pair makes is about one instant: at the age its crust
+   * erupted, these two places were the same place. Everything between then and
+   * now it says nothing about -- so the target closes linearly from where they
+   * sit today to nothing at that age, and the stiffness does the opposite,
+   * near zero at the present and full at formation. Most of the pull therefore
+   * lands where the claim is real, and the straight-line guess in between is
+   * barely enforced.
+   *
+   * It runs after the edge springs and before the fold guard and the sphere, so
+   * a pull that would turn a triangle inside out is caught in the same sweep
+   * that made it.
+   *
+   * Each end is a point inside a triangle, so the correction is handed to its
+   * three corners in proportion to their weights: pulling the point pulls the
+   * crust it is part of, which is the whole idea. A vertex the mesh has already
+   * collapsed follows its survivor.
+   */
+  const closeConjugates = (pos: Float64Array, t: number, radius: number) => {
+    if (CONFIG.conjugateStiffness <= 0) return
+    for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+      if (!pairPulls[i]) continue
+      const age = tracks.pairAgeMa[i]
+      if (age <= 0 || t > age) continue
+      const remaining = (age - t) / age
+      const stiffness = CONFIG.conjugateStiffness * (1 - remaining)
+      if (stiffness <= 0) continue
+      const targetKm = pairRestKm[i] * remaining
+
+      const place = (verts: Uint32Array, weights: Float32Array) => {
+        let x = 0, y = 0, z = 0
+        for (let k = 0; k < 3; k++) {
+          const v = mesh.survivor(verts[i * 3 + k]) * 3
+          const w = weights[i * 3 + k]
+          x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+        }
+        return [x, y, z]
+      }
+      const a = place(tracks.pairAVerts, tracks.pairAWeights)
+      const b = place(tracks.pairBVerts, tracks.pairBWeights)
+      const dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2]
+      const chord = length3(dx, dy, dz)
+      if (chord < 1e-9) continue
+      // Both distances as chords of the same sphere, so the comparison does not
+      // mix a great-circle target with a straight-line reading.
+      const targetChord = 2 * radius * Math.sin(Math.min(Math.PI, targetKm / radius) / 2)
+      const move = (0.5 * stiffness * (chord - targetChord)) / chord
+      const mx = dx * move, my = dy * move, mz = dz * move
+
+      const push = (verts: Uint32Array, weights: Float32Array, sign: number) => {
+        // Spread over the corners by weight, and divide by the sum of the
+        // squared weights so that the point itself moves by the amount asked
+        // for however the weights happen to fall.
+        let share = 0
+        for (let k = 0; k < 3; k++) share += weights[i * 3 + k] * weights[i * 3 + k]
+        if (share < 1e-9) return
+        for (let k = 0; k < 3; k++) {
+          const v = mesh.survivor(verts[i * 3 + k]) * 3
+          const w = (weights[i * 3 + k] / share) * sign
+          pos[v] += mx * w; pos[v + 1] += my * w; pos[v + 2] += mz * w
+        }
+      }
+      push(tracks.pairAVerts, tracks.pairAWeights, -1)
+      push(tracks.pairBVerts, tracks.pairBWeights, 1)
+    }
+  }
 
   const endTimeMa = CONFIG.endMa ?? meta.endTimeMa
   let refusedTotal = 0
@@ -608,6 +730,7 @@ function main() {
           pos[j] += cx; pos[j + 1] += cy; pos[j + 2] += cz
         }
       }
+      closeConjugates(pos, t, rNext)
       unfold(
         pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin,

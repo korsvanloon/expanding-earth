@@ -642,6 +642,16 @@ export interface Conjugate {
   /** How far each has travelled from the ridge since, km. */
   fromRidgeAKm: number
   fromRidgeBKm: number
+  /**
+   * Which walk this came off.
+   *
+   * Carried so that a run can hold some of these back. Once the pairs are fed
+   * to the solver as constraints they stop being a test of it, and splitting
+   * them has to be done by track and not by pair: two pairs five million years
+   * apart on the same walk are nearly the same claim, so a split that put one
+   * in each half would be marking its own homework.
+   */
+  track: number
 }
 
 /**
@@ -696,7 +706,7 @@ export function conjugatePairs(
     'both halves are the same mesh point': 0,
     'not as far apart as the paths are long': 0,
   }
-  for (const track of tracks) {
+  for (const [index, track] of tracks.entries()) {
     const left = track.points.slice(0, track.ridge).reverse()
     const right = track.points.slice(track.ridge + 1)
     for (const age of ages) {
@@ -728,6 +738,7 @@ export function conjugatePairs(
       }
       pairs.push({
         a, b, ageMa: age, fromRidgeAKm: pa.fromRidgeKm, fromRidgeBKm: pb.fromRidgeKm,
+        track: index,
       })
     }
   }
@@ -901,6 +912,14 @@ export function conjugateFit(
   radiusKm: number,
   contactKm: number,
   survivor: (v: number) => number,
+  /**
+   * Which pairs count. Left out, all of them do.
+   *
+   * The solver hands in only the ones it was not told to close. A pair used as
+   * a constraint scores whatever the constraint made it score, so counting it
+   * would be reading back the instruction rather than testing the answer.
+   */
+  include?: (i: number) => boolean,
 ): ConjugateFit {
   const gaps: number[] = []
   let merged = 0
@@ -917,6 +936,7 @@ export function conjugateFit(
   }
   for (let i = 0; i < pairs.ageMa.length; i++) {
     if (pairs.ageMa[i] !== timeMa) continue
+    if (include && !include(i)) continue
     // Merged means the mesh has closed every corner of both triangles onto one
     // point: the ocean shut and the two banks became the same crust. The right
     // answer, and an unfalsifiable zero, which is why it is counted apart.

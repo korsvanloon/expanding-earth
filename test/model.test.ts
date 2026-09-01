@@ -622,6 +622,7 @@ describe('reading the stretch marks', () => {
       pairBVerts: Uint32Array.from([20, 21, 7]),
       pairBWeights: Float32Array.from([0.1, 0.8, 0.1]),
       pairAgeMa: Float32Array.from([10]),
+      pairTrack: Uint32Array.from([1]),
     }
     const back = readTracks(writeTracks(tracks))
     for (const key of Object.keys(tracks) as (keyof typeof tracks)[]) {
