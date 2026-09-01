@@ -7,7 +7,7 @@ import {
 import { crustScale, sampleCurve, MIN_SCALE, TAU_MA, type Meta } from '../shared/model'
 import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
-import { separateIslands } from '../tools/lib/contact'
+import { newContactScratch, separateIslands } from '../tools/lib/contact'
 import { distortion, shapePairs } from '../tools/lib/shape'
 import {
   conjugateFit, conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper,
@@ -1306,7 +1306,7 @@ describe('keeping rigid crust out of rigid crust', () => {
     const { pos, mesh } = setUp(3, 0.4)
     const before = pos[10] // the intruder's y, which is its latitude
     const report = separateIslands(
-      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, cellBuckets(),
+      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, newContactScratch(cellBuckets().length),
     )
     expect(report.found).toBe(1)
     // 0.4 degrees of a 6371 km sphere is about 44 km.
@@ -1321,7 +1321,7 @@ describe('keeping rigid crust out of rigid crust', () => {
     const same = Uint16Array.from([1, 1, 1, 1])
     const kept = Float64Array.from(pos)
     const report = separateIslands(
-      pos, mesh, 1, 4, same, faceIsland, alive, R0_KM, 1, cellBuckets(),
+      pos, mesh, 1, 4, same, faceIsland, alive, R0_KM, 1, newContactScratch(cellBuckets().length),
     )
     expect(report.found).toBe(0)
     expect([...pos]).toEqual([...kept])
@@ -1333,7 +1333,7 @@ describe('keeping rigid crust out of rigid crust', () => {
     const { pos, mesh } = setUp(3, -0.5)
     const kept = Float64Array.from(pos)
     const report = separateIslands(
-      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, cellBuckets(),
+      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, newContactScratch(cellBuckets().length),
     )
     expect(report.found).toBe(0)
     expect([...pos]).toEqual([...kept])
@@ -1343,7 +1343,7 @@ describe('keeping rigid crust out of rigid crust', () => {
     const { pos, mesh } = setUp(3, 0.4)
     const before = [0, 1, 2, 3].map((v) => [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]])
     separateIslands(
-      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, cellBuckets(),
+      pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, newContactScratch(cellBuckets().length),
     )
     // The four points' centre of mass must not have moved: a contact that
     // pushed only the intruder would walk the pair of islands across the globe.

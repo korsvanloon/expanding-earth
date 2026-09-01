@@ -57,7 +57,7 @@ import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topo
 import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
 import { cellBuckets, coverage, probeCells, probeDirections } from './lib/coverage.js'
-import { separateIslands, type IslandContacts } from './lib/contact.js'
+import { newContactScratch, separateIslands, type IslandContacts } from './lib/contact.js'
 import { distortion, shapePairs } from './lib/shape.js'
 import { conjugateFit } from './lib/flowlines.js'
 import { pairPulls as pairIsHeldIn, readTracks } from '../shared/tracks.js'
@@ -418,9 +418,9 @@ function main() {
   const cells = probeCells(probes)
   const buckets = cellBuckets()
   const faceIsland = new Uint16Array(faceCount)
-  // A second set of buckets, holding only the island faces, so the contact
-  // test and the coverage pass do not overwrite each other's lists.
-  const contactBuckets = cellBuckets()
+  // Its own bucketing, holding only the island faces, so the contact test and
+  // the coverage pass do not overwrite each other's lists.
+  const contactScratch = newContactScratch(cellBuckets().length)
 
   /**
    * Which island each triangle belongs to.
@@ -994,7 +994,7 @@ function main() {
       // degrees, so the lists are still right at the end of the step.
       contacts = separateIslands(
         pos, mesh, faceCount, vertexCount, islands.vertexIsland, faceIsland,
-        mesh.vertexAlive, rNext, CONFIG.islandContactStiffness, contactBuckets,
+        mesh.vertexAlive, rNext, CONFIG.islandContactStiffness, contactScratch,
         sweep === 0,
       )
       contactsNow += contacts.found
