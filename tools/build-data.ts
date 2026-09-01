@@ -113,6 +113,12 @@ export const CONFIG = {
 const NODATA = 255
 
 function main() {
+  // Before anything is written, not beside the first thing that writes.
+  // public/data is generated and so is not in the repository, which means it is
+  // absent on a fresh checkout -- and a build step that made the directory on
+  // its way past worked here and failed in CI the moment something else wrote
+  // first.
+  mkdirSync(OUT, { recursive: true })
   console.log('[build-data] loading rasters')
   const ageFull = loadRaster(resolve(TEXTURES, 'age-map.png'))
   console.log(`  age-map.png       ${ageFull.width}x${ageFull.height}`)
@@ -247,7 +253,6 @@ function main() {
   //
   // Which piece of crust was once against which, read out of the same age grid
   // that drives the whole model. See tools/lib/flowlines.ts.
-  mkdirSync(OUT, { recursive: true })
   console.log('[build-data] tracing fracture zones')
   // Traced on the age map at its own resolution, not on the working grid the
   // rest of the pipeline uses. The source is 8192x4096, five kilometres to the

@@ -43,6 +43,14 @@ jobs:
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
 
+      # Again, now that there is a run to check. Every test that reads
+      # public/data is written as "if the data is there", and on a fresh
+      # checkout it is not -- so the pass above skips exactly the checks that
+      # would catch a bad build: the documents matching the run they quote, the
+      # mesh agreeing with its own header, the fabric raster covering the globe.
+      # It costs five seconds and it is the only place those ever run.
+      - run: pnpm test
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist
