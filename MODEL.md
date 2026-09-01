@@ -281,9 +281,27 @@ outrank a quiet perfectly aligned one, and ranked that way the strongest
 detections came out at 44 degrees to the flow &mdash; worse than picking at
 random, because the loudest lines in a gravity grid are seamount chains and
 plateau edges. Gated at twenty degrees and ranked on strength alone, the
-detector flags 0.6% of the surveyed globe and the lines it keeps run a median 13
-degrees from the direction the crust travelled, against 28 to 34 for the
-ungated lineaments they were picked out of. Crust younger than 8 Ma is skipped
+detector keeps lines that run a median 13 degrees from the direction the crust
+travelled, against 28 to 34 for the ungated lineaments they were picked out of.
+
+Two more things had to change before it produced lines rather than confetti, and
+both were about order rather than about thresholds. The gate was a cliff, and a
+cliff flickers: the guide axis is itself only good to a few tens of degrees and
+a real scarp wanders, so a yes-or-no test per cell switched on and off along one
+feature and chopped it into dashes. It ramps now &mdash; full marks inside
+fifteen degrees, nothing beyond thirty-five. And the strength cut came *before*
+the averaging along the line, so a scarp that dipped below the bar for fifty
+kilometres was cut in two and zeroed, and the averaging that would have carried
+it across the dip had nothing left to carry. Averaged first, cut last.
+
+Then the lit cells are linked into curves: walk the strongest unclaimed cell
+outwards along the guide axis, look a little to either side at each step, allow
+a few empty cells to be crossed, and measure how far you got. Anything under 400
+km is discarded, which is the test that removes a seamount &mdash; round, so it
+lights a cell or two and stops. What comes out is 970 fracture zones, median 551
+km long, over 0.8% of the sea floor, sitting on ground at the 68th percentile of
+roughness against the 62nd forty kilometres to either side. Curves, not pixels,
+which is also the form a flow field wants to be fitted through. Crust younger than 8 Ma is skipped
 outright: at a spreading centre the age rises in both directions, so the
 travelled direction computed from it is whatever the two sides fail to cancel,
 and the detector was lighting up lengths of the Mid-Atlantic Ridge axis in

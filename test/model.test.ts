@@ -1178,7 +1178,8 @@ describe('telling a fracture zone from an abyssal hill', () => {
     for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) age[r * W + c] = (H - r) * 0.5
     return age
   }
-  const strength = (field: ReturnType<typeof fractureZones>, lonDeg: number) => {
+  const strength = (found: ReturnType<typeof fractureZones>, lonDeg: number) => {
+    const field = found.zones
     const column = Math.floor(((lonDeg + 180) / 360) * W)
     let most = 0
     for (let r = H / 2 - 20; r < H / 2 + 20; r++) {

@@ -562,8 +562,12 @@ export interface FractureOptions {
   /** How far across a lineament its neighbours are checked, km. */
   narrownessKm?: number
   /**
-   * How nearly a lineament must run along the travelled direction to count at
-   * all, as the cosine of the angle between them. 0.87 is thirty degrees.
+   * Where the alignment gate closes, as the cosine of the angle between the
+   * lineament and the travelled direction. 0.82 is thirty-five degrees. It is a
+   * ramp rather than a cliff: full marks inside fifteen degrees, nothing beyond
+   * this, and smooth in between, because the guide axis is itself only good to
+   * a few tens of degrees and a cliff flickered on and off along a single scarp
+   * and chopped it into dashes.
    */
   alignmentGate?: number
   /**
@@ -589,6 +593,10 @@ export interface FractureOptions {
    * the sea floor that is certainly not a path the crust took.
    */
   ridgeAgeMa?: number
+  /** How long a linked curve must be to count as a fracture zone, km. */
+  minLengthKm?: number
+  /** How many empty cells a curve may cross while being followed. */
+  bridgeCells?: number
 }
 
 export function fractureZones(
@@ -607,12 +615,12 @@ export function fractureZones(
   age: ArrayLike<number>, ageWidth: number, ageHeight: number,
   r0: number,
   options: FractureOptions = {},
-): Lineaments {
+): { zones: Lineaments; curves: number[][] } {
   const isochronSmoothKm = options.isochronSmoothKm ?? 250
   const continuityKm = options.continuityKm ?? 200
   const narrownessKm = options.narrownessKm ?? 25
-  const alignmentGate = options.alignmentGate ?? 0.87
-  const strengthQuantile = options.strengthQuantile ?? 0.9
+  const alignmentGate = options.alignmentGate ?? 0.82
+  const strengthQuantile = options.strengthQuantile ?? 0.7
   const ridgeAgeMa = options.ridgeAgeMa ?? 8
   const { width, height } = sharp
   const size = width * height
@@ -651,9 +659,16 @@ export function fractureZones(
   boxBlur(weight, width, height, rows, r0)
   for (let i = 0; i < size; i++) ages[i] = weight[i] > 1e-6 ? ages[i] / weight[i] : 0
 
-  // How well each cell's lineament runs along the way the crust travelled,
-  // as the squared cosine of the angle between two axes: one where they are
-  // parallel, zero where they are square.
+  // How well each cell's lineament runs along the way the crust travelled.
+  //
+  // Soft, where it used to be a hard yes or no. A binary test flickers: the
+  // guide axis is itself only good to a few tens of degrees, and a real
+  // fracture zone wanders, so a cell-by-cell cut switched on and off along a
+  // single scarp and chopped it into dashes. It is still a gate rather than a
+  // weight -- full marks inside fifteen degrees, nothing at all beyond
+  // thirty-five, and the cosine squared that was tried first is not a gate at
+  // all, since it still pays half marks at forty-five.
+  const cosFull = Math.cos((15 * Math.PI) / 180)
   const detected = new Float32Array(size)
   for (let row = 1; row < height - 1; row++) {
     const lat = Math.PI * (0.5 - (row + 0.5) / height)
@@ -663,6 +678,7 @@ export function fractureZones(
     for (let column = 0; column < width; column++) {
       const at = row * width + column
       if (!sharp.known[at] || !dated[at]) continue
+      if (ages[at] < ridgeAgeMa) continue
       const e = row * width + ((column + 1) % width)
       const w = row * width + ((column - 1 + width) % width)
       if (!dated[e] || !dated[w] || !dated[(row + 1) * width + column]
@@ -670,42 +686,23 @@ export function fractureZones(
       const gx = (ages[e] - ages[w]) / (2 * widthKm)
       const gy = (ages[(row - 1) * width + column] - ages[(row + 1) * width + column])
         / (2 * cellHeightKm)
-      const size2 = gx * gx + gy * gy
-      if (size2 < 1e-12) continue
-      // The travelled direction as a bearing from north, to compare with the
-      // stored axis, which is also a bearing from north.
+      if (gx * gx + gy * gy < 1e-12) continue
       const travelled = Math.atan2(gx, gy)
       const axis = (guide.axis[at] / 256) * Math.PI
-      // A gate, not a weight. Multiplying strength by alignment lets a loud
-      // feature that is half-aligned outrank a quiet one that is perfectly
-      // aligned, and that is exactly the ordering that went wrong: ranked by
-      // the product, the strongest detections came out at 44 degrees to the
-      // flow -- worse than picking at random -- because the loudest lines in a
-      // gravity grid are seamount chains and plateau edges, not fracture zones.
-      // Everything square to the travelled direction is thrown away outright,
-      // and what survives is ranked on strength alone.
-      if (ages[at] < ridgeAgeMa) continue
       const cos = Math.abs(Math.cos(axis - travelled))
-      if (cos < alignmentGate) continue
-      detected[at] = sharp.ridgeness[at]
+      if (cos <= alignmentGate) continue
+      const ramp = Math.min(1, (cos - alignmentGate) / Math.max(1e-6, cosFull - alignmentGate))
+      detected[at] = sharp.ridgeness[at] * ramp
     }
   }
 
-  // And it has to be a strong line, not merely a line-shaped one. Taken as a
-  // quantile of what survived the alignment gate rather than as an absolute
-  // number in Eotvos, because the right cut depends on the grid and on how hard
-  // it was smoothed, and a quantile travels with both.
-  {
-    const aligned: number[] = []
-    for (let i = 0; i < size; i++) if (detected[i] > 0) aligned.push(detected[i])
-    if (aligned.length) {
-      const sorted = Float64Array.from(aligned).sort()
-      const floor = sorted[Math.min(sorted.length - 1, Math.floor(strengthQuantile * sorted.length))]
-      for (let i = 0; i < size; i++) if (detected[i] < floor) detected[i] = 0
-    }
-  }
-
-  // Continuity: average along the lineament, following its own bend.
+  // Continuity, and it comes *before* the strength cut now. That order was the
+  // other half of why the detector came out in fragments: thresholding first
+  // meant a scarp that dipped below the bar for fifty kilometres was cut in two
+  // and set to zero, and the averaging that would have carried it across the
+  // dip had nothing left to carry. Averaged first, a dip is filled by its own
+  // neighbours along the line and the cut then judges a whole feature rather
+  // than each cell of it separately.
   const stepKm = Math.max(cellHeightKm, narrownessKm)
   const along = Math.max(1, Math.round(continuityKm / stepKm))
   const continuous = new Float32Array(size)
@@ -720,7 +717,9 @@ export function fractureZones(
         for (let step = 0; step < along; step++) {
           const line = lineamentAt(guide, x, y, z)
           if (!line) break
-          const [nx, ny, nz] = advanceAlong(x, y, z, line.tx * sign, line.ty * sign, line.tz * sign, stepKm / r0)
+          const [nx, ny, nz] = advanceAlong(
+            x, y, z, line.tx * sign, line.ty * sign, line.tz * sign, stepKm / r0,
+          )
           x = nx; y = ny; z = nz
           const [c, r] = directionToPixel(x, y, z, width, height)
           sum += detected[r * width + c]
@@ -741,7 +740,6 @@ export function fractureZones(
       const [x, y, z] = cellDirection(column, row, width, height)
       const line = lineamentAt(guide, x, y, z)
       if (!line) continue
-      // Across the line: its axis crossed with the outward normal.
       let cx = line.ty * z - line.tz * y
       let cy = line.tz * x - line.tx * z
       let cz = line.tx * y - line.ty * x
@@ -750,7 +748,9 @@ export function fractureZones(
       cx /= cl; cy /= cl; cz /= cl
       let peak = true
       for (const sign of [1, -1]) {
-        const [nx, ny, nz] = advanceAlong(x, y, z, cx * sign, cy * sign, cz * sign, narrownessKm / r0)
+        const [nx, ny, nz] = advanceAlong(
+          x, y, z, cx * sign, cy * sign, cz * sign, narrownessKm / r0,
+        )
         const [c, r] = directionToPixel(nx, ny, nz, width, height)
         if (continuous[r * width + c] > here) { peak = false; break }
       }
@@ -758,12 +758,115 @@ export function fractureZones(
     }
   }
 
-  // The blurred axis travels with the result: anything following these lines
-  // wants the bearing that can be trusted, not the one the strength came from.
-  return {
+  // Strength, last. A quantile of what is left rather than an absolute number
+  // in Eotvos, because the right cut depends on the grid and on how hard it was
+  // smoothed, and a quantile travels with both.
+  {
+    const ridges: number[] = []
+    for (let i = 0; i < size; i++) if (thin[i] > 0) ridges.push(thin[i])
+    if (ridges.length) {
+      const sorted = Float64Array.from(ridges).sort()
+      const floor = sorted[Math.min(sorted.length - 1, Math.floor(strengthQuantile * sorted.length))]
+      for (let i = 0; i < size; i++) if (thin[i] < floor) thin[i] = 0
+    }
+  }
+
+  const zones: Lineaments = {
     width, height, axis: guide.axis, coherence: guide.coherence,
     ridgeness: thin, known: sharp.known,
   }
+  const curves = linkCurves(zones, guide, r0, {
+    minLengthKm: options.minLengthKm ?? 400,
+    bridgeCells: options.bridgeCells ?? 4,
+  })
+  // Anything that did not join a long enough curve is not a fracture zone. This
+  // is the test that removes a seamount, which is round: it lights up a cell or
+  // two and then stops, where a scarp runs for hundreds of kilometres.
+  const kept = new Uint8Array(size)
+  for (const curve of curves) for (const at of curve) kept[at] = 1
+  for (let i = 0; i < size; i++) if (!kept[i]) thin[i] = 0
+
+  return { zones, curves }
+}
+
+/**
+ * Join the surviving cells into curves, and say how long each one is.
+ *
+ * A detector that answers in cells cannot tell a scarp from a bright speck: it
+ * takes following one to find out that it goes somewhere. Walking the strongest
+ * unclaimed cell outwards along the guide axis, looking a little to either side
+ * at each step and allowing a few empty cells to be crossed, turns a field of
+ * lit cells into a set of polylines with lengths -- which is both the test that
+ * removes the specks and the form the rest of the model wants them in, since a
+ * flow field is fitted through curves and not through pixels.
+ */
+export function linkCurves(
+  zones: Lineaments, guide: Lineaments, r0: number,
+  options: { minLengthKm?: number; bridgeCells?: number } = {},
+): number[][] {
+  const minLengthKm = options.minLengthKm ?? 400
+  const bridgeCells = options.bridgeCells ?? 4
+  const { width, height, ridgeness } = zones
+  const cellKm = (Math.PI * r0) / height
+  const across = 2
+
+  const order: number[] = []
+  for (let i = 0; i < ridgeness.length; i++) if (ridgeness[i] > 0) order.push(i)
+  order.sort((a, b) => ridgeness[b] - ridgeness[a])
+  const taken = new Uint8Array(ridgeness.length)
+
+  const curves: number[][] = []
+  for (const seed of order) {
+    if (taken[seed]) continue
+    taken[seed] = 1
+    const halves: number[][] = []
+    for (const sign of [1, -1]) {
+      const half: number[] = []
+      let [x, y, z] = cellDirection(seed % width, Math.floor(seed / width), width, height)
+      let missed = 0
+      while (missed <= bridgeCells) {
+        const line = lineamentAt(guide, x, y, z)
+        if (!line) break
+        const [nx, ny, nz] = advanceAlong(
+          x, y, z, line.tx * sign, line.ty * sign, line.tz * sign, cellKm / r0,
+        )
+        x = nx; y = ny; z = nz
+        // Look a little to either side: a curve a cell wide does not land
+        // exactly on the step the guide axis predicts.
+        let sx = line.ty * z - line.tz * y
+        let sy = line.tz * x - line.tx * z
+        let sz = line.tx * y - line.ty * x
+        const sl = Math.hypot(sx, sy, sz) || 1
+        sx /= sl; sy /= sl; sz /= sl
+        let best = -1
+        let bestValue = 0
+        for (let d = -across; d <= across; d++) {
+          const [px, py, pz] = advanceAlong(x, y, z, sx, sy, sz, (d * cellKm) / r0)
+          const [c, r] = directionToPixel(px, py, pz, width, height)
+          const at = r * width + c
+          if (taken[at] || ridgeness[at] <= bestValue) continue
+          best = at
+          bestValue = ridgeness[at]
+        }
+        if (best < 0) { missed++; continue }
+        missed = 0
+        taken[best] = 1
+        half.push(best)
+      }
+      halves.push(half)
+    }
+    const curve = [...halves[1].reverse(), seed, ...halves[0]]
+    // Length along the curve, not end to end: a fracture zone bends, and a
+    // bent one that doubles back would score short on a straight-line measure.
+    let lengthKm = 0
+    for (let i = 1; i < curve.length; i++) {
+      const a = cellDirection(curve[i - 1] % width, Math.floor(curve[i - 1] / width), width, height)
+      const b = cellDirection(curve[i] % width, Math.floor(curve[i] / width), width, height)
+      lengthKm += Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * r0
+    }
+    if (lengthKm >= minLengthKm) curves.push(curve)
+  }
+  return curves
 }
 
 /** The unit direction at the centre of a cell. */

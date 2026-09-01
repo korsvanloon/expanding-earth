@@ -150,11 +150,17 @@ export const CONFIG = {
    */
   crestPull: 0,
   /**
-   * How nearly a line must run along the flow to be a fracture zone, as a
-   * cosine. 0.94 is twenty degrees, and it is a gate rather than a weight for
-   * a reason given in tools/lib/structure.ts.
+   * What counts as a fracture zone; see tools/lib/structure.ts for each.
+   *
+   * The gate is a ramp closing at thirty-five degrees, the strength cut is a
+   * quantile of what survives the thinning, and a curve has to run 400 km to be
+   * kept at all. Together: 970 zones, median 551 km long, over 0.8% of the sea
+   * floor, sitting on ground at the 68th percentile of roughness against the
+   * 62nd forty kilometres to either side.
    */
-  alignmentGate: 0.94,
+  alignmentGate: 0.82,
+  strengthQuantile: 0.7,
+  minZoneLengthKm: 400,
   crestReachKm: 60,
   crestMaxShiftKm: 8,
   /**
@@ -348,14 +354,23 @@ function main() {
   // Detected whether or not anything steers by them, because they are worth
   // looking at: the viewer paints them on the crust so that a reader can put
   // them beside the traced paths and see for themselves whether the two agree.
-  const zones = vgg && lines
+  const detected = vgg && lines
     ? fractureZones(
         lineaments(vgg, R0_KM, CONFIG.crestWindowKm, CONFIG.crestSmoothKm),
         lines, ageMa, ageFull.width, ageFull.height, R0_KM,
-        { alignmentGate: CONFIG.alignmentGate },
+        {
+          alignmentGate: CONFIG.alignmentGate,
+          strengthQuantile: CONFIG.strengthQuantile,
+          minLengthKm: CONFIG.minZoneLengthKm,
+        },
       )
     : undefined
-  if (zones) {
+  const zones = detected?.zones
+  if (zones && detected) {
+    console.log(
+      `[build-data] ${detected.curves.length} fracture zones linked from the gravity grid, ` +
+        `median ${curveLengthKm(detected.curves, zones)} km long`,
+    )
     const raster = zoneRaster(zones)
     const pixels = new Uint8Array(zones.width * zones.height * 4)
     let lit = 0
@@ -856,6 +871,34 @@ function sampleGravityStructure(shell: Shell, crustType: Uint8Array) {
     )
   }
   return { ...structure, fabric }
+}
+
+/** The median length of a set of linked curves, km, for the build log. */
+function curveLengthKm(
+  curves: number[][], zones: { width: number; height: number },
+): string {
+  const lengths = curves.map((curve) => {
+    let km = 0
+    for (let i = 1; i < curve.length; i++) {
+      const a = curve[i - 1]
+      const b = curve[i]
+      const lat = (row: number) => (0.5 - (row + 0.5) / zones.height) * Math.PI
+      const lon = (col: number) => ((col + 0.5) / zones.width - 0.5) * 2 * Math.PI
+      const dir = (at: number) => {
+        const c = Math.cos(lat(Math.floor(at / zones.width)))
+        return [
+          c * Math.cos(lon(at % zones.width)),
+          Math.sin(lat(Math.floor(at / zones.width))),
+          -c * Math.sin(lon(at % zones.width)),
+        ]
+      }
+      const [ax, ay, az] = dir(a)
+      const [bx, by, bz] = dir(b)
+      km += Math.acos(Math.min(1, Math.max(-1, ax * bx + ay * by + az * bz))) * R0_KM
+    }
+    return km
+  }).sort((x, y) => x - y)
+  return (lengths[lengths.length >> 1] ?? 0).toFixed(0)
 }
 
 function quantile(values: number[], q: number): number {
