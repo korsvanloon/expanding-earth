@@ -123,10 +123,19 @@ export function Globe({ data }: { data: Dataset }) {
   const overlay = useMemo(() => {
     const t = data.tracks
     if (!t) return null
-    const path: number[] = []
+    // One segment per step of the walk, as pairs of points. Each point is a
+    // place inside a triangle, so it is copied out corner by corner rather than
+    // referred to by an index.
+    const verts: number[] = []
+    const weights: number[] = []
+    const at = (p: number) => {
+      verts.push(t.pointVerts[p * 3], t.pointVerts[p * 3 + 1], t.pointVerts[p * 3 + 2])
+      weights.push(t.pointWeights[p * 3], t.pointWeights[p * 3 + 1], t.pointWeights[p * 3 + 2])
+    }
     for (let i = 0; i < t.ridge.length; i++) {
       for (let p = t.offsets[i]; p + 1 < t.offsets[i + 1]; p++) {
-        path.push(t.vertex[p], t.vertex[p + 1])
+        at(p)
+        at(p + 1)
       }
     }
     /**
@@ -164,8 +173,9 @@ export function Globe({ data }: { data: Dataset }) {
       return { geometry, material, object, points: new Float32Array(count * 3) }
     }
     return {
-      path: Int32Array.from(path),
-      pathLine: line(path.length, '#ff4fa3', 2.5),
+      pathVerts: Uint32Array.from(verts),
+      pathWeights: Float32Array.from(weights),
+      pathLine: line(weights.length / 3, '#ff4fa3', 2.5),
       // Every pair gets room; only the ones due at the drawn frame are written.
       gapLine: line(t.pairAgeMa.length * 2, '#ffd24a', 4),
     }
@@ -178,44 +188,75 @@ export function Globe({ data }: { data: Dataset }) {
     }
   }, [overlay])
 
-  /** Copy the current positions of a list of vertices into a thick line. */
+  /**
+   * Copy the current positions of a list of in-triangle points into a line.
+   *
+   * Each point is three corners and the weights that mix them. Mixing the
+   * corners' positions and then pushing the result back out to the shell's
+   * radius is the same interpolation the crust itself gets: a point a third of
+   * the way across a triangle stays a third of the way across it however the
+   * triangle is stretched, which is exactly the property that lets these lines
+   * be a check on the reconstruction rather than a decoration on it.
+   */
   const drawLines = (
     line: { geometry: LineSegmentsGeometry; points: Float32Array },
-    list: ArrayLike<number>,
+    verts: Uint32Array,
+    weights: Float32Array,
     count: number,
   ) => {
     for (let i = 0; i < count; i++) {
-      const v = list[i] * 3
-      line.points[i * 3] = buffers.positions[v] * LIFT
-      line.points[i * 3 + 1] = buffers.positions[v + 1] * LIFT
-      line.points[i * 3 + 2] = buffers.positions[v + 2] * LIFT
+      let x = 0
+      let y = 0
+      let z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = verts[i * 3 + k] * 3
+        const w = weights[i * 3 + k]
+        x += buffers.positions[v] * w
+        y += buffers.positions[v + 1] * w
+        z += buffers.positions[v + 2] * w
+      }
+      const scale = LIFT / (Math.hypot(x, y, z) || 1)
+      line.points[i * 3] = x * scale
+      line.points[i * 3 + 1] = y * scale
+      line.points[i * 3 + 2] = z * scale
     }
     line.geometry.setPositions(count ? line.points.subarray(0, count * 3) : new Float32Array(6))
     line.geometry.instanceCount = count / 2
   }
 
   /** The pairs whose crust formed at the frame being drawn, and nothing else. */
-  const dueNow = useMemo(() => new Int32Array((data.tracks?.pairAgeMa.length ?? 0) * 2), [data])
+  const dueNowVerts = useMemo(
+    () => new Uint32Array((data.tracks?.pairAgeMa.length ?? 0) * 6), [data],
+  )
+  const dueNowWeights = useMemo(
+    () => new Float32Array((data.tracks?.pairAgeMa.length ?? 0) * 6), [data],
+  )
   const refreshOverlay = () => {
     if (!overlay || !data.tracks) return
-    drawLines(overlay.pathLine, overlay.path, overlay.path.length)
+    drawLines(
+      overlay.pathLine, overlay.pathVerts, overlay.pathWeights,
+      overlay.pathWeights.length / 3,
+    )
     const t = data.tracks
     const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
     let n = 0
-    // Drawn from the heaviest corner of each end's triangle. The measurement
-    // interpolates inside the triangle; a line has to start somewhere real, and
-    // the difference is under a triangle's width.
-    const heaviest = (verts: Uint32Array, weights: Float32Array, i: number) => {
-      let best = 0
-      for (let k = 1; k < 3; k++) if (weights[i * 3 + k] > weights[i * 3 + best]) best = k
-      return verts[i * 3 + best]
+    // Drawn where they are measured. These used to be drawn from the heaviest
+    // corner of each end's triangle, which put the visible gap up to a
+    // triangle's width away from the one being scored -- a yellow segment that
+    // did not quite say what the residual said.
+    const end = (verts: Uint32Array, weights: Float32Array, i: number) => {
+      for (let k = 0; k < 3; k++) {
+        dueNowVerts[n * 3 + k] = verts[i * 3 + k]
+        dueNowWeights[n * 3 + k] = weights[i * 3 + k]
+      }
+      n++
     }
     for (let i = 0; i < t.pairAgeMa.length; i++) {
       if (t.pairAgeMa[i] !== frameMa) continue
-      dueNow[n++] = heaviest(t.pairAVerts, t.pairAWeights, i)
-      dueNow[n++] = heaviest(t.pairBVerts, t.pairBWeights, i)
+      end(t.pairAVerts, t.pairAWeights, i)
+      end(t.pairBVerts, t.pairBWeights, i)
     }
-    drawLines(overlay.gapLine, dueNow, n)
+    drawLines(overlay.gapLine, dueNowVerts, dueNowWeights, n)
   }
 
   // Built here rather than declared in JSX so the wireframe overlay can draw

@@ -250,6 +250,14 @@ mesh's own 47 km spacing into every residual, and the model was being blamed for
 it. The floor went from 115 km to 80 km and 20 Ma from 50% to 59% without the
 solver changing at all.
 
+The lines drawn on the globe are held the same way, and for a different reason.
+A walk steps 40 km and the mesh has points 112 km apart, so snapping each step
+to a vertex drew a staircase with the mesh's period rather than the fracture
+zone's — the triangulation's shape laid over the lineament's, which is the one
+thing a reader must not confuse it with. Every step of every drawn path is now a
+place inside a triangle, so the line is where the walk went, and it still
+deforms with the crust because its three corners do.
+
 Read that way the result is plain: the model reunites most of what should be
 reunited for the last thirty million years, and then loses it. By 120 Ma the
 median pair is more than a thousand kilometres from where the age grid says it

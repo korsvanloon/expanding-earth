@@ -27,7 +27,7 @@ import { fabricRaster, fillGaps, sampleStructure } from './lib/structure.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
-import { conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper } from './lib/flowlines.js'
+import { conjugatePairs, faceSnapper, traceFlowLines } from './lib/flowlines.js'
 import { writeTracks } from '../shared/tracks.js'
 import {
   PERMANENT_MA,
@@ -270,7 +270,6 @@ function main() {
     `  ${traced.tracks.length} tracks from ${traced.seeds} ridge seeds; ` +
       Object.entries(traced.rejected).map(([why, n]) => `${n} ${why}`).join(', '),
   )
-  const snap = vertexSnapper(shell.positions, vertexCount)
   const snapToFace = faceSnapper(shell.positions, shell.indices, vertexCount)
   const frameAges = Array.from(
     { length: Math.floor(CONFIG.endTimeMa / CONFIG.frameStepMa) + 1 },
@@ -288,42 +287,43 @@ function main() {
   const drawn = traced.tracks.filter((_, i) => i % stride === 0)
   const offsets: number[] = [0]
   const ridge: number[] = []
-  const vertex: number[] = []
+  const pointVerts: number[] = []
+  const pointWeights: number[] = []
   const pointAge: number[] = []
   const fromRidge: number[] = []
-  // Thinned before they are written. A path steps forty kilometres and the mesh
-  // it is drawn on has points forty-seven apart, so consecutive path points
-  // land on the same vertex or the one beside it and the line comes out as a
-  // staircase -- the mesh's sawtooth, not the fracture zone's shape. Keeping
-  // only points a few mesh spacings apart draws the path the walk actually
-  // took. The pairs are unaffected: they carry their own snapped ends.
-  const drawSpacingKm = 150
+  // Every step of the walk, at the step the walk took. These used to be snapped
+  // to the nearest mesh vertex and then thinned to one point per 150 km,
+  // because consecutive steps landed on the same vertex or the one beside it
+  // and the line came out as a staircase with the mesh's period rather than the
+  // fracture zone's. Held inside the triangle instead, a point is where the
+  // walk actually was, so there is nothing to thin and no spacing to choose.
+  let dropped = 0
   for (const track of drawn) {
     const start = offsets[offsets.length - 1]
     let ridgeAt = start
-    let lastKept = -Infinity
-    let lastVertex = -1
     track.points.forEach((p, i) => {
-      const signed = i < track.ridge ? -p.fromRidgeKm : p.fromRidgeKm
-      const forced = i === track.ridge || i === 0 || i === track.points.length - 1
-      const v = snap(p.x, p.y, p.z)
-      if (!forced && (v === lastVertex || Math.abs(signed - lastKept) < drawSpacingKm)) return
-      if (i === track.ridge) ridgeAt = vertex.length
-      lastKept = signed
-      lastVertex = v
-      vertex.push(v)
+      const at = snapToFace(p.x, p.y, p.z)
+      if (!at) {
+        dropped++
+        return
+      }
+      if (i === track.ridge) ridgeAt = pointAge.length
+      pointVerts.push(...at.v)
+      pointWeights.push(...at.w)
       pointAge.push(p.ageMa)
       fromRidge.push(p.fromRidgeKm)
     })
     ridge.push(ridgeAt)
-    offsets.push(vertex.length)
+    offsets.push(pointAge.length)
   }
+  if (dropped) console.log(`  ${dropped} path points fell outside every triangle and were dropped`)
   writeFileSync(
     resolve(OUT, 'tracks.bin'),
     Buffer.from(writeTracks({
       offsets: Uint32Array.from(offsets),
       ridge: Uint32Array.from(ridge),
-      vertex: Uint32Array.from(vertex),
+      pointVerts: Uint32Array.from(pointVerts),
+      pointWeights: Float32Array.from(pointWeights),
       ageMa: Float32Array.from(pointAge),
       fromRidgeKm: Float32Array.from(fromRidge),
       pairAVerts: Uint32Array.from(conjugates.pairs.flatMap((p) => p.a.v)),
@@ -333,7 +333,10 @@ function main() {
       pairAgeMa: Float32Array.from(conjugates.pairs, (p) => p.ageMa),
     })),
   )
-  console.log(`  wrote ${drawn.length} tracks for drawing and every pair for measuring`)
+  console.log(
+    `  wrote ${drawn.length} tracks -- ${pointAge.length} points on their own paths -- ` +
+      'for drawing, and every pair for measuring',
+  )
 
   writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, crust, structure)
 

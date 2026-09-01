@@ -606,7 +606,12 @@ describe('reading the stretch marks', () => {
     const tracks = {
       offsets: Uint32Array.from([0, 3, 5]),
       ridge: Uint32Array.from([1, 3]),
-      vertex: Uint32Array.from([7, 8, 9, 20, 21]),
+      pointVerts: Uint32Array.from([
+        7, 8, 9,  8, 9, 10,  9, 10, 11,  20, 21, 22,  21, 22, 23,
+      ]),
+      pointWeights: Float32Array.from([
+        1, 0, 0,  0.5, 0.5, 0,  0.2, 0.3, 0.5,  0.6, 0.4, 0,  0.34, 0.33, 0.33,
+      ]),
       ageMa: Float32Array.from([10, 0, 10, 0, 25]),
       fromRidgeKm: Float32Array.from([400, 0, 400, 0, 900]),
       pairAVerts: Uint32Array.from([7, 8, 9]),

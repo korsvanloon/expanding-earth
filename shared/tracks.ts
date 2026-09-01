@@ -14,10 +14,22 @@
 export interface Tracks {
   /** Where each track's points start in `vertex`, with a final end offset. */
   offsets: Uint32Array
-  /** Index into `vertex` of each track's ridge point. */
+  /** Index into the point arrays of each track's ridge point. */
   ridge: Uint32Array
-  /** Mesh vertex of each point of every track, ridge in the middle. */
-  vertex: Uint32Array
+  /**
+   * Every point of every track, ridge in the middle, as a place inside a
+   * triangle: three mesh vertices and the weights that mix them.
+   *
+   * Not the nearest vertex, which is what these were. A path steps forty
+   * kilometres and the mesh has points a hundred and twelve apart, so snapping
+   * turned a smooth lineament into a staircase with the mesh's own period --
+   * the triangulation's shape drawn over the top of the fracture zone's, which
+   * is the one thing a reader must not confuse it with. Interpolating inside
+   * the triangle puts the line back where the walk actually went, and it still
+   * deforms with the crust, because the three corners do.
+   */
+  pointVerts: Uint32Array
+  pointWeights: Float32Array
   /** Age of the crust at each point, Ma. */
   ageMa: Float32Array
   /** Distance from the ridge along the path, km. */
@@ -39,11 +51,12 @@ export interface Tracks {
 
 export function writeTracks(t: Tracks): ArrayBuffer {
   const trackCount = t.ridge.length
-  const pointCount = t.vertex.length
+  const pointCount = t.ageMa.length
   const pairCount = t.pairAgeMa.length
   // header, the offsets (one more than there are tracks), the ridge indices,
-  // three arrays per point and three per pair.
-  const words = 3 + (trackCount + 1) + trackCount + pointCount * 3 + pairCount * 13
+  // eight words per point -- three corners, three weights, an age and a
+  // distance -- and thirteen per pair.
+  const words = 3 + (trackCount + 1) + trackCount + pointCount * 8 + pairCount * 13
   const buffer = new ArrayBuffer(words * 4)
   const u32 = new Uint32Array(buffer)
   const f32 = new Float32Array(buffer)
@@ -53,7 +66,8 @@ export function writeTracks(t: Tracks): ArrayBuffer {
   let at = 3
   u32.set(t.offsets, at); at += trackCount + 1
   u32.set(t.ridge, at); at += trackCount
-  u32.set(t.vertex, at); at += pointCount
+  u32.set(t.pointVerts, at); at += pointCount * 3
+  f32.set(t.pointWeights, at); at += pointCount * 3
   f32.set(t.ageMa, at); at += pointCount
   f32.set(t.fromRidgeKm, at); at += pointCount
   u32.set(t.pairAVerts, at); at += pairCount * 3
@@ -81,7 +95,8 @@ export function readTracks(buffer: ArrayBuffer): Tracks {
   return {
     offsets: u32(trackCount + 1),
     ridge: u32(trackCount),
-    vertex: u32(pointCount),
+    pointVerts: u32(pointCount * 3),
+    pointWeights: f32(pointCount * 3),
     ageMa: f32(pointCount),
     fromRidgeKm: f32(pointCount),
     pairAVerts: u32(pairCount * 3),
