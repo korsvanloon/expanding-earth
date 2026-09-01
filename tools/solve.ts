@@ -193,14 +193,40 @@ const CONFIG = {
   trackTurnDeg: 12,
   /**
    * How hard two islands of strong crust are pushed apart where one has got
-   * inside the other.
+   * inside the other. **Off, because it does not work.**
    *
-   * A share of the depth per sweep rather than the whole of it, like every
-   * other constraint here: eighty sweeps of a third converge on contact
-   * without the shove that a full correction in one pass would give a craton.
-   * Zero switches it off, which is how the run it was built for was measured.
+   * Built because nothing forbade two rigid blocks occupying the same ground,
+   * and Arabia rides onto Africa from 120 Ma. Measured against a run with it
+   * switched off, it makes that worse at every setting tried, on the very
+   * figure it exists to lower:
+   *
+   *   two islands at once      120 Ma   140 Ma   160 Ma   200 Ma
+   *   off                      0.002%   0.005%   0.009%   0.022%
+   *   rigid, 0.35              0.012%   0.035%   0.050%   0.047%
+   *   rigid, 0.05              0.020%   0.081%   0.117%   0.089%
+   *   denting the contact      0.009%   0.046%   0.081%   0.069%
+   *
+   * Softer is worse, which is the finding. Not monotonic in the stiffness
+   * means it is not a shove that needs tuning down: a weak push does not
+   * resolve a contact but does keep nudging islands about, so it adds noise
+   * that puts the overlap somewhere else. The worst island's shape loss climbs
+   * with it -- 32% against 15% -- so the islands are being torn as they are
+   * pushed.
+   *
+   * What the numbers say together is that the overlap is not a missing rule.
+   * It is what the model does when rigid blocks stop fitting: at 200 Ma the
+   * sphere is 61% of today's and 39% of the crust has to cover it exactly, and
+   * seventeen rigid islands that may not overlap on a fixed total area is a
+   * packing problem local relaxation cannot solve. Push one out and the
+   * overlap reappears next door. Nearly all of it is past 160 Ma, where the
+   * sea floor has run out and this document already says the frames are the
+   * solver settling rather than history.
+   *
+   * The code stays, and so does the measurement, because the next idea about
+   * this will need both. CONTACT_K turns it back on for anyone who wants to
+   * try one.
    */
-  islandContactStiffness: Number(process.env.CONTACT_K ?? 0.35),
+  islandContactStiffness: Number(process.env.CONTACT_K ?? 0),
   radialStiffness: Number(process.env.RADIAL_K ?? 0.35),
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,

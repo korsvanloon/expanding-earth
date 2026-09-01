@@ -729,14 +729,13 @@ Four numbers per frame, none of them tuned:
   this is two continents in the same place rather than a mesh being clumsy, and
   the column beside it cannot see it — a triangle sliding over its own
   neighbour while an ocean closes counts there just the same. It is zero out to
-  90 Ma and then 0.002%, 0.019% and 0.044%. Named by where their crust sits
-  today, the pairs are Arabia on Africa, which starts first and reaches 12,455
-  km²; West Australia on East Antarctica, the largest at 26,826 km²; the two
-  Australian cratons on each other; the Canadian shield on the Amazon craton;
-  and Baltica on Arabia. **Nothing in the solver forbids this yet.**
-  `CONTACT_KM` is a scoring threshold, not a constraint, and `holdIslands`
-  keeps each island's own shape without any notion of another island being in
-  the way. See tools/measure-islands.ts, which also names the islands.
+  90 Ma and then 0.002% at 120, 0.009% at 160 and 0.022% at 200. Named by where
+  their crust sits today, the pairs are Arabia on Africa, which starts first;
+  West Australia on East Antarctica, the largest; the two Australian cratons on
+  each other; the Canadian shield on the Amazon craton; and Baltica on Arabia.
+  See tools/measure-islands.ts, which names the islands and locates the
+  inside-out triangles as well. Nothing in the solver forbids it, and the
+  section below is about finding out why forbidding it does not help.
 - **inside out** — the share of the rock whose outward face points at the core.
   Reported apart from the overlap because edge-length springs cannot see it: a
   triangle and its mirror image measure the same.
@@ -1051,6 +1050,58 @@ Whatever the remaining stretch is, it is no longer the sweeps' to give back.
 model that can see any of this &mdash; the fold diagnostic reads 0.05% at 60 Ma
 because no triangle is inverted, and the strain diagnostic is an area, so a line
 stretched along its length and squeezed across it costs it nothing.
+
+## Two rigid blocks in one place, and why refusing it made it worse
+
+A reader looking at 200 Ma saw islands of strong crust lying over one another,
+Arabia onto Africa in particular, and they were right. Nothing forbade it:
+`holdIslands` keeps each island's own shape with no notion of another island
+being in the way, and `CONTACT_KM` is a threshold the scorecard reads rather
+than a constraint the solver obeys.
+
+So a contact constraint was built. It finds every point of one island that lies
+*inside* a triangle of another — interpenetration, not proximity, because two
+continents in contact have their margins within a triangle of each other and
+pushing every neighbouring pair apart by a mesh spacing would open the Atlantic
+back up to keep the cratons tidy — and pushes it out by the shallowest of the
+three edges.
+
+Two versions, both measured against a run with it switched off, on the figure
+it exists to lower:
+
+| two islands at once | 120 Ma | 140 Ma | 160 Ma | 200 Ma |
+|---|---|---|---|---|
+| **off** | **0.002%** | **0.005%** | **0.009%** | **0.022%** |
+| pushing the points apart | 0.009% | 0.046% | 0.081% | 0.069% |
+| moving the islands bodily, stiffness 0.35 | 0.012% | 0.035% | 0.050% | 0.047% |
+| the same, stiffness 0.05 | 0.020% | 0.081% | 0.117% | 0.089% |
+
+The first version deserved to fail. A contact between rigid bodies moves the
+bodies; pushing the intruding point out and the host triangle's corners back
+dents both islands exactly where they touch, and `holdIslands` then spends the
+rest of every sweep undoing the dent. The tell was half a million contacts over
+a run with the deepest never falling below 40 km — two constraints pulling
+against each other rather than a solver settling. Resolving the contact as
+impulse over mass, so each island moves as a whole and nothing is deformed,
+halves the damage and is still worse than doing nothing.
+
+**Softer is worse**, and that is the finding. Not monotonic in the stiffness
+means this is not a shove that wants tuning down: a weak push does not resolve
+a contact but does keep nudging islands about, so it adds noise that puts the
+overlap somewhere else. The worst island's shape loss climbs with it, 32%
+against 15% at 200 Ma, so the islands are being torn as they are pushed.
+
+What the numbers say together is that the overlap is not a missing rule. It is
+what this model does when rigid blocks stop fitting. At 200 Ma the sphere is 61%
+of today's and 39% of the crust has to cover it exactly; seventeen rigid islands
+that may not overlap, on a fixed total area, is a packing problem local
+relaxation cannot solve, and pushing one out makes the overlap reappear next
+door. Nearly all of it is past 160 Ma, where the sea floor has run out and the
+frames are the solver settling rather than history.
+
+The code and the knob stay (`CONTACT_K`, default zero) because the next idea
+about this will need both, and so does the measurement, which is the part that
+was actually missing.
 
 ## Known weaknesses
 
