@@ -723,6 +723,20 @@ Four numbers per frame, none of them tuned:
   here that is not currently trustworthy — see Known weaknesses.
 - **covered twice** — how much of the sphere lies under more than one triangle
   at once, which a merely crumpled shell does as readily as a folded one.
+- **two islands at once** — the sharp version of that, and the one that cannot
+  be excused: how much of the sphere is under two *different* islands of strong
+  crust. An island is the part of the model that is not allowed to deform, so
+  this is two continents in the same place rather than a mesh being clumsy, and
+  the column beside it cannot see it — a triangle sliding over its own
+  neighbour while an ocean closes counts there just the same. It is zero out to
+  90 Ma and then 0.002%, 0.019% and 0.044%. Named by where their crust sits
+  today, the pairs are Arabia on Africa, which starts first and reaches 12,455
+  km²; West Australia on East Antarctica, the largest at 26,826 km²; the two
+  Australian cratons on each other; the Canadian shield on the Amazon craton;
+  and Baltica on Arabia. **Nothing in the solver forbids this yet.**
+  `CONTACT_KM` is a scoring threshold, not a constraint, and `holdIslands`
+  keeps each island's own shape without any notion of another island being in
+  the way. See tools/measure-islands.ts, which also names the islands.
 - **inside out** — the share of the rock whose outward face points at the core.
   Reported apart from the overlap because edge-length springs cannot see it: a
   triangle and its mirror image measure the same.
@@ -731,13 +745,13 @@ Four numbers per frame, none of them tuned:
   is.
 
 <!-- from-the-run: reports -->
-| time | radius | bare sphere | covered twice | inside out | craton strain | weak strain |
-|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.00% | 0.00% | 0.00% | 0.04% | 1.1% |
-| 30 Ma | 5728 km | 0.00% | 0.00% | 0.00% | 0.18% | 4.0% |
-| 60 Ma | 5197 km | 0.00% | 0.00% | 0.02% | 0.26% | 4.2% |
-| 120 Ma | 4373 km | 0.00% | 0.01% | 0.05% | 0.49% | 7.2% |
-| 200 Ma | 3905 km | 0.00% | 0.11% | 0.23% | 0.67% | 13.2% |
+| time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
+|---|---|---|---|---|---|---|---|
+| 5 Ma | 6272 km | 0.00% | 0.00% | 0.000% | 0.00% | 0.04% | 1.1% |
+| 30 Ma | 5728 km | 0.00% | 0.00% | 0.000% | 0.00% | 0.18% | 4.0% |
+| 60 Ma | 5197 km | 0.00% | 0.00% | 0.000% | 0.02% | 0.26% | 4.2% |
+| 120 Ma | 4373 km | 0.00% | 0.01% | 0.002% | 0.05% | 0.49% | 7.2% |
+| 200 Ma | 3905 km | 0.00% | 0.11% | 0.044% | 0.23% | 0.67% | 13.2% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -750,7 +764,7 @@ the answer is probably not everywhere.
 
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
-|---|---|---|---|---|---|---|
+|---|---|---|---|---|---|---|---|
 | South America &ndash; Africa | 180 Ma | 0% | 37% | +37 | 0 km | 0 km at 110 Ma |
 | Australia &ndash; Antarctica | 100 Ma | 0% | 25% | +25 | 0 km | 0 km at 90 Ma |
 | India &ndash; Africa | 120 Ma | 0% | 12% | +12 | 273 km | 0 km at 160 Ma |
