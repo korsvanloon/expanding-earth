@@ -32,6 +32,10 @@ export interface IslandContacts {
   found: number
   /** The deepest of them this call, km. */
   deepestKm: number
+  /** Point-in-triangle tests done, so a slow run can say where it went. */
+  tests: number
+  /** Faces put into the grid, likewise. */
+  bucketed: number
 }
 
 /**
@@ -89,7 +93,9 @@ export function separateIslands(
   /** Refill the buckets; pass false to reuse the ones from earlier in the step. */
   rebuild = true,
 ): IslandContacts {
-  if (stiffness <= 0) return { found: 0, deepestKm: 0 }
+  if (stiffness <= 0) return { found: 0, deepestKm: 0, tests: 0, bucketed: 0 }
+  let tests = 0
+  let bucketed = 0
   const { buckets, cellIsland, mixed } = scratch
   if (rebuild) {
     for (const list of buckets) list.length = 0
@@ -98,6 +104,7 @@ export function separateIslands(
     for (let f = 0; f < faceCount; f++) {
       if (!mesh.faceAlive[f] || !faceIsland[f]) continue
       bucketFace(pos, mesh, f, buckets)
+      bucketed++
     }
     for (let cell = 0; cell < buckets.length; cell++) {
       for (const f of buckets[cell]) {
@@ -132,6 +139,7 @@ export function separateIslands(
       const b = mesh.faceVerts[f * 3 + 1] * 3
       const c = mesh.faceVerts[f * 3 + 2] * 3
       if (a === at || b === at || c === at) continue
+      tests++
       if (!inside(pos, a, b, c, vx, vy, vz, unit)) continue
 
       // How far in, and which way is out. Each edge of the triangle lies in a
@@ -178,5 +186,5 @@ export function separateIslands(
       }
     }
   }
-  return { found, deepestKm: deepest }
+  return { found, deepestKm: deepest, tests, bucketed }
 }

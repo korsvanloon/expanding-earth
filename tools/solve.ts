@@ -433,9 +433,19 @@ function main() {
   const markIslands = () => {
     for (let f = 0; f < faceCount; f++) {
       if (!mesh.faceAlive[f]) { faceIsland[f] = 0; continue }
-      const ia = islands.vertexIsland[mesh.faceVerts[f * 3]]
-      const ib = islands.vertexIsland[mesh.faceVerts[f * 3 + 1]]
-      const ic = islands.vertexIsland[mesh.faceVerts[f * 3 + 2]]
+      // The raw array, not islands.vertexIsland. There are two conventions in
+      // this file and mixing them is silent: mesh.bin numbers the islands from
+      // one with zero for none, and the solver shifts that to zero-based with
+      // *minus one* for none. Testing `!== 0` against the shifted one is true
+      // for every piece of crust that belongs to no island and false for every
+      // point of island one, which is as wrong as a test can be while still
+      // running. It marked nine tenths of the mesh as one enormous island,
+      // made the contact test scan seven hundred candidate faces per point,
+      // and inflated the island-overlap figure by counting ocean against
+      // craton.
+      const ia = vertexIsland[mesh.faceVerts[f * 3]]
+      const ib = vertexIsland[mesh.faceVerts[f * 3 + 1]]
+      const ic = vertexIsland[mesh.faceVerts[f * 3 + 2]]
       faceIsland[f] = ia !== 0 && ia === ib && ib === ic ? ia : 0
     }
   }
@@ -995,7 +1005,7 @@ function main() {
       // first sweep: a sweep moves points by kilometres and a grid cell is two
       // degrees, so the lists are still right at the end of the step.
       contacts = separateIslands(
-        pos, mesh, faceCount, vertexCount, islands.vertexIsland, faceIsland,
+        pos, mesh, faceCount, vertexCount, vertexIsland, faceIsland,
         mesh.vertexAlive, rNext, CONFIG.islandContactStiffness, contactScratch,
         sweep === 0,
       )
@@ -1148,6 +1158,13 @@ function main() {
       `  ${region.label.padEnd(18)} walked ${seen.walked.toFixed(0).padStart(6)} km ` +
         `to get ${net.toFixed(0).padStart(5)} km   ` +
         `${net > 1 ? `x${(seen.walked / net).toFixed(1)}` : '(went nowhere)'}`,
+    )
+  }
+  {
+    let islandFaces = 0
+    for (let f = 0; f < faceCount; f++) if (faceIsland[f]) islandFaces++
+    console.log(
+      `[solve] ${islandFaces} of ${faceCount} faces belong to an island of strong crust`,
     )
   }
   console.log(
