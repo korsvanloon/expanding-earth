@@ -1267,11 +1267,11 @@ describe('remembering how the globe was set up', () => {
 
   it('numbers the view modes the way the shader reads them', () => {
     // uMode in src/scene/shaders.ts: 0 surface, 1 age, 2 strain, 3 rigidity,
-    // 4 islands, 5 fabric, 6 thickness. The renderer indexes this list to get
+    // 4 islands, 5 fabric, 6 thickness, 7 crustal class. The renderer indexes it to get
     // that number, so the order here is load-bearing and a new mode goes on
     // the end.
     expect(VIEW_MODES).toEqual([
-      'surface', 'age', 'strain', 'rigidity', 'islands', 'fabric', 'thickness',
+      'surface', 'age', 'strain', 'rigidity', 'islands', 'fabric', 'thickness', 'crust',
     ])
   })
 })

@@ -29,24 +29,67 @@ export const CRUST_TYPE_LABELS: Record<CrustType, string> = {
 }
 
 /**
+ * One colour per ECM1 class, sRGB.
+ *
+ * A class is an identity, not a quantity, so these are eleven separate hues
+ * rather than a ramp -- and they are grouped so the eye can read the map
+ * without the legend: the sea floor blue and teal, stable continent cream to
+ * olive, and everything hot, thinned or actively deforming in reds and
+ * purples. The shader and the panel's legend both read this, because two lists
+ * of eleven colours would drift the first time one changed.
+ */
+export const CRUST_TYPE_COLOURS: Record<CrustType, string> = {
+  SOCE: '#1f4e79',
+  MORB: '#45c4d8',
+  LIPS: '#2e8b78',
+  SHLD: '#f0e7d3',
+  PLAT: '#d6b684',
+  BASN: '#8f9a5b',
+  ORON: '#bf3b2b',
+  COAR: '#8c5324',
+  IARC: '#ec8b3c',
+  EXCT: '#c96bb2',
+  COMA: '#9a86c4',
+}
+
+/**
  * How strongly each kind of crust resists being deformed, on a scale where a
  * shield is 1.
  *
- * These are judgements about lithospheric strength rather than measurements.
- * The ordering is the part that matters and it is not controversial: cold
- * Archean shields and platforms are the strongest crust on the planet; oceanic
- * lithosphere is thin but cold, so it is stiff for its thickness; and the weak
- * crust is everything hot, thinned or actively deforming -- ridges, island
- * arcs, stretched crust, passive margins, and orogens.
+ * These are judgements about lithospheric strength rather than measurements,
+ * and one of them was measured in the end and found wrong; see SOCE below.
+ * The ordering is the part that matters and most of it is not controversial:
+ * cold Archean shields and platforms are the strongest crust on the planet,
+ * and the weak crust is everything hot, thinned or actively deforming --
+ * ridges, island arcs, stretched crust, passive margins, and orogens.
  *
  * Orogens sitting near the bottom despite being the thickest crust of all is
  * the whole point of using types instead of thickness.
+ *
+ * How much the rest of this table is worth is now a measured question rather
+ * than an assumed one, and the answer is uncomfortable. `FLAT_K` in
+ * tools/solve.ts gives every triangle the same strength, leaving the islands
+ * of strong crust as they are; at 40 Ma that moves the held-out conjugate
+ * pairs from 222 km to 224. Eleven values reasoned about at length do as much
+ * as one arbitrary one. What earns its place is that *some* crust is
+ * deformable -- making everything rigid costs 12 km -- and, on this evidence,
+ * which crust it is barely matters once the sea floor is right.
  */
 export const CRUST_RIGIDITY: Record<CrustType, number> = {
   SHLD: 1.0,
   PLAT: 0.9,
   BASN: 0.7,
-  SOCE: 0.6,
+  // Seven kilometres of basalt, and it had been sitting between a stable basin
+  // and a platform at 0.60 -- a tenth away from the 0.70 that would have made
+  // the whole quiet Pacific a rigid island. It is the one number in this table
+  // that was measured rather than reasoned about, and it was wrong. Every
+  // closure in this model has to be absorbed by sea floor, and this was the
+  // crust refusing to absorb it: at 40 Ma, taking it to 0.10 moves the held-out
+  // conjugate pairs from 222 km to 183 and the share inside one triangle from
+  // 44% to 54%, and takes bare sky from 3.57% to 2.75%, while the cratons stay
+  // exactly as rigid as they were. 0.05 and 0.20 give the same answer to within
+  // five kilometres, so this is a magnitude and not a tuning.
+  SOCE: 0.1,
   LIPS: 0.45,
   COAR: 0.3,
   COMA: 0.25,

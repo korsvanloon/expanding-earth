@@ -1,5 +1,8 @@
 import { useState } from 'react'
 import { SURFACE_MAPS } from '@shared/maps'
+import {
+  CRUST_RIGIDITY, CRUST_TYPES, CRUST_TYPE_COLOURS, CRUST_TYPE_LABELS,
+} from '@shared/crust'
 import { R0_KM, REGIONS, surfaceGravity } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
 import { describePicks, describeZones, useStore, ZONE_LIMIT, type ViewMode } from '@/store'
@@ -14,6 +17,11 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
     hint: "Each band keeps today's colour throughout, so red vanishes first, then orange, then yellow",
   },
   { id: 'strain', label: 'Strain', hint: 'Deformation the reconstruction demands of the crust' },
+  {
+    id: 'crust',
+    label: 'Crustal class',
+    hint: "ECM1's own classification, one colour per class -- the published data the strength field is derived from, before this model turns it into a number",
+  },
   {
     id: 'thickness',
     label: 'Crustal thickness',
@@ -146,6 +154,7 @@ export function Panel({ data }: { data: Dataset }) {
         </select>
       </label>
       <p className="caption">{paintingNote}</p>
+      {mode === 'crust' && <CrustLegend />}
 
       <label className="field">
         <span>Hold still</span>
@@ -609,6 +618,27 @@ function PickedZones({ data }: { data: Dataset }) {
         </button>
       </p>
     </section>
+  )
+}
+
+/**
+ * The eleven ECM1 classes, with the strength this model gives each one.
+ *
+ * Eleven colours are unreadable without it, and the second column is the point
+ * of showing them together: the classification is published, the number beside
+ * it is this project's own.
+ */
+function CrustLegend() {
+  return (
+    <ul className="legend">
+      {CRUST_TYPES.map((type) => (
+        <li key={type}>
+          <span className="swatch" style={{ background: CRUST_TYPE_COLOURS[type] }} />
+          {CRUST_TYPE_LABELS[type]}
+          <span className="dim">{CRUST_RIGIDITY[type].toFixed(2)}</span>
+        </li>
+      ))}
+    </ul>
   )
 }
 

@@ -417,6 +417,7 @@ export function Globe({ data }: { data: Dataset }) {
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
     g.setAttribute('aThickness', new THREE.BufferAttribute(data.thickness, 1))
+    g.setAttribute('aCrustType', new THREE.BufferAttribute(Float32Array.from(data.crustType), 1))
     g.setAttribute('aSeam', dynamic(buffers.seam, 1))
     g.setIndex(
       new THREE.BufferAttribute(buffers.index, 1).setUsage(THREE.DynamicDrawUsage),

@@ -197,3 +197,35 @@ code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px;
 }
 .zonelist li { display: flex; gap: 0.4rem; }
 .zonelist .linkish { color: #ff7326; font-variant-numeric: tabular-nums; }
+
+/* The ECM1 class legend, shown under the Crustal class map. Eleven colours are
+   unreadable without it. Two columns rather than a list, so it costs a few
+   lines of panel rather than a scroll. */
+.legend {
+  list-style: none;
+  margin: 0.4rem 0 0.8rem;
+  padding: 0;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.15rem 0.6rem;
+  font-size: 0.72rem;
+  color: var(--ink-dim, #9aa4b2);
+}
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
+}
+.legend .swatch {
+  width: 0.72rem;
+  height: 0.72rem;
+  border-radius: 2px;
+  flex: none;
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.18);
+}
+.legend .dim {
+  margin-left: auto;
+  opacity: 0.6;
+  font-variant-numeric: tabular-nums;
+}

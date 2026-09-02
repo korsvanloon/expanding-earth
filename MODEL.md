@@ -455,10 +455,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 31 | 80 km | 100% | 0% |
-| 5 Ma | 74 | 51 km | 97% | 0% |
-| 30 Ma | 63 | 200 km | 49% | 0% |
-| 60 Ma | 53 | 318 km | 23% | 0% |
-| 120 Ma | 25 | 790 km | 8% | 0% |
+| 5 Ma | 74 | 47 km | 97% | 0% |
+| 30 Ma | 63 | 166 km | 56% | 0% |
+| 60 Ma | 53 | 276 km | 32% | 0% |
+| 120 Ma | 25 | 788 km | 8% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 176 blocks at its most divided and 8 at 200 Ma.
+The run finds 167 blocks at its most divided and 10 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 23 km/Myr to 5.9, the block count from as many as 176 to 8, and the biggest block grows to 45% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 22 km/Myr to 6.3, the block count from as many as 167 to 10, and the biggest block grows to 53% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 11.5 km/Myr | 125 | 5% | 0.5% |
-| 30 Ma | 0.644%/Myr | 22.4 km/Myr | 172 | 2% | 1.1% |
-| 60 Ma | 0.448%/Myr | 19.3 km/Myr | 135 | 9% | 1.9% |
-| 120 Ma | 0.256%/Myr | 16.2 km/Myr | 80 | 10% | 2.5% |
-| 200 Ma | 0.000%/Myr | 5.9 km/Myr | 8 | 45% | 3.3% |
+| 5 Ma | 0.620%/Myr | 9.8 km/Myr | 99 | 5% | 0.5% |
+| 30 Ma | 0.644%/Myr | 21.3 km/Myr | 167 | 2% | 1.0% |
+| 60 Ma | 0.448%/Myr | 18.2 km/Myr | 133 | 10% | 1.8% |
+| 120 Ma | 0.256%/Myr | 16.9 km/Myr | 91 | 8% | 2.4% |
+| 200 Ma | 0.000%/Myr | 6.3 km/Myr | 10 | 53% | 3.3% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -757,11 +757,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.41% | 0.01% | 0.000% | 0.00% | 0.04% | 1.2% |
-| 30 Ma | 5728 km | 2.68% | 0.03% | 0.000% | 0.05% | 0.18% | 3.9% |
-| 60 Ma | 5197 km | 5.46% | 0.07% | 0.000% | 0.54% | 0.32% | 7.6% |
-| 120 Ma | 4373 km | 10.55% | 1.27% | 0.594% | 2.75% | 0.56% | 11.5% |
-| 200 Ma | 3905 km | 13.09% | 2.87% | 1.787% | 4.87% | 0.87% | 21.0% |
+| 5 Ma | 6272 km | 0.24% | 0.01% | 0.000% | 0.00% | 0.04% | 1.6% |
+| 30 Ma | 5728 km | 1.92% | 0.03% | 0.000% | 0.06% | 0.17% | 5.5% |
+| 60 Ma | 5197 km | 4.51% | 0.09% | 0.000% | 0.77% | 0.31% | 9.2% |
+| 120 Ma | 4373 km | 9.93% | 1.27% | 0.609% | 2.87% | 0.55% | 13.0% |
+| 200 Ma | 3905 km | 13.08% | 2.84% | 1.775% | 4.82% | 0.86% | 21.6% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -775,14 +775,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 6% | +6 | 21 km | 3 km at 135 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 13% | +13 | 34 km | 1 km at 175 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 893 km | 753 km at 110 Ma |
-| Greenland &ndash; North America | 60 Ma | 38% | 40% | +2 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 966 km | 614 km at 170 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 7% | +7 | 11 km | 5 km at 180 Ma |
-| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 4 km | 1 km at 140 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2250 km | 2250 km at 200 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 6% | +6 | 6 km | 6 km at 180 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 9% | +9 | 38 km | 2 km at 155 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 862 km | 742 km at 110 Ma |
+| Greenland &ndash; North America | 60 Ma | 38% | 41% | +3 | 0 km | 0 km at 5 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 946 km | 563 km at 170 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 7% | +7 | 4 km | 3 km at 125 Ma |
+| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 3 km | 1 km at 190 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2283 km | 2283 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -1531,6 +1531,72 @@ graded by spreading rate, coarse where nothing deforms and fine where it does.
 The closure is quantised to a 129 km triangle whatever the age grid says
 vanished, and the Atlantic removes about 10 km of it in a million years &mdash;
 which is exactly why a spring cannot close it and a collapse must.
+
+## The one number in the strength table that was wrong
+
+A reader held the globe up against a published crustal thickness map and asked
+whether ours was right &mdash; in this model the Arabian Peninsula looked
+thicker than the Himalaya. It is right: measured at eight places against that
+map, Tibet 72 km against about 70, Arabia 42 against 38, the Altiplano 63
+against 65, the central Pacific 6.9 against 7. What they were reading was the
+*strength* map, where an orogen is deliberately the weakest continental crust
+there is despite being the thickest on the planet.
+
+Then the better question: *was de crustal strength onze uitvinding toch?
+misschien moeten we dat laten varen.* Partly ours. The classification is ECM1's
+and published; the eleven numbers this model turns each class into are ours,
+reasoned about and never measured. So they were measured.
+
+`FLAT_K` gives every triangle the same strength and leaves everything else
+alone &mdash; the islands of strong crust are baked into mesh.bin and still
+held. `STRENGTH=thickness` takes strength from the thickness grid instead, the
+reader's own suggestion: thicker is stronger. At 40 Ma, on the pairs held back
+from the solver:
+
+| | bare sphere | unshut ridge | pairs | weak-crust strain |
+|---|---|---|---|---|
+| the eleven class values | 3.57% | 3.73% | 222 km, 44% | 4.7% |
+| every triangle the same, 0.6 | 3.61% | 3.78% | 224 km, 44% | &mdash; |
+| every triangle rigid, 1.0 | 3.91% | 4.11% | 234 km, 41% | &mdash; |
+| thickness, thicker is stronger | 2.21% | 2.33% | **149 km, 57%** | 10.8% |
+
+**Flattening the table costs two kilometres out of 222.** Eleven values
+reasoned about at length do as much as one arbitrary number. Only *that* some
+crust is deformable earns anything &mdash; making it all rigid costs twelve
+kilometres. And the reader's suggestion beat the table outright, at every epoch:
+147 km to 107 at 20 Ma, 445 to 347 at 80, 1194 to 1032 at 160.
+
+It also doubled the strain asked of weak crust, 21.0% to 43.4% at 200 Ma, and a
+model that may stretch anything can close anything. So it was split in two,
+because it did two things at once: it took seven kilometres of basalt from 0.60
+to 0.03, and it took shields from 1.0 to about 0.5. `OCEAN_K` does only the
+first:
+
+| at 40 Ma | bare sphere | pairs | craton strain | weak strain |
+|---|---|---|---|---|
+| as it was | 3.57% | 222 km, 44% | 0.2% | 4.7% |
+| sea floor at 0.05 | 2.75% | **183 km, 54%** | **0.2%** | 6.7% |
+| sea floor at 0.20 | 2.76% | 188 km, 54% | 0.2% | 6.7% |
+| thickness everywhere | 2.21% | 149 km, 57% | 1.3% | 10.8% |
+
+Two thirds of the gain on the pairs and most of it on the bare sky, for a third
+of the strain, with the cratons left exactly as rigid as they were. And 0.05
+against 0.20 is five kilometres on 183, so this is a magnitude rather than a
+tuning.
+
+Which names the mistake. **SOCE, normal ocean floor, had 0.60** &mdash; between
+a stable basin and a platform, and a tenth away from the 0.70 that would have
+made the quiet Pacific a rigid island. It is seven kilometres of basalt, and
+every closure in this model has to be absorbed by sea floor. It is 0.10 now,
+and that is what ships: the held-out pairs at 40 Ma go from 222 km to 183 and
+44% to 54%, Antarctica against Mozambique from 11 km to 4, South America
+against Africa from 21 km to 6, and the weak-crust strain at 200 Ma barely
+moves, 21.0% to 21.6%.
+
+What is still untested is the other half of the invention: the threshold of
+0.70 that decides which crust becomes an island held rigid, and therefore the
+seventeen islands themselves. The flattening test above kept them, so it says
+nothing about what they are worth.
 
 ## Known weaknesses
 

@@ -3,7 +3,8 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import { DEFAULT_SURFACE_MAP, SURFACE_MAPS } from '@shared/maps'
 import { REGIONS } from '@shared/model'
 
-export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'islands' | 'fabric' | 'thickness'
+export type ViewMode =
+  | 'surface' | 'age' | 'strain' | 'rigidity' | 'islands' | 'fabric' | 'thickness' | 'crust'
 
 /**
  * A point of crust the user has picked off the globe.
@@ -292,7 +293,7 @@ interface Remembered {
  * mode that paints as whatever happens to share its number.
  */
 export const VIEW_MODES: ViewMode[] = [
-  'surface', 'age', 'strain', 'rigidity', 'islands', 'fabric', 'thickness',
+  'surface', 'age', 'strain', 'rigidity', 'islands', 'fabric', 'thickness', 'crust',
 ]
 
 /**

@@ -1,4 +1,12 @@
 import { ZONE_LIMIT } from '@/store'
+import { CRUST_TYPES, CRUST_TYPE_COLOURS } from '@shared/crust'
+
+/** The class colours as a GLSL array, from the one list in shared/crust.ts. */
+const crustPalette = CRUST_TYPES.map((t) => {
+  const hex = CRUST_TYPE_COLOURS[t]
+  const c = [1, 3, 5].map((i) => (parseInt(hex.slice(i, i + 2), 16) / 255).toFixed(4))
+  return `vec3(${c.join(', ')})`
+}).join(',\n  ')
 
 export const vertexShader = /* glsl */ `
 in vec3 aDir;
@@ -7,6 +15,7 @@ in float aAge;
 in float aStrain;
 in float aRigidity;
 in float aThickness;
+in float aCrustType;
 in float aSeam;
 
 out vec3 vDir;
@@ -15,6 +24,18 @@ out float vAge;
 out float vStrain;
 out float vRigidity;
 out float vThickness;
+/**
+ * Which ECM1 class this crust is, and which island it belongs to.
+ *
+ * Both are flat, and that is the whole point. A class and an island id are
+ * identities, not quantities, and interpolating them across a triangle mixes
+ * them: between island 3 and island 11 the old shader ran through every colour
+ * from 3 to 11, which is the rainbow fringe a reader asked about along every
+ * island's edge. Flat takes the value from one corner and holds it across the
+ * face, so the edges are edges.
+ */
+flat out float vCrustType;
+flat out float vIslandFlat;
 out float vSeam;
 out vec3 vNormal;
 /**
@@ -36,6 +57,8 @@ void main() {
   vStrain = aStrain;
   vRigidity = aRigidity;
   vThickness = aThickness;
+  vCrustType = aCrustType;
+  vIslandFlat = aIsland;
   vSeam = aSeam;
   // The mesh is always a sphere, so the outward normal is just the position.
   vNormal = normalize(mat3(modelMatrix) * normalize(position));
@@ -63,7 +86,8 @@ uniform float uPickedZones[${ZONE_LIMIT}];
 uniform int uPickedCount;
 uniform float uTimeMa;
 uniform float uMaxAgeMa;
-uniform int uMode;        // 0 surface, 1 age, 2 strain, 3 rigidity, 4 islands, 5 fabric, 6 thickness
+uniform int uMode;        // 0 surface, 1 age, 2 strain, 3 rigidity, 4 islands,
+                          // 5 fabric, 6 thickness, 7 crustal class
 uniform float uGrid;
 uniform vec3 uLight;
 /** Below 1 the shell turns to glass, so the mesh and the far side show through. */
@@ -95,6 +119,9 @@ in float vStrain;
 in float vRigidity;
 /** Crustal thickness in km, from ECM1; see thicknessRamp. */
 in float vThickness;
+/** Identities, never interpolated; see the vertex shader. */
+flat in float vCrustType;
+flat in float vIslandFlat;
 /**
  * How far this fragment's triangle reaches across crust that is gone, 0 to 1.
  *
@@ -251,6 +278,11 @@ vec3 thicknessRamp(float km) {
   return srgbToLinear(c);
 }
 
+/** One colour per ECM1 class; see CRUST_TYPE_COLOURS in shared/crust.ts. */
+const vec3 CRUST_COLOURS[${CRUST_TYPES.length}] = vec3[${CRUST_TYPES.length}](
+  ${crustPalette}
+);
+
 void main() {
   // Before anything else: a cross-section throws away everything off the slice.
   if (uSlab > 0.0 && abs(dot(vPos, uCut)) > uSlab) discard;
@@ -271,6 +303,9 @@ void main() {
     base = rigidityRamp(vRigidity);
   } else if (uMode == 6) {
     base = thicknessRamp(vThickness);
+  } else if (uMode == 7) {
+    int kind = int(vCrustType + 0.5);
+    base = srgbToLinear(CRUST_COLOURS[clamp(kind, 0, ${CRUST_TYPES.length - 1})]);
   } else if (uMode == 5) {
     base = fabricRamp(vDir);
   } else if (uMode == 4) {
@@ -278,9 +313,9 @@ void main() {
     // it is shown as the surface it is rather than as a blank, so the islands
     // read as what they are: the parts held still.
     float relief = dot(surface(vDir), vec3(0.299, 0.587, 0.114));
-    base = vIsland < 0.5
+    base = vIslandFlat < 0.5
       ? srgbToLinear(vec3(0.22, 0.23, 0.26)) * (0.5 + relief)
-      : islandRamp(vIsland);
+      : islandRamp(vIslandFlat);
   } else if (uMode == 1) {
     // Continental crust has no sea-floor age, so it gets a neutral tint --
     // shaded by the surface map's brightness so the landmasses stay legible
