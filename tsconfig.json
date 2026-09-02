@@ -12,10 +12,25 @@
     "noEmit": true,
     "isolatedModules": true,
     "skipLibCheck": true,
-    "types": ["vite/client", "vitest/globals"],
+    "types": ["vite/client", "vitest/globals", "node"],
     "baseUrl": ".",
     "paths": { "@/*": ["src/*"], "@shared/*": ["shared/*"] }
   },
-  "include": ["src", "shared", "test", "vite.config.ts"],
+  // Everything, including tools.
+  //
+  // The editor picks the tsconfig nearest a file and there was none covering
+  // `tools`, so every tool script opened in VS Code was outside any project:
+  // no path mapping, no inference across files, red squiggles on code that
+  // typechecks fine on the command line. Project references would be the
+  // tidier answer but `shared` belongs to both halves, and a file in two
+  // projects is its own kind of editor confusion.
+  //
+  // The cost is that this project's `lib` and `types` are the union, so a tool
+  // can see `document` and a component can see `process` without either being
+  // flagged here. That is what `tsconfig.tools.json` is for: it covers `tools`
+  // and `shared` alone, with the node libs and nothing else, and `pnpm
+  // typecheck` runs it. This config is what the editor reads; that one is the
+  // check.
+  "include": ["src", "shared", "test", "tools", "vite.config.ts"],
   "exclude": ["legacy"]
 }

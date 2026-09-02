@@ -5,7 +5,7 @@
     "source.organizeImports": true
   },
   "eslint.validate": ["typescript", "javascript"],
-  "eslint.packageManager": "yarn",
+  "eslint.packageManager": "pnpm",
   "typescript.updateImportsOnFileMove.enabled": "always",
   "typescript.preferences.importModuleSpecifier": "non-relative",
   "cSpell.words": ["delaunator", "equirectangular", "glsl", "lerp", "raycaster", "wireframe"],

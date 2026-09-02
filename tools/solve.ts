@@ -67,7 +67,6 @@ import { conjugateFit } from './lib/flowlines.js'
 import { pairPulls as pairIsHeldIn, readTracks } from '../shared/tracks.js'
 import { unstretching } from './lib/unstretching.js'
 
-import { buildIcosphere } from './lib/icosphere.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(ROOT, 'public/data')
@@ -326,6 +325,11 @@ const CONFIG = {
    * this is the horizontal pull the curtain exerts on the crust it hangs from.
    */
   shoreShare: Number(process.env.SHORE_SHARE ?? 1),
+  /**
+   * How much of what the curtain pulls at becomes a turn of the plate it hangs
+   * from. See `dragIslands`; `DRAG=0` switches it off.
+   */
+  slabDrag: Number(process.env.DRAG ?? 0),
   /**
    * Whether the curtain's closing pull acts along the sphere rather than
    * straight between its ends. `CLOSE_TANGENT=0` gets the plain distance
@@ -1482,10 +1486,32 @@ function main() {
         pullInward(pos, vertexCount, foldScratch, CONFIG.radialStiffness, CONFIG.hangUnderFoldKm,
           CONFIG.shoreShare, shorePush, shoreCount)
       }
+      // What the curtain is pulling at, as a turn of the whole plate.
+      //
+      // The push itself reaches the crust and then all but disappears:
+      // holdIslands moves an island only as a rotation fitted over every one
+      // of its points, and the push is on its margin, so a continent of five
+      // thousand points feels a few percent of what its shore was asking for.
+      // A hanging slab does not pull on a margin, it turns a plate -- so the
+      // same pushes are summed into a torque about the island's own centre and
+      // composed into the orientation holdIslands then places it by.
       holdIslands(
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
         rNext, islandFacing,
       )
+      // After the hold, not before it. Composing the turn into the island's
+      // carried orientation and letting holdIslands run does nothing at all:
+      // the hold *refits* that orientation from the island's current positions
+      // every sweep, so anything written into it beforehand is fitted straight
+      // back out. Measured identical to fifteen digits. Turning the placed
+      // positions instead sticks, because the next sweep's fit then finds the
+      // island where the turn left it.
+      if (CONFIG.foldInward && CONFIG.slabDrag > 0) {
+        dragIslands(
+          pos, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
+          shorePush, shoreCount, CONFIG.slabDrag,
+        )
+      }
     }
     relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
     if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm, CONFIG.shoreShare, shorePush, shoreCount)
@@ -1753,6 +1779,86 @@ function islandShape(
  * stretch of laying a flat disc on a ball, which is Gauss's and not ours, and
  * it is spread evenly instead of piling up at one edge.
  */
+/**
+ * Turn each island by what its own hanging crust is pulling at.
+ *
+ * `pullInward` leaves, per shore point, the direction its curtain wants it to
+ * move and how many hanging points asked for it. Those pushes do reach the
+ * crust -- and then holdIslands averages them away, because an island moves
+ * only as a rotation fitted over all of its points and the pushes are on its
+ * margin. A continent of five thousand points with three hundred pushed ones
+ * keeps about six percent of the ask.
+ *
+ * A slab hanging off a plate does not push on the margin; it turns the plate.
+ * So the pushes are summed as a torque about the centre of the Earth and the
+ * whole island is turned by it bodily, where nothing can dilute it. The angle
+ * is the mean of what was asked for rather than the sum: an island with a wide
+ * curtain under it should turn as fast as one with a narrow curtain, not faster
+ * for having more points.
+ *
+ * This runs *after* holdIslands rather than before. Before, it does nothing:
+ * the hold refits each island's orientation from its current positions every
+ * sweep, so a turn written into that orientation is fitted straight back out
+ * -- measured identical to fifteen digits.
+ */
+function dragIslands(
+  pos: Float64Array,
+  island: Int32Array,
+  count: number,
+  vertexCount: number,
+  alive: Uint8Array,
+  shorePush: Float64Array,
+  shoreCount: Float64Array,
+  gain: number,
+) {
+  if (count === 0) return
+  const torque = new Float64Array(count * 3)
+  const asked = new Float64Array(count)
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0 || !alive[i] || !shoreCount[i]) continue
+    const l = length3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
+    const ux = pos[i * 3] / l, uy = pos[i * 3 + 1] / l, uz = pos[i * 3 + 2] / l
+    const n = shoreCount[i]
+    const px = shorePush[i * 3] / n, py = shorePush[i * 3 + 1] / n, pz = shorePush[i * 3 + 2] / n
+    torque[c * 3] += uy * pz - uz * py
+    torque[c * 3 + 1] += uz * px - ux * pz
+    torque[c * 3 + 2] += ux * py - uy * px
+    asked[c]++
+  }
+  const axis = new Float64Array(count * 4)
+  let turning = false
+  for (let c = 0; c < count; c++) {
+    if (!asked[c]) continue
+    const tx = torque[c * 3], ty = torque[c * 3 + 1], tz = torque[c * 3 + 2]
+    const l = length3(tx, ty, tz)
+    if (l < 1e-12) continue
+    // Capped, because a torque is a direction and this is a position solver:
+    // a plate that swung a quarter turn in one sweep would take everything
+    // attached to it through the far side of the Earth.
+    axis[c * 4] = tx / l
+    axis[c * 4 + 1] = ty / l
+    axis[c * 4 + 2] = tz / l
+    axis[c * 4 + 3] = Math.min(0.01, (gain * l) / asked[c])
+    turning = true
+  }
+  if (!turning) return
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0 || !alive[i]) continue
+    const angle = axis[c * 4 + 3]
+    if (angle <= 0) continue
+    const ax = axis[c * 4], ay = axis[c * 4 + 1], az = axis[c * 4 + 2]
+    const co = Math.cos(angle)
+    const si = Math.sin(angle)
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
+    const dot = ax * x + ay * y + az * z
+    pos[i * 3] = x * co + (ay * z - az * y) * si + ax * dot * (1 - co)
+    pos[i * 3 + 1] = y * co + (az * x - ax * z) * si + ay * dot * (1 - co)
+    pos[i * 3 + 2] = z * co + (ax * y - ay * x) * si + az * dot * (1 - co)
+  }
+}
+
 function holdIslands(
   pos: Float64Array,
   dirs: Float32Array,
