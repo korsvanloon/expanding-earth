@@ -52,7 +52,7 @@ import {
   type FrameDiagnostics,
   type Meta,
 } from '../shared/model.js'
-import { CRATON_RIGIDITY, WEAK_RIGIDITY } from '../shared/crust.js'
+import { CRATON_RIGIDITY, CRUST_TYPES, WEAK_RIGIDITY } from '../shared/crust.js'
 import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topology.js'
 import { writeChannel, writeFrames } from '../shared/frames.js'
 import { directionToUv, length3 } from '../shared/sphere.js'
@@ -552,6 +552,27 @@ function main() {
    * sea floor goes the other way, 0.60 down to 0.03. So this measures whether
    * that call is earning anything.
    */
+  /**
+   * Or weaken the sea floor alone, which is where the whole gain may come from.
+   *
+   * `OCEAN_K=0.05`. Taking strength from thickness improves the held-out pairs
+   * at every epoch, and it does two things at once: it makes seven kilometres
+   * of basalt nearly free (0.60 down to 0.03) and it makes shields and cratons
+   * deformable (1.0 down to about 0.5). The first is defensible on its own --
+   * sea floor is thin and is where every closure has to be absorbed -- and the
+   * second is not, so it is worth knowing which of them is paying.
+   */
+  const oceanK = Number(process.env.OCEAN_K ?? 0)
+  if (oceanK > 0) {
+    let n = 0
+    for (let f = 0; f < faceCount; f++) {
+      const name = CRUST_TYPES[crustType[f]]
+      if (name !== 'SOCE' && name !== 'MORB') continue
+      rigidity[f] = oceanK
+      n++
+    }
+    console.log(`[solve] ${n} sea-floor triangles given strength ${oceanK}, continents unchanged`)
+  }
   if (process.env.STRENGTH === 'thickness') {
     for (let f = 0; f < faceCount; f++) {
       rigidity[f] = Math.max(0.02, Math.min(1, (thickness[f] - 5) / 70))
