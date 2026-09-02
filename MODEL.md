@@ -455,10 +455,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 31 | 80 km | 100% | 0% |
-| 5 Ma | 74 | 59 km | 97% | 0% |
-| 30 Ma | 63 | 229 km | 43% | 0% |
-| 60 Ma | 53 | 287 km | 38% | 0% |
-| 120 Ma | 25 | 435 km | 8% | 0% |
+| 5 Ma | 74 | 62 km | 97% | 0% |
+| 30 Ma | 63 | 288 km | 33% | 0% |
+| 60 Ma | 53 | 376 km | 17% | 0% |
+| 120 Ma | 25 | 565 km | 8% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 168 blocks at its most divided and 13 at 200 Ma.
+The run finds 146 blocks at its most divided and 15 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 21 km/Myr to 3.2, the block count from as many as 168 to 13, and the biggest block grows to 80% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 21 km/Myr to 7.9, the block count from as many as 146 to 15, and the biggest block grows to 29% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 11.6 km/Myr | 129 | 5% | 0.5% |
-| 30 Ma | 0.644%/Myr | 20.6 km/Myr | 163 | 2% | 0.8% |
-| 60 Ma | 0.448%/Myr | 17.1 km/Myr | 133 | 5% | 1.4% |
-| 120 Ma | 0.256%/Myr | 13.9 km/Myr | 92 | 11% | 2.1% |
-| 200 Ma | 0.000%/Myr | 3.2 km/Myr | 13 | 80% | 2.7% |
+| 5 Ma | 0.620%/Myr | 10.8 km/Myr | 129 | 5% | 0.5% |
+| 30 Ma | 0.644%/Myr | 18.9 km/Myr | 146 | 2% | 1.0% |
+| 60 Ma | 0.448%/Myr | 16.8 km/Myr | 129 | 6% | 1.5% |
+| 120 Ma | 0.256%/Myr | 17.2 km/Myr | 93 | 8% | 1.7% |
+| 200 Ma | 0.000%/Myr | 7.9 km/Myr | 15 | 29% | 2.1% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -746,11 +746,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.44% | 0.05% | 0.000% | 0.01% | 0.04% | 1.2% |
-| 30 Ma | 5728 km | 1.45% | 0.11% | 0.000% | 0.09% | 0.17% | 4.0% |
-| 60 Ma | 5197 km | 2.06% | 0.27% | 0.000% | 0.35% | 0.27% | 7.0% |
-| 120 Ma | 4373 km | 5.13% | 0.98% | 0.321% | 0.62% | 0.49% | 11.2% |
-| 200 Ma | 3905 km | 6.58% | 1.68% | 0.764% | 0.93% | 0.66% | 16.3% |
+| 5 Ma | 6272 km | 0.54% | 0.05% | 0.000% | 0.00% | 0.04% | 1.2% |
+| 30 Ma | 5728 km | 5.42% | 0.06% | 0.000% | 0.03% | 0.18% | 3.4% |
+| 60 Ma | 5197 km | 12.26% | 0.14% | 0.000% | 0.41% | 0.28% | 5.8% |
+| 120 Ma | 4373 km | 24.73% | 1.01% | 0.424% | 1.15% | 0.48% | 11.0% |
+| 200 Ma | 3905 km | 28.75% | 4.22% | 1.123% | 1.54% | 0.68% | 21.6% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -764,14 +764,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 11% | +11 | 10 km | 3 km at 175 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 35% | +35 | 18 km | 1 km at 165 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 594 km | 484 km at 110 Ma |
-| Greenland &ndash; North America | 60 Ma | 38% | 40% | +2 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 733 km | 724 km at 180 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 9% | +9 | 3 km | 2 km at 200 Ma |
-| Antarctica &ndash; South America | watched | 0% | 23% | +23 | 3 km | 3 km at 155 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 1469 km | 1469 km at 200 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 11% | +11 | 9 km | 4 km at 125 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 0% | +0 | 449 km | 15 km at 185 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1568 km | 969 km at 85 Ma |
+| Greenland &ndash; North America | 60 Ma | 38% | 43% | +5 | 0 km | 0 km at 5 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 769 km | 390 km at 175 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 9% | +9 | 2 km | 2 km at 190 Ma |
+| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 37 km | 12 km at 120 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 4961 km | 4822 km at 165 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -1378,6 +1378,56 @@ are, so the collapse's 0.00% was partly true by construction &mdash; its area
 error went into stretched seam triangles instead, 31% of the shell by 200 Ma.
 The fold has no such refuge and shows the error as sky. Eleven times the island
 overlap is a real regression with no such excuse.
+
+### Right angles, no dents, and what that costs
+
+A reader looking at the section asked for two things by name: *de randen moeten
+scherper: we moeten streven naar 90 graden vouwen op de oppervlakte en kuilen
+voorkomen* &mdash; sharper edges, aim for right-angle folds at the surface, and
+no pits &mdash; having already said the flips should come off *ook al geeft dat
+tijdelijk een slechter resultaat*, even if the result is temporarily worse.
+
+Both are geometry the fold was getting wrong for a reason worth naming. A sunk
+point knew only how *deep* it belonged, so it kept whatever sideways position
+the shrink left it with: one mesh spacing down and one mesh spacing sideways
+from the shore, which is a **forty-five degree slope**, not a fold. And the lip
+&mdash; releasing the pull back onto the sphere near a closing ridge, so crust
+could tip into the slot rather than be squashed into it &mdash; did exactly what
+it says: it dished the sea floor either side. Those are the pits.
+
+So the BFS that measures the hanging depth now also carries the **root**: the
+nearest point still on the surface, which is the line the crust folded over. The
+curtain hangs under that, not under itself. And the lip is off by default.
+
+Measured over the run, with the flips off as asked:
+
+| | 20 Ma | 40 Ma | 80 Ma | 200 Ma |
+|---|---|---|---|---|
+| fold off vertical | 12&deg; | 6&deg; | 4&deg; | 3&deg; |
+| deepest surface point below the shell | 0 km | 0 km | 1 km | 1 km |
+| surface points more than 13 km down | 0.00% | 0.00% | 0.00% | 0.00% |
+
+A fold of three to twelve degrees off vertical is a surface turning down at 78
+to 87 degrees, and nothing dishes anywhere: not one surface point in forty
+thousand is a tenth of a mesh spacing below where it belongs.
+
+And it costs, on top of what dropping the flips costs. Pinning the curtain under
+its own shore means it can no longer drift towards the closing flanks, so it
+stops helping them shut:
+
+| at 200 Ma | flips on, sloping | flips off, sloping | flips off, under the fold |
+|---|---|---|---|
+| bare sphere | 6.58% | 20.23% | **28.75%** |
+| under an unshut ridge | 8.14% | 22.46% | **48.08%** |
+| covered twice | 1.68% | 1.84% | 4.22% |
+| weak-crust strain | 16.3% | 17.6% | 21.6% |
+| pairs at 120 Ma | 435 km | 691 km | 565 km |
+
+Half the sphere at 200 Ma is under a ridge that has not shut. That is a
+deliberately worse fit bought for a geometric property, chosen with the trade
+stated, and both halves are knobs: `FLIP_PASSES=6` puts the retriangulation
+back, `HANG=0` lets the curtain slope again and returns about a third of the
+closure.
 
 ### Which is shipped, and why
 

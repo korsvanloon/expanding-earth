@@ -110,6 +110,17 @@ export interface FoldScratch {
    * away from any closing ridge, nought at the lip of one. See **The lip**.
    */
   hold: Float64Array
+  /**
+   * Which point on the surface each sunk point hangs from, or -1.
+   *
+   * The nearest one through the crust, which is the fold line it went over.
+   * Without this the curtain only knows how *deep* it belongs and keeps
+   * whatever sideways position the shrink left it with, so it slopes away from
+   * the ridge at about forty-five degrees instead of turning down at it. With
+   * it the curtain hangs straight below the line it folded at, and the fold at
+   * the surface is a right angle.
+   */
+  root: Int32Array
 }
 
 export function newFoldScratch(vertexCount: number): FoldScratch {
@@ -118,6 +129,7 @@ export function newFoldScratch(vertexCount: number): FoldScratch {
     onShell: new Uint8Array(vertexCount),
     target: new Float64Array(vertexCount),
     hold: new Float64Array(vertexCount),
+    root: new Int32Array(vertexCount).fill(-1),
   }
 }
 
@@ -196,12 +208,14 @@ export function measureFold(
   lipKm: number,
   scratch: FoldScratch,
 ): FoldResult {
-  const { depth, onShell, target, hold } = scratch
+  const { depth, onShell, target, hold, root } = scratch
   depth.fill(-1)
+  root.fill(-1)
   const queue: number[] = []
   for (let v = 0; v < vertexCount; v++) {
     if (!mesh.vertexAlive[v] || !onShell[v]) continue
     depth[v] = 0
+    root[v] = v
     queue.push(v)
   }
   // Dijkstra would be the exact answer and a heap of forty thousand entries the
@@ -229,6 +243,7 @@ export function measureFold(
         const through = here + rest
         if (depth[w] >= 0 && depth[w] <= through) continue
         depth[w] = through
+        root[w] = root[v]
         queue.push(w)
       }
     }
@@ -289,26 +304,125 @@ export function measureFold(
 }
 
 /**
- * Pull every point that is not on the shell down to where `measureFold` put it.
+ * Hang every point that is not on the shell below the fold line it went over.
  *
- * One-sided: a point the crumple has already carried deeper than its hanging
- * length is left where it is. Radial only -- the depth says nothing about where
- * a piece of crust is, only that it is not on the surface yet.
+ * The target is the direction of its root -- the nearest point still on the
+ * surface -- at its own hanging depth, so the curtain is a vertical sheet under
+ * the ridge that swallowed it and the crust turns down at a right angle instead
+ * of sloping away. Read live rather than stored, because the root moves: the
+ * flanks are closing while this runs, and the curtain is meant to follow them.
+ *
+ * One-sided in depth: a point the crumple has already carried deeper than its
+ * hanging length is not lifted back up.
  */
 export function pullInward(
   pos: Float64Array,
   vertexCount: number,
   scratch: FoldScratch,
   stiffness: number,
+  /**
+   * Hang the curtain under the fold line rather than straight down from where
+   * each point happens to be.
+   *
+   * The sharp reading, and it costs: a curtain pinned under its own shore
+   * cannot drift towards the closing flanks, so it stops helping them shut.
+   * Measured over a whole run with the flips already off, it takes bare sky
+   * from 20.23% to 28.75% at 200 Ma and the share under an unshut ridge from
+   * 22.46% to 48.08%, and buys a fold of three to six degrees off vertical
+   * instead of forty-five. Off, the depth alone is applied and the curtain
+   * slopes away from the ridge.
+   */
+  underTheFold = true,
 ): void {
-  const { onShell, target } = scratch
+  const { onShell, target, root } = scratch
   for (let v = 0; v < vertexCount; v++) {
     if (onShell[v]) continue
     const i = v * 3
     const length = Math.hypot(pos[i], pos[i + 1], pos[i + 2])
-    if (length < 1e-9 || length <= target[v]) continue
-    const s = 1 + stiffness * (target[v] / length - 1)
-    pos[i] *= s; pos[i + 1] *= s; pos[i + 2] *= s
+    if (length < 1e-9) continue
+    const at = underTheFold ? root[v] : -1
+    const deep = Math.min(length, target[v])
+    if (at < 0) {
+      // No shore to hang from: straight down, as before.
+      const s = 1 + stiffness * (deep / length - 1)
+      pos[i] *= s; pos[i + 1] *= s; pos[i + 2] *= s
+      continue
+    }
+    const j = at * 3
+    const rl = Math.hypot(pos[j], pos[j + 1], pos[j + 2]) || 1
+    const tx = (pos[j] / rl) * deep
+    const ty = (pos[j + 1] / rl) * deep
+    const tz = (pos[j + 2] / rl) * deep
+    pos[i] += stiffness * (tx - pos[i])
+    pos[i + 1] += stiffness * (ty - pos[i + 1])
+    pos[i + 2] += stiffness * (tz - pos[i + 2])
+  }
+}
+
+/**
+ * How sharp the fold is, and whether the surface has sagged.
+ *
+ * Two numbers a reader asked for by name: the crust should turn down at a right
+ * angle where it folds, and the surface should not dish in around it.
+ *
+ * `tiltDeg` is the median angle between the shell's own radial direction and
+ * the edges that cross the fold line -- from a point on the surface to a point
+ * hanging below it. Nought is a perfect right-angle fold, straight down;
+ * ninety is crust lying flat and not folding at all.
+ *
+ * `pitKm` is how far the deepest point *still on the surface* has dropped below
+ * the shell's radius, and `pitShare` how many of them are more than a tenth of
+ * a mesh spacing down. Both should be near nothing: a surface point that has
+ * sunk is a dent in the sea floor that no data asked for.
+ */
+export function foldShape(
+  pos: Float64Array,
+  mesh: DynamicMesh,
+  vertexCount: number,
+  r: number,
+  scratch: FoldScratch,
+): { tiltDeg: number; pitKm: number; pitShare: number } {
+  const { onShell } = scratch
+  const tilts: number[] = []
+  const seen = new Set<number>()
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v] || !onShell[v]) continue
+    const i = v * 3
+    const rl = Math.hypot(pos[i], pos[i + 1], pos[i + 2]) || 1
+    for (const f of mesh.facesAt(v)) {
+      if (!mesh.faceAlive[f]) continue
+      for (let k = 0; k < 3; k++) {
+        const w = mesh.faceVerts[f * 3 + k]
+        if (w < 0 || w === v || onShell[w] || !mesh.vertexAlive[w]) continue
+        const key = Math.min(v, w) * vertexCount + Math.max(v, w)
+        if (seen.has(key)) continue
+        seen.add(key)
+        const j = w * 3
+        const dx = pos[j] - pos[i], dy = pos[j + 1] - pos[i + 1], dz = pos[j + 2] - pos[i + 2]
+        const dl = Math.hypot(dx, dy, dz)
+        if (dl < 1e-9) continue
+        // The edge against the inward radial. Straight down is nought degrees.
+        const dot = -(dx * pos[i] + dy * pos[i + 1] + dz * pos[i + 2]) / (dl * rl)
+        tilts.push((Math.acos(Math.min(1, Math.max(-1, dot))) * 180) / Math.PI)
+      }
+    }
+  }
+  tilts.sort((a, b) => a - b)
+  let pitKm = 0
+  let pits = 0
+  let surface = 0
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v] || !onShell[v]) continue
+    surface++
+    const i = v * 3
+    const down = r - Math.hypot(pos[i], pos[i + 1], pos[i + 2])
+    if (down > pitKm) pitKm = down
+    if (down > 13) pits++
+  }
+  return {
+    tiltDeg: tilts.length ? tilts[tilts.length >> 1] : NaN,
+    pitKm,
+    pitShare: surface ? pits / surface : 0,
   }
 }
 

@@ -58,7 +58,7 @@ import { writeChannel, writeFrames } from '../shared/frames.js'
 import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
 import {
-  markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
+  foldShape, markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
 } from './lib/fold.js'
 import { cellBuckets, coverage, probeCells, probeDirections, type Tiling } from './lib/coverage.js'
 import { newContactScratch, separateIslands, type IslandContacts } from './lib/contact.js'
@@ -166,7 +166,19 @@ const CONFIG = {
    */
   foldMargin: Number(process.env.FOLD_MARGIN ?? 0.08),
   /** How many rounds of redrawing slivers per step. */
-  flipPasses: Number(process.env.FLIP_PASSES ?? 6),
+  /**
+   * How many passes of retriangulation a step gets.
+   *
+   * None under the fold. A flip is the only thing left that can carry a
+   * triangle's corners apart once nothing is being collapsed, and it does it
+   * 287,643 times in a run -- which took the share of the shell painted from
+   * crust hundreds of kilometres away *up*, 31% to 48% at 200 Ma, against the
+   * collapse it replaced. A reader looking at the result asked for them off
+   * knowing the fit gets worse for it, and the fit does: bare sky 6.58% to
+   * 20.23% at 200 Ma. What is bought is a mesh where every triangle still
+   * stands for the crust it is painted with.
+   */
+  flipPasses: Number(process.env.FLIP_PASSES ?? (FOLDING ? 0 : 6)),
   /** Smoothing passes over the age field before differentiating it. */
   flowSmoothing: Number(process.env.FLOW_SMOOTH ?? 6),
   /** The fastest half-spreading rate believed, km/Myr. */
@@ -289,12 +301,22 @@ const CONFIG = {
    * How far back from a closing ridge the crust may tip down into the slot
    * instead of staying flat on the shell, km of crust.
    *
-   * Three triangles' worth. Zero pins everything to the sphere, which is what
-   * the model did before the fold and what makes the closure come out of the
-   * crust's own length instead of out of its attitude. Only read under the
-   * fold; see **The lip** in tools/lib/fold.ts.
+   * Zero by default, which pins everything to the sphere. Three triangles'
+   * worth was the default for one day, on the argument that crust free to tip
+   * into the slot does not have to be squashed into it -- and it measured
+   * neutral on the pairs while doing the one thing a reader then asked it not
+   * to: released, the crust either side of a shutting ridge dishes in, and a
+   * dent in the sea floor is not something any data asked for. It is kept as a
+   * knob because the argument for it is still good; see **The lip** in
+   * tools/lib/fold.ts.
    */
-  lipKm: Number(process.env.LIP_KM ?? 400),
+  lipKm: Number(process.env.LIP_KM ?? 0),
+  /**
+   * Whether the curtain hangs under the line it folded at, or straight down
+   * from wherever each point happens to be. See `pullInward`; `HANG=0` gets the
+   * sloping version and about a third of the closure back.
+   */
+  hangUnderFold: Number(process.env.HANG ?? 1) > 0,
   /**
    * The least an edge resists being made *shorter* than the crust along it.
    *
@@ -404,6 +426,8 @@ function main() {
   let fold: FoldResult = { sunk: 0, deepestKm: 0, hangingKm: 0 }
   /** The share of the sphere still under a ridge that has not shut. */
   let unshutShare = 0
+  /** How sharp the fold is and whether the surface has dished; see foldShape. */
+  let folding = { tiltDeg: NaN, pitKm: 0, pitShare: 0 }
 
   /**
    * The size and shape each triangle has today, kept per triangle rather than
@@ -874,6 +898,9 @@ function main() {
         )
       }
     }
+    if (CONFIG.foldInward) {
+      folding = foldShape(pos, mesh, vertexCount, radiusAt(t), foldScratch)
+    }
     unshutShare = CONFIG.foldInward
       ? coverage(
         pos, { faceVerts: mesh.faceVerts, faceAlive: closing }, faceCount,
@@ -1250,7 +1277,7 @@ function main() {
       fold = measureFold(
         mesh, restEdge, crustHere, closing, vertexCount, rNext, CONFIG.lipKm, foldScratch,
       )
-      pullInward(pos, vertexCount, foldScratch, 1)
+      pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFold)
     } else {
       const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
       refusedTotal += closed.refused
@@ -1344,14 +1371,16 @@ function main() {
       // Beside the sphere, not once a step: the closing rim hauls the top of
       // the curtain towards the surface every sweep, and this is what keeps
       // sending it back down.
-      if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, CONFIG.radialStiffness)
+      if (CONFIG.foldInward) {
+        pullInward(pos, vertexCount, foldScratch, CONFIG.radialStiffness, CONFIG.hangUnderFold)
+      }
       holdIslands(
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
         rNext, islandFacing,
       )
     }
     relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
-    if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, 1)
+    if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFold)
     if (tracing) trace.push(`sweeps ${stretchNow(t).toFixed(3)}`)
     foldedNow = unfold(
       pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
@@ -1406,7 +1435,11 @@ function main() {
               + `deep=${fold.deepestKm.toFixed(0)}/${fold.hangingKm.toFixed(0)}km  `
             : `points=${String(mesh.liveVertices).padStart(5)}  `) +
           `bare=${(100 * d.gapFraction).toFixed(2)}%  ` +
-          (CONFIG.foldInward ? `unshut=${(100 * unshutShare).toFixed(2)}%  ` : '') +
+          (CONFIG.foldInward
+            ? `unshut=${(100 * unshutShare).toFixed(2)}%  `
+              + `fold=${folding.tiltDeg.toFixed(0)}deg  `
+              + `pit=${folding.pitKm.toFixed(0)}km/${(100 * folding.pitShare).toFixed(2)}%  `
+            : '') +
           `doubled=${(100 * d.overlapFraction).toFixed(2)}%  ` +
           `folded=${(100 * d.foldFraction).toFixed(2)}%  ` +
           `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%  ` +
