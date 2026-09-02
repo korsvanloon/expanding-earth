@@ -173,7 +173,27 @@ export const CONFIG = {
    * tools/lib/structure.ts for what these mean and the 27 labelled curves they
    * were set against; zero switches the test off.
    */
-  axisBowlMa: Number(process.env.AXIS_BOWL ?? 0.8),
+  /**
+   * **Off, because it makes a better detector and a worse model.**
+   *
+   * Dropping the 43 curves it flags -- 709 to 666, exactly as its cost grid
+   * said -- costs the reconstruction plainly: conjugate pairs reunited fall
+   * from 45% to 36% at 60 Ma, 35% to 22% at 90 and 32% to 17% at 120, with the
+   * median separation at 120 Ma going 303 km to 447, and on the fixed
+   * continent scorecard nothing improves and four pairs get worse, South
+   * America and Africa from 40% to 30%.
+   *
+   * A wrong anchor beats no anchor, and this document already said so about the
+   * strength cut: a loose cut is the worse detector and the better anchor set,
+   * because the flow field is fitted through all of them at once, so a few soft
+   * calls are outvoted while a gap between anchors is filled by nothing but the
+   * smoothness of the fit. Removing curves for being wrong is the same trade
+   * the other way and it loses for the same reason.
+   *
+   * So the axes stay in the fit and the viewer says which they are instead. The
+   * bowl and the age travel with every zone in meta.json for exactly that.
+   */
+  axisBowlMa: Number(process.env.AXIS_BOWL ?? 0),
   axisAgeMa: Number(process.env.AXIS_AGE ?? 40),
   strengthQuantile: 0.5,
   minZoneLengthKm: 400,

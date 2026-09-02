@@ -540,6 +540,19 @@ function PickedZones({ data }: { data: Dataset }) {
                   <span className="caption">
                     {zone.ageMa === null ? 'undated' : `${zone.ageMa} Ma`}
                     {` \u00b7 swing ${zone.swingE} E \u00b7 bowl ${zone.bowlMa.toFixed(2)} Ma`}
+                    {/*
+                      * Said rather than removed. A curve on young crust whose
+                      * sea floor dips on the line is a spreading axis and not a
+                      * fracture zone, and a reader who marked five of those was
+                      * right about every one. Taking them out of the detector
+                      * costs the reconstruction more than they cost the
+                      * picture, though -- see axisBowlMa in
+                      * tools/build-data.ts -- so they stay in the fit and are
+                      * labelled here.
+                      */}
+                    {zone.bowlMa > 0.8 && zone.ageMa !== null && zone.ageMa < 40
+                      ? ' \u00b7 probably a spreading axis, not a fracture zone'
+                      : ''}
                   </span>
                 </>
               ) : (
