@@ -15,6 +15,17 @@ out float vStrain;
 out float vRigidity;
 out float vSeam;
 out vec3 vNormal;
+/**
+ * Where this point actually is, and how far out.
+ *
+ * Both only matter once the crust can be somewhere other than on the shell. A
+ * run that folds its un-erupted crust inside the Earth (tools/lib/fold.ts) has
+ * a fifth of the mesh hanging below the surface by 200 Ma, and the cross-section
+ * needs the position to cut on and the radius to tell the curtain from the
+ * shell.
+ */
+out vec3 vPos;
+out float vRadius;
 
 void main() {
   vDir = aDir;
@@ -25,6 +36,8 @@ void main() {
   vSeam = aSeam;
   // The mesh is always a sphere, so the outward normal is just the position.
   vNormal = normalize(mat3(modelMatrix) * normalize(position));
+  vPos = (modelMatrix * vec4(position, 1.0)).xyz;
+  vRadius = length(position);
   gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }
 `
@@ -52,7 +65,26 @@ uniform float uGrid;
 uniform vec3 uLight;
 /** Below 1 the shell turns to glass, so the mesh and the far side show through. */
 uniform float uOpacity;
+/**
+ * The normal of a slab through the centre; everything outside it is thrown away.
+ *
+ * There is no other way to see a fold: crust pulled inside the shell is behind
+ * the shell, and the shell is opaque. Cutting the near half off and looking
+ * into the bowl does not do it either -- you are then looking *along* the fold
+ * rather than across it, and a curtain hanging straight down reads as a flat
+ * patch. So the slab lies in the plane of the screen -- its normal is the
+ * direction of the camera -- and what is left is a slice a few hundred
+ * kilometres thick seen face-on: a ring of shell with the fold hanging inside
+ * it, turning with the globe.
+ */
+uniform vec3 uCut;
+/** Half the slab's thickness, in Earth radii. Zero draws everything. */
+uniform float uSlab;
+/** The shell's radius in the same units, for telling folded crust from surface. */
+uniform float uShell;
 
+in vec3 vPos;
+in float vRadius;
 in vec3 vDir;
 in float vIsland;
 in float vAge;
@@ -195,6 +227,8 @@ vec3 rigidityRamp(float r) {
 
 
 void main() {
+  // Before anything else: a cross-section throws away everything off the slice.
+  if (uSlab > 0.0 && abs(dot(vPos, uCut)) > uSlab) discard;
   bool continental = vAge > PERMANENT;
 
   vec3 base;
@@ -287,6 +321,14 @@ void main() {
   // normal points away from us. Turning it round lights it as the surface it
   // is rather than leaving half the globe in shadow.
   vec3 normal = normalize(vNormal) * (gl_FrontFacing ? 1.0 : -1.0);
+  // Crust that is not on the shell has no radial normal worth having: a curtain
+  // hanging under a ridge runs *along* the radius, so lighting it as if it faced
+  // outward leaves it a flat grey sheet. Take the triangle's own normal there,
+  // turned towards the reader.
+  if (uShell > 0.0 && vRadius < 0.99 * uShell) {
+    vec3 face = normalize(cross(dFdx(vPos), dFdy(vPos)));
+    normal = face * (dot(face, cameraPosition - vPos) < 0.0 ? -1.0 : 1.0);
+  }
   float lambert = max(dot(normal, normalize(uLight)), 0.0);
   vec3 lit = base * (0.30 + 0.85 * lambert);
   fragColor = vec4(linearToSrgb(min(lit, vec3(1.0))), uOpacity);

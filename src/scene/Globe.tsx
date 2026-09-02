@@ -13,7 +13,7 @@ import {
 } from '@/store'
 import { pairPulls } from '@shared/tracks'
 import { directionToUv } from '@shared/sphere'
-import { PERMANENT_MA } from '@shared/model'
+import { PERMANENT_MA, R0_KM } from '@shared/model'
 import { measureSeams } from '@shared/seams'
 import { fragmentShader, vertexShader } from './shaders'
 
@@ -28,6 +28,16 @@ const GLASS_OPACITY = 1
 /** Reused rather than allocated per frame; the light is nudged about this axis. */
 const UP = new THREE.Vector3(0, 1, 0)
 
+/**
+ * Half the thickness of the cross-section slice, in units where today's Earth
+ * is one.
+ *
+ * About 190 km, which is three triangles at subdivision 6. Thinner and the
+ * slice breaks into disconnected scraps as the triangles it cuts fall out of
+ * it; thicker and the crust in front hides the fold behind it.
+ */
+const SLAB = 0.03
+
 export function Globe({ data }: { data: Dataset }) {
   const material = useRef<THREE.ShaderMaterial>(null)
   // Every map is loaded up front. They are a few megabytes together, and
@@ -40,6 +50,7 @@ export function Globe({ data }: { data: Dataset }) {
   const mode = useStore((s) => s.mode)
   const showGrid = useStore((s) => s.showGrid)
   const showMesh = useStore((s) => s.showMesh)
+  const showSection = useStore((s) => s.showSection)
   const showTracks = useStore((s) => s.showTracks)
   const showZones = useStore((s) => s.showZones)
   const pickedZones = useStore((s) => s.pickedZones)
@@ -432,6 +443,9 @@ export function Globe({ data }: { data: Dataset }) {
       uMode: { value: 0 },
       uGrid: { value: 0 },
       uOpacity: { value: 1 },
+      uCut: { value: new THREE.Vector3() },
+      uSlab: { value: 0 },
+      uShell: { value: 1 },
       uLight: { value: new THREE.Vector3(1, 0.4, 1) },
     }),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- uMap is swapped in useFrame
@@ -689,6 +703,14 @@ export function Globe({ data }: { data: Dataset }) {
       material.current.uniforms.uMode.value = VIEW_MODES.indexOf(mode)
       material.current.uniforms.uGrid.value = showGrid ? 1 : 0
       material.current.uniforms.uOpacity.value = GLASS_OPACITY
+      // The slice lies in the plane of the screen, so it is seen face-on: a
+      // ring of shell with the fold hanging inside it, which is the shape the
+      // section is for. Its normal is the direction of the camera, so it turns
+      // with the globe and always faces the reader.
+      const cut = material.current.uniforms.uCut.value as THREE.Vector3
+      cut.copy(camera.position).normalize()
+      material.current.uniforms.uSlab.value = showSection ? SLAB : 0
+      material.current.uniforms.uShell.value = radiusAt(data, clock.timeMa) / R0_KM
       // A light just off the camera's shoulder: everything you turn towards is
       // lit, but the sphere still reads as a sphere.
       material.current.uniforms.uLight.value
@@ -709,7 +731,9 @@ export function Globe({ data }: { data: Dataset }) {
           glslVersion={THREE.GLSL3}
           transparent={false}
           depthWrite
-          side={THREE.FrontSide}
+          // Both sides once the near half is cut away: what the section is for
+          // is the inside of the shell, and the inside is a back face.
+          side={showSection ? THREE.DoubleSide : THREE.FrontSide}
         />
       </mesh>
       {showTracks && overlay && (

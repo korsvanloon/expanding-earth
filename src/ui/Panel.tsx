@@ -35,6 +35,7 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
 export function Panel({ data }: { data: Dataset }) {
   const timeMa = useClockTime(8)
   const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
+    showSection, setShowSection,
     surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame,
     showTracks, setShowTracks, showZones, setShowZones } = useStore()
   const [showMethod, setShowMethod] = useState(false)
@@ -155,6 +156,20 @@ export function Panel({ data }: { data: Dataset }) {
         The triangles the crust is made of, drawn on top of it. Watch them close up as the crust
         they stand for un-forms, and watch the edges be redrawn where one piece slides past
         another.
+      </p>
+      <label className="toggle">
+        <input
+          type="checkbox"
+          checked={showSection}
+          onChange={(e) => setShowSection(e.target.checked)}
+        />
+        Slice through it
+      </label>
+      <p className="caption">
+        Keeps a slice a couple of hundred kilometres thick through the centre, square to you, and
+        turns it with the globe. This is the only way to see crust that is not on the surface:
+        where a run sends un-erupted sea floor back down inside the shell instead of deleting it,
+        the curtain of it hangs under the ridge that swallowed it.
       </p>
       {data.tracks && (
         <>

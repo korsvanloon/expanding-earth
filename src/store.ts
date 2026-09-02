@@ -99,6 +99,14 @@ interface State {
   /** Draw the shell as glass with its triangles on top; see src/scene/Globe.tsx. */
   showMesh: boolean
   /**
+   * Cut the half of the Earth nearest the reader away.
+   *
+   * The only way to see crust that is not on the surface. A run that folds its
+   * un-erupted crust inside the shell instead of collapsing it away hangs a
+   * fifth of the mesh below the surface by 200 Ma, and the surface is opaque.
+   */
+  showSection: boolean
+  /**
    * Draw the traced flow lines and the pairs due to meet now.
    *
    * These are paths, one per track, read off the age grid by walking away from
@@ -137,6 +145,7 @@ interface State {
   setReferenceFrame: (referenceFrame: string) => void
   setShowGrid: (showGrid: boolean) => void
   setShowMesh: (showMesh: boolean) => void
+  setShowSection: (showSection: boolean) => void
   setShowTracks: (showTracks: boolean) => void
   setShowZones: (showZones: boolean) => void
   toggleZone: (id: number) => void
@@ -256,6 +265,7 @@ interface Remembered {
   referenceFrame: string
   showGrid: boolean
   showMesh: boolean
+  showSection: boolean
   showTracks: boolean
   showZones: boolean
   speed: number
@@ -284,7 +294,7 @@ export const VIEW_MODES: ViewMode[] = [
 export function remembered(stored: unknown): Partial<Remembered> {
   if (!stored || typeof stored !== 'object') return {}
   const s = stored as Record<string, unknown>
-  const flag = (key: 'showGrid' | 'showMesh' | 'showTracks' | 'showZones') =>
+  const flag = (key: 'showGrid' | 'showMesh' | 'showSection' | 'showTracks' | 'showZones') =>
     (typeof s[key] === 'boolean' ? { [key]: s[key] as boolean } : {})
   return {
     ...(VIEW_MODES.includes(s.mode as ViewMode) ? { mode: s.mode as ViewMode } : {}),
@@ -299,6 +309,7 @@ export function remembered(stored: unknown): Partial<Remembered> {
       : {}),
     ...flag('showGrid'),
     ...flag('showMesh'),
+    ...flag('showSection'),
     ...flag('showTracks'),
     ...flag('showZones'),
   }
@@ -347,6 +358,7 @@ export const useStore = create<State>()(persist((set) => ({
   referenceFrame: 'africa',
   showGrid: false,
   showMesh: false,
+  showSection: false,
   showTracks: false,
   showZones: false,
   pickedZones: [],
@@ -364,6 +376,7 @@ export const useStore = create<State>()(persist((set) => ({
   setReferenceFrame: (referenceFrame) => set({ referenceFrame }),
   setShowGrid: (showGrid) => set({ showGrid }),
   setShowMesh: (showMesh) => set({ showMesh }),
+  setShowSection: (showSection) => set({ showSection }),
   setShowTracks: (showTracks) => set({ showTracks }),
   setShowZones: (showZones) => set({ showZones }),
   // Clicking a picked zone again lets it go. The cap is ZONE_LIMIT rather
@@ -390,6 +403,7 @@ export const useStore = create<State>()(persist((set) => ({
     referenceFrame: s.referenceFrame,
     showGrid: s.showGrid,
     showMesh: s.showMesh,
+    showSection: s.showSection,
     showTracks: s.showTracks,
     showZones: s.showZones,
     speed: s.speed,

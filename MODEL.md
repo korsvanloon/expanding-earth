@@ -455,10 +455,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 31 | 80 km | 100% | 0% |
-| 5 Ma | 74 | 92 km | 93% | 0% |
-| 30 Ma | 63 | 222 km | 41% | 0% |
-| 60 Ma | 53 | 228 km | 45% | 0% |
-| 120 Ma | 25 | 303 km | 32% | 0% |
+| 5 Ma | 74 | 59 km | 97% | 0% |
+| 30 Ma | 63 | 229 km | 43% | 0% |
+| 60 Ma | 53 | 287 km | 38% | 0% |
+| 120 Ma | 25 | 435 km | 8% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 149 blocks at its most divided and 1 at 200 Ma.
+The run finds 168 blocks at its most divided and 13 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 21 km/Myr to 1.6, the block count from as many as 149 to 1, and the biggest block grows to 100% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 21 km/Myr to 3.2, the block count from as many as 168 to 13, and the biggest block grows to 80% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 7.5 km/Myr | 92 | 16% | 0.3% |
-| 30 Ma | 0.644%/Myr | 19.7 km/Myr | 149 | 2% | 0.6% |
-| 60 Ma | 0.448%/Myr | 18.7 km/Myr | 112 | 3% | 1.1% |
-| 120 Ma | 0.256%/Myr | 15.2 km/Myr | 64 | 5% | 2.4% |
-| 200 Ma | 0.000%/Myr | 1.6 km/Myr | 1 | 100% | 3.3% |
+| 5 Ma | 0.620%/Myr | 11.6 km/Myr | 129 | 5% | 0.5% |
+| 30 Ma | 0.644%/Myr | 20.6 km/Myr | 163 | 2% | 0.8% |
+| 60 Ma | 0.448%/Myr | 17.1 km/Myr | 133 | 5% | 1.4% |
+| 120 Ma | 0.256%/Myr | 13.9 km/Myr | 92 | 11% | 2.1% |
+| 200 Ma | 0.000%/Myr | 3.2 km/Myr | 13 | 80% | 2.7% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -746,11 +746,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.00% | 0.00% | 0.000% | 0.00% | 0.04% | 1.1% |
-| 30 Ma | 5728 km | 0.00% | 0.00% | 0.000% | 0.00% | 0.17% | 3.8% |
-| 60 Ma | 5197 km | 0.00% | 0.00% | 0.000% | 0.01% | 0.25% | 4.3% |
-| 120 Ma | 4373 km | 0.00% | 0.01% | 0.002% | 0.02% | 0.49% | 7.1% |
-| 200 Ma | 3905 km | 0.00% | 0.13% | 0.069% | 0.17% | 0.72% | 14.0% |
+| 5 Ma | 6272 km | 0.44% | 0.05% | 0.000% | 0.01% | 0.04% | 1.2% |
+| 30 Ma | 5728 km | 1.45% | 0.11% | 0.000% | 0.09% | 0.17% | 4.0% |
+| 60 Ma | 5197 km | 2.06% | 0.27% | 0.000% | 0.35% | 0.27% | 7.0% |
+| 120 Ma | 4373 km | 5.13% | 0.98% | 0.321% | 0.62% | 0.49% | 11.2% |
+| 200 Ma | 3905 km | 6.58% | 1.68% | 0.764% | 0.93% | 0.66% | 16.3% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -764,14 +764,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 40% | +40 | 0 km | 0 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 28% | +28 | 38 km | 16 km at 120 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 15% | +15 | 184 km | 181 km at 130 Ma |
-| Greenland &ndash; North America | 60 Ma | 38% | 36% | -2 | 0 km | 0 km at 10 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 15% | +15 | 0 km | 0 km at 175 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 164 km | 99 km at 130 Ma |
-| Antarctica &ndash; South America | watched | 0% | 20% | +20 | 24 km | 14 km at 90 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 1635 km | 1635 km at 200 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 11% | +11 | 10 km | 3 km at 175 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 35% | +35 | 18 km | 1 km at 165 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 594 km | 484 km at 110 Ma |
+| Greenland &ndash; North America | 60 Ma | 38% | 40% | +2 | 0 km | 0 km at 5 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 733 km | 724 km at 180 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 9% | +9 | 3 km | 2 km at 200 Ma |
+| Antarctica &ndash; South America | watched | 0% | 23% | +23 | 3 km | 3 km at 155 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 1469 km | 1469 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -860,11 +860,15 @@ ridge still sitting there in the middle, growing and blurring as the triangles
 around it grew, and put their finger on it exactly: *eigenlijk zou het midden
 helemaal verdwenen moeten zijn.* The middle should be gone.
 
-It is gone, and so is the crust. The mesh collapses what has not been made yet,
-the triangle count falls with the shell's area, and the live faces sum to 100.4%
-of the sphere at 200 Ma at about 6,000 km&sup2; of crust per triangle &mdash;
-the same as today. There is no phantom area anywhere in the run. Every triangle
-on that globe is carrying real crust of the right size.
+It is gone, and so is the crust. When this was written the mesh collapsed what
+had not been made yet, the triangle count fell with the shell's area, and the
+live faces summed to 100.4% of the sphere at 200 Ma at about 6,000 km&sup2; of
+crust per triangle &mdash; the same as today. There was no phantom area anywhere
+in the run. Every triangle on that globe was carrying real crust of the right
+size. The run shipped now folds that crust inside the shell instead of deleting
+it, so the count no longer falls and the surviving surface covers 93.4% of the
+sphere rather than all of it; the point below stands either way, because a flip
+renames nothing and a collapse renamed everything.
 
 What had gone wrong was the *name*. A collapse merges two points, and every
 triangle round the one that goes has to be told to use the survivor instead, or
@@ -1184,6 +1188,15 @@ The scorecard measures rather than constrains, so nothing about the
 reconstruction changed when this row was added. What changed is that the failure
 now has a number, 5%, and that number is in every run from here.
 
+It was worth the page. Two days later a change made for an entirely unrelated
+reason &mdash; sending un-erupted crust down inside the shell rather than
+deleting it, the next section &mdash; took this pair from 164 km to **3 km**,
+lifted the margin in contact from 5% to 9%, and quadrupled Africa's rotation
+from eight degrees to thirty-two. Nothing was aimed at it. Had this row still
+been missing, that change would have been read as a straight loss and thrown
+away, which is what happened to four constraints in one afternoon for exactly
+that reason.
+
 ## Swallowing the crust instead of deleting it
 
 A reader looking at the mesh proposed the other way of un-making sea floor:
@@ -1264,56 +1277,112 @@ pulling its ends together, that mostly goes away: 98.6% covered against 99.1%
 wanted, bare sky 6.69% down to 1.54%, young middling crust from &minus;21.2% to
 &minus;9.3%.
 
-### And it still loses
+### What it actually does, over the whole run
 
-The only real test is the conjugate pairs held back from the solver. Median
-separation, and the share of them inside one triangle spacing:
+Measured to 40 and 60 Ma, the fold looked like a plain loss on the conjugate
+pairs and it was written up here as one. Run to 200 Ma it is nothing of the
+kind. It is a **trade, and the two sides of it are large**.
 
-| at 40 Ma | median | within 129 km | bare sky |
+The pairs held back from the solver, median separation:
+
+| Ma | 20 | 40 | 60 | 80 | 100 | 120 | 140 | 160 |
+|---|---|---|---|---|---|---|---|---|
+| collapse | 169 | **187** | **228** | 361 | 314 | **303** | **494** | **711** |
+| fold | **146** | 238 | 287 | **306** | **313** | 435 | 620 | 776 |
+
+Better early, worse in the middle, worse deep. But the named continental joins
+&mdash; the ones with dates from the geology rather than from this model's own
+tracing &mdash; split the other way, and they split along a line:
+
+| pair | joined by | collapse | fold |
 |---|---|---|---|
-| collapse, as shipped | **187 km** | **52%** | 0.00% |
-| fold, rim closes | 270 km | 39% | 6.69% |
-| fold, rim, no shortening | 224 km | 39% | 6.34% |
-| fold, whole curtain | 233 km | 43% | 1.54% |
-| fold, curtain, no shortening, lip | 238 km | 48% | 1.52% |
+| Antarctica &ndash; Africa | 170 Ma | 164 km, 5% | **3 km, 9%** |
+| Australia &ndash; Antarctica | 100 Ma | 38 km, 28% | **18 km, 35%** |
+| Antarctica &ndash; S. America | *watched* | 24 km, 20% | **3 km, 23%** |
+| Greenland &ndash; N. America | 60 Ma | 0 km, 36% | **0 km, 40%** |
+| South America &ndash; Africa | 180 Ma | **0 km, 40%** | 10 km, 11% |
+| India &ndash; Africa | 120 Ma | **184 km, 15%** | 594 km, 0% |
+| North America &ndash; Africa | 190 Ma | **0 km, 15%** | 733 km, 0% |
 
-At 20 Ma the fold is *better* than the collapse &mdash; 159 km against 169
-&mdash; and from 40 Ma on it is a fifth to a half worse, at 60 Ma 274 km against
-228. The plates move at about two thirds the speed and the shell breaks into
-half again as many blocks.
+**Every southern join improves and every Atlantic join collapses.** And the
+first row is the one this document spent a page on: Antarctica against
+Mozambique was the worst pair in the table by a factor of three, the join no
+scorecard had been measuring, and the fold closes it from 164 km to 3.
 
-The reason is structural rather than a setting left unturned. A collapse is not
-a force: it removes a degree of freedom, and the mesh is then permanently
-shorter whether the crust likes it or not. A spring of rest length zero asks for
-the same thing and can be argued with by every other spring sharing those
-points, and the argument is settled locally &mdash; so a ridge shuts while the
-continent behind it stays put. Everything above is the attempt to give the crust
-a way of agreeing that does not cost area: let it tip, refuse to let it shorten,
-ask the whole vanished ocean rather than its rim. Together those recover most of
-the geometry and about half the gap on the pairs, and half is not enough.
+So does the rotation behind it. Africa's centre of area, which has to travel
+south for southern Africa to reach the pole, goes from 7&deg;N to 1&deg;S under
+the collapse &mdash; eight degrees, against the fifty the reader's eye asked
+for. Under the fold it goes to **25&deg;S: thirty-two degrees**, four times as
+much, putting Africa's southern tip near 60&deg;S. India goes from 21&deg;N to
+19&deg;N under the collapse, which is to say it does not move; under the fold it
+crosses the equator to 13&deg;S.
 
-So it ships switched off, as machinery with its numbers written down rather than
-as the model. What would have to change is the closure, not the fold: something
-that transports a plate rather than pulling on its edge. The other half of the
-same reader's proposal &mdash; a mesh graded by spreading rate, coarse where
-nothing deforms and fine where it does &mdash; is the more promising half, and
-for a reason this measurement makes concrete: the closure is quantised to a
-129 km triangle whatever the age grid says vanished, and the Atlantic removes
-about 10 km of it in a million years.
+That is the motion a reader identified as the model's largest missing piece, and
+a change made for an unrelated reason delivers most of it. What it costs is the
+Atlantic: North America and Africa finish 733 km apart instead of touching.
+
+And it costs the tiling, which the collapse was structurally incapable of
+getting wrong:
+
+| | 60 Ma | 120 Ma | 200 Ma |
+|---|---|---|---|
+| bare sphere, collapse | 0.00% | 0.00% | 0.00% |
+| bare sphere, fold | 2.06% | 5.13% | 6.58% |
+| two islands in one place, collapse | 0.000% | 0.002% | 0.069% |
+| two islands in one place, fold | 0.000% | 0.321% | 0.764% |
+| weak-crust strain, collapse | 4.3% | 7.1% | 14.0% |
+| weak-crust strain, fold | 7.0% | 11.2% | 16.3% |
+
+The bare figure is not quite the same claim under the two. A closed
+triangulation of a sphere covers every direction whatever shape its triangles
+are, so the collapse's 0.00% was partly true by construction &mdash; its area
+error went into stretched seam triangles instead, 31% of the shell by 200 Ma.
+The fold has no such refuge and shows the error as sky. Eleven times the island
+overlap is a real regression with no such excuse.
+
+### Which is shipped, and why
+
+The fold, for now, because the join it fixes is the one with a date and the
+joins it breaks are in the half of the world this model was already fitting
+best. That is a judgement, not a result, and the numbers above are all here so
+it can be reversed: `FOLD_IN` unset restores the collapse exactly &mdash; same
+frames.bin to the byte.
+
+What the trade says is that the two halves of the world are being solved by
+different mechanisms, and the model has never had to choose before. The Atlantic
+is fitted by ridges closing along their length, which a topological collapse does
+perfectly and a spring does badly. The southern rotation needs whole plates to
+swing, which the collapse's hard, local shortening prevents and the fold's softer
+closure allows. Neither is wrong about its own half. The next thing to build is
+not another closure but the one the same reader proposed alongside this: a mesh
+graded by spreading rate, coarse where nothing deforms and fine where it does.
+The closure is quantised to a 129 km triangle whatever the age grid says
+vanished, and the Atlantic removes about 10 km of it in a million years &mdash;
+which is exactly why a spring cannot close it and a collapse must.
 
 ## Known weaknesses
 
-- **The crust tiles, and this is now evidence rather than an artefact.** An
-  earlier solver left roughly 15% of the sphere uncovered, spread between
-  fragments, so the reconstruction read as a cracked eggshell rather than
-  continents on an ocean. That is fixed, but the figure could not be trusted
-  either, because every probe direction was a vertex of the mesh — the one place
-  the test cannot fail. With a hundred thousand generic directions and a
-  measure that demonstrably sees a single missing triangle in five thousand, the
-  bare figure is 0.0000% at every frame, and the present-day overlap has gone
-  from 1.836% to exactly zero, which is what an untouched icosphere must read.
-  Collapsing dead crust out of the mesh instead of crumpling it into a corner
-  does what it was meant to do.
+- **The crust does not tile, and the figure is honest about it.** An earlier
+  solver left roughly 15% of the sphere uncovered, spread between fragments, so
+  the reconstruction read as a cracked eggshell rather than continents on an
+  ocean. Collapsing dead crust out of the mesh took that to 0.0000% at every
+  frame, on a hundred thousand generic probe directions rather than on the
+  mesh's own vertices — but a closed triangulation of a sphere covers every
+  direction whatever shape its triangles are, so most of that zero was
+  structural. The run shipped now folds un-erupted crust inside the shell
+  instead, which has no such guarantee, and reports **6.58% bare at 200 Ma**.
+  That is a real shortfall of surface: the crust that exists ends up about 6%
+  smaller in area than the crust it is made of. It replaces a different lie of
+  the same size — under the collapse the shortfall went into stretched seam
+  triangles spanning crust that had been removed, 31% of the shell by 200 Ma.
+  Neither number is good. This one is at least the number it looks like.
+
+- **Two continents in the same place, eleven times over.** The share of the
+  sphere under two islands of strong crust at once was 0.069% at 200 Ma under
+  the collapse and is **0.764%** under the fold. The earlier figure was argued
+  down to a suture the mesh is too coarse to draw, on the strength of its depth
+  — 25 to 29 km on a 129 km mesh — and that argument has not been re-run at
+  this size. Until it has, this is the fold's clearest regression.
 
 - **Only one of the three classifications is ever solved.** The 2.8% of the
   globe the age grid leaves undated is handled three ways, and all three radius
