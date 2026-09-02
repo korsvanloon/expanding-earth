@@ -717,10 +717,21 @@ lets rigid blocks meet at an angle instead, the way the gores of a globe do.
 Four numbers per frame, none of them tuned:
 
 - **bare sphere** — how much of the sphere no surviving crust covers. It should
-  be zero; whatever is left is surface the reconstruction has failed to
-  account for. This document described it backwards for a long time, as sphere
-  *occupied* by crust that did not exist yet, and it is also the one figure
-  here that is not currently trustworthy — see Known weaknesses.
+  be zero; whatever is left is surface the reconstruction has failed to account
+  for. **It is not a hole in the mesh.** A reader asked exactly the right
+  question here — *de mesh gaat toch niet open? als we vouwen blijft de mesh
+  toch altijd gesloten?* — and the answer is yes, always: nothing is deleted
+  under the fold, all 81,920 triangles are still there, and every run ends by
+  checking that the Euler characteristic is still 2 and throwing if it is not.
+  What the measure counts is directions with no *existing* crust overhead.
+  Behind such a direction there is still mesh: the curtain of crust that has
+  not erupted yet, hanging below. So the bare figure is the **mouth of an
+  unshut slot** — look straight down at where a ridge was and you see into the
+  fold instead of onto sea floor. The number beside it says so: at 200 Ma
+  13.09% is bare and 15.73% lies under a triangle of un-erupted crust that
+  still touches the surface. Almost all of the one is the other.
+  This document described the measure backwards for a long time, as sphere
+  *occupied* by crust that did not exist yet.
 - **covered twice** — how much of the sphere lies under more than one triangle
   at once, which a merely crumpled shell does as readily as a folded one.
 - **two islands at once** — the sharp version of that, and the one that cannot
@@ -1531,12 +1542,14 @@ which is exactly why a spring cannot close it and a collapse must.
   mesh's own vertices — but a closed triangulation of a sphere covers every
   direction whatever shape its triangles are, so most of that zero was
   structural. The run shipped now folds un-erupted crust inside the shell
-  instead, which has no such guarantee, and reports **6.58% bare at 200 Ma**.
-  That is a real shortfall of surface: the crust that exists ends up about 6%
-  smaller in area than the crust it is made of. It replaces a different lie of
-  the same size — under the collapse the shortfall went into stretched seam
-  triangles spanning crust that had been removed, 31% of the shell by 200 Ma.
-  Neither number is good. This one is at least the number it looks like.
+  instead, which has no such guarantee, and reports **13.09% bare at 200 Ma**.
+  The mesh is as closed as it ever was — see *What it reports about itself* —
+  but the crust that exists covers 90.95% of the sphere where its own area asks
+  for 99.74%, and the missing nine percent is ridges that have not shut. It
+  replaces a different lie of similar size: under the collapse the shortfall
+  went into stretched seam triangles spanning crust that had been removed, 31%
+  of the shell by 200 Ma. Neither number is good. This one is at least the
+  number it looks like.
 
 - **Two continents in the same place, eleven times over.** The share of the
   sphere under two islands of strong crust at once was 0.069% at 200 Ma under
