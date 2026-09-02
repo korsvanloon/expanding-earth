@@ -1051,7 +1051,7 @@ model that can see any of this &mdash; the fold diagnostic reads 0.05% at 60 Ma
 because no triangle is inverted, and the strain diagnostic is an area, so a line
 stretched along its length and squeezed across it costs it nothing.
 
-## Two rigid blocks in one place, and why refusing it made it worse
+## Two rigid blocks in one place, and why it is a suture rather than an error
 
 A reader looking at 200 Ma saw islands of strong crust lying over one another,
 Arabia onto Africa in particular, and they were right. Nothing forbade it:
@@ -1102,6 +1102,48 @@ frames are the solver settling rather than history.
 The code and the knob stay (`CONTACT_K`, default zero) because the next idea
 about this will need both, and so does the measurement, which is the part that
 was actually missing.
+
+### And then the measurement said why
+
+Two numbers taken afterwards turn this from a defeat into an answer.
+
+The first is *when* each overlapping pair was last one block, which the age grid
+knows: walk the shortest path from one island to the other and take the oldest
+sea floor crossed. `tools/measure-rifts.ts` does it.
+
+| pair | dated sea floor between them | last one block | overlaps at |
+|---|---|---|---|
+| Arabia &ndash; Africa | none at all | always joined | 120&ndash;200 Ma |
+| the two Australian cratons | none at all | always joined | 160&ndash;200 Ma |
+| Baltica &ndash; Arabia | none at all | always joined | 160 Ma |
+| West Australia &ndash; East Antarctica | 175 steps of 201 | before 94 Ma | 160, 200 Ma |
+| Canadian shield &ndash; Amazon craton | 29 steps of 201 | before 148 Ma | 200 Ma |
+
+**Every pair that overlaps overlaps only while the data says it was one block.**
+Three of them are not separated by ocean even today: they are two rigid blocks
+with a weak neck between them, the Red Sea rift and the Australian mobile belt,
+and `findIslands` is right to hold them apart, since the neck is what deforms.
+The other two parted at 94 and 148 Ma and overlap only further back than that.
+
+The second number is how *deep*, which a share of the sphere cannot say and
+which is now reported every frame beside it:
+
+| | 90 Ma | 120 Ma | 140 Ma | 160 Ma | 200 Ma |
+|---|---|---|---|---|---|
+| share of the sphere under two islands | 0.000% | 0.002% | 0.005% | 0.009% | 0.022% |
+| deepest interpenetration | 0 km | 25 km | 29 km | 25 km | 28 km |
+
+Twenty-five to twenty-nine kilometres, on a mesh whose triangles are 129 km
+across. A fifth of a triangle, and it never grows: the area rises with time
+because the contacts get longer, not because they get deeper. Arabia's 12,455
+km&sup2; on Africa spread along 2,500 km of Red Sea is a strip five kilometres
+wide.
+
+So this is two rigid blocks meeting along a suture, overlapping by less than the
+triangulation can resolve. Which is also, in hindsight, exactly why pushing them
+apart wrecked the reconstruction: a five-kilometre error being corrected by
+moving whole continents on a 129 km mesh. The right response to a residual below
+the resolution is to report it and leave it alone.
 
 ## Known weaknesses
 
