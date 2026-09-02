@@ -312,11 +312,26 @@ const CONFIG = {
    */
   lipKm: Number(process.env.LIP_KM ?? 0),
   /**
-   * Whether the curtain hangs under the line it folded at, or straight down
-   * from wherever each point happens to be. See `pullInward`; `HANG=0` gets the
-   * sloping version and about a third of the closure back.
+   * How much of the curtain hangs directly under the line it folded over, in km
+   * of crust below the surface.
+   *
+   * One mesh spacing: the first ring of sunk crust, which is what makes the
+   * fold at the surface a right angle. Everything deeper keeps its depth and is
+   * free to crumple, which is what lets the vanished ocean actually shut. Zero
+   * pins nothing; a very large number pins the whole curtain. See `pullInward`.
    */
-  hangUnderFold: Number(process.env.HANG ?? 1) > 0,
+  hangUnderFoldKm: Number(process.env.HANG_KM ?? 150),
+  /**
+   * How much of the fold's pin the shore feels back, 0 to 1. See `pullInward`;
+   * this is the horizontal pull the curtain exerts on the crust it hangs from.
+   */
+  shoreShare: Number(process.env.SHORE_SHARE ?? 1),
+  /**
+   * Whether the curtain's closing pull acts along the sphere rather than
+   * straight between its ends. `CLOSE_TANGENT=0` gets the plain distance
+   * spring back; see the note where it is applied.
+   */
+  closeTangential: Number(process.env.CLOSE_TANGENT ?? 1) > 0,
   /**
    * The least an edge resists being made *shorter* than the crust along it.
    *
@@ -408,6 +423,8 @@ function main() {
    */
   const closing = new Uint8Array(faceCount)
   const foldScratch = newFoldScratch(vertexCount)
+  const shorePush = new Float64Array(vertexCount * 3)
+  const shoreCount = new Float64Array(vertexCount)
   const crustAlive = CONFIG.foldInward ? crustHere : mesh.faceAlive
   /** Which points belong on the shell; undefined when they all do. */
   const onShell = CONFIG.foldInward ? foldScratch.onShell : undefined
@@ -900,6 +917,57 @@ function main() {
     }
     if (CONFIG.foldInward) {
       folding = foldShape(pos, mesh, vertexCount, radiusAt(t), foldScratch)
+      // How far the rim still has to go, and what the crust around it is doing
+      // about it. A closing face is asked for zero angular separation, so the
+      // residual says whether it is contracting at all; the ring of live crust
+      // round it has to shorten its own perimeter for that to happen, and the
+      // second figure is how much of that shortening it is allowing.
+      const rim: number[] = []
+      const ring: number[] = []
+      const rNow = radiusAt(t)
+      for (let f = 0; f < faceCount; f++) {
+        if (closing[f]) {
+          for (let k = 0; k < 3; k++) {
+            const a2 = mesh.faceVerts[f * 3 + k] * 3
+            const b2 = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
+            const la = length3(pos[a2], pos[a2 + 1], pos[a2 + 2]) || 1
+            const lb = length3(pos[b2], pos[b2 + 1], pos[b2 + 2]) || 1
+            rim.push(rNow * length3(
+              pos[a2] / la - pos[b2] / lb,
+              pos[a2 + 1] / la - pos[b2 + 1] / lb,
+              pos[a2 + 2] / la - pos[b2 + 2] / lb,
+            ))
+          }
+          continue
+        }
+        if (!crustHere[f]) continue
+        // Live crust that borders the curtain: is it being let in?
+        let touches = false
+        for (let k = 0; k < 3; k++) {
+          for (const g of mesh.facesAt(mesh.faceVerts[f * 3 + k])) {
+            if (closing[g]) { touches = true; break }
+          }
+          if (touches) break
+        }
+        if (!touches) continue
+        for (let k = 0; k < 3; k++) {
+          const a2 = mesh.faceVerts[f * 3 + k] * 3
+          const b2 = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
+          const want = edgeTarget[f * 3 + k]
+          if (want < 1) continue
+          ring.push(length3(pos[a2] - pos[b2], pos[a2 + 1] - pos[b2 + 1], pos[a2 + 2] - pos[b2 + 2]) / want)
+        }
+      }
+      const mid = (xs: number[]) => {
+        if (!xs.length) return NaN
+        xs.sort((x, y) => x - y)
+        return xs[xs.length >> 1]
+      }
+      console.log(
+        `[rim] ${t} Ma  ${rim.length / 3} closing faces, median edge still `
+        + `${mid(rim).toFixed(0)} km apart on the sphere; the live crust beside them `
+        + `sits at ${(100 * mid(ring)).toFixed(1)}% of its rest length`,
+      )
     }
     unshutShare = CONFIG.foldInward
       ? coverage(
@@ -1277,7 +1345,7 @@ function main() {
       fold = measureFold(
         mesh, restEdge, crustHere, closing, vertexCount, rNext, CONFIG.lipKm, foldScratch,
       )
-      pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFold)
+      pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm, CONFIG.shoreShare, shorePush, shoreCount)
     } else {
       const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
       refusedTotal += closed.refused
@@ -1333,6 +1401,45 @@ function main() {
           // place. Where that place is, the fold decides.
           const i = va * 3
           const j = vb * 3
+          if (shuts && CONFIG.closeTangential) {
+            // The rim's claim is angular, not a distance.
+            //
+            // What a triangle of un-erupted crust says is that its corners
+            // belong at the same *place on the sphere*; how deep each of them
+            // sits is the fold's business and nothing to do with this. Asking
+            // for the straight-line distance instead conflates the two, and a
+            // reader watching the gaps stay open guessed why: since the curtain
+            // started hanging under its own fold line, a great many of these
+            // edges run *straight down* -- from a shore point to the point
+            // pinned directly beneath it -- and asking those for zero length
+            // pulls the shore inward, where relaxToSphere and the fold undo it
+            // on the same sweep. Half the closure was being spent on a
+            // tug-of-war with the other half.
+            //
+            // So both ends are moved together along the sphere and each keeps
+            // its own radius exactly. An edge that is already vertical asks for
+            // nothing, and an edge across a ridge asks for all of it.
+            const la = length3(pos[i], pos[i + 1], pos[i + 2])
+            const lb = length3(pos[j], pos[j + 1], pos[j + 2])
+            if (la < 1e-9 || lb < 1e-9) continue
+            const ax = pos[i] / la, ay = pos[i + 1] / la, az = pos[i + 2] / la
+            const bx = pos[j] / lb, by = pos[j + 1] / lb, bz = pos[j + 2] / lb
+            const h = 0.5 * stiffness
+            let nax = ax + h * (bx - ax)
+            let nay = ay + h * (by - ay)
+            let naz = az + h * (bz - az)
+            let nbx = bx + h * (ax - bx)
+            let nby = by + h * (ay - by)
+            let nbz = bz + h * (az - bz)
+            const na = length3(nax, nay, naz)
+            const nb = length3(nbx, nby, nbz)
+            if (na < 1e-9 || nb < 1e-9) continue
+            nax /= na; nay /= na; naz /= na
+            nbx /= nb; nby /= nb; nbz /= nb
+            pos[i] = nax * la; pos[i + 1] = nay * la; pos[i + 2] = naz * la
+            pos[j] = nbx * lb; pos[j + 1] = nby * lb; pos[j + 2] = nbz * lb
+            continue
+          }
           const target = shuts ? 0 : edgeTarget[f * 3 + k]
           const dx = pos[i] - pos[j]
           const dy = pos[i + 1] - pos[j + 1]
@@ -1372,7 +1479,8 @@ function main() {
       // the curtain towards the surface every sweep, and this is what keeps
       // sending it back down.
       if (CONFIG.foldInward) {
-        pullInward(pos, vertexCount, foldScratch, CONFIG.radialStiffness, CONFIG.hangUnderFold)
+        pullInward(pos, vertexCount, foldScratch, CONFIG.radialStiffness, CONFIG.hangUnderFoldKm,
+          CONFIG.shoreShare, shorePush, shoreCount)
       }
       holdIslands(
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
@@ -1380,7 +1488,7 @@ function main() {
       )
     }
     relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
-    if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFold)
+    if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm, CONFIG.shoreShare, shorePush, shoreCount)
     if (tracing) trace.push(`sweeps ${stretchNow(t).toFixed(3)}`)
     foldedNow = unfold(
       pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,

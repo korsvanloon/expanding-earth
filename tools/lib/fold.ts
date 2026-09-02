@@ -321,26 +321,59 @@ export function pullInward(
   scratch: FoldScratch,
   stiffness: number,
   /**
-   * Hang the curtain under the fold line rather than straight down from where
-   * each point happens to be.
+   * How far below the surface, in km of crust, a point is held directly under
+   * the line it folded over. Nought pins nothing; Infinity pins the whole
+   * curtain.
    *
-   * The sharp reading, and it costs: a curtain pinned under its own shore
-   * cannot drift towards the closing flanks, so it stops helping them shut.
-   * Measured over a whole run with the flips already off, it takes bare sky
-   * from 20.23% to 28.75% at 200 Ma and the share under an unshut ridge from
-   * 22.46% to 48.08%, and buys a fold of three to six degrees off vertical
-   * instead of forty-five. Off, the depth alone is applied and the curtain
-   * slopes away from the ridge.
+   * Only the top of the curtain needs it, and pinning more than the top is what
+   * kept the gaps open. The right angle at the surface is a property of the
+   * *first* ring of sunk crust: hold that under its own shore and the fold is
+   * sharp. Hold all of it and the curtain becomes kinematics rather than rock
+   * -- every sunk point's position is dictated by the nearest shore, the
+   * springs that ask the vanished ocean to shut have their answer overwritten
+   * at the end of every step, and the curtain spans the open ocean for as long
+   * as the ocean is open. Measured with the flips off: pinning everything left
+   * 28.75% of the sphere bare at 200 Ma against 20.23% for pinning nothing, and
+   * the share under an unshut ridge 48.08% against 22.46%.
+   *
+   * Below the pin the depth alone is applied and the crust is free to be
+   * crumpled anywhere, which is what a reader asked for in the first place:
+   * *als een driehoek binnen de aarde zit, telt hij voor de alle kracht
+   * berekening niet meer mee en mag het opgepropt worden.*
    */
-  underTheFold = true,
+  underTheFoldKm = Infinity,
+  /**
+   * How much of the pin the shore feels back, 0 to 1.
+   *
+   * Newton's third law, and without it the pin is a leak. Holding the top of
+   * the curtain under its own shore is a constraint between two pieces of rock,
+   * but it was being applied to one of them: the sunk point was moved and the
+   * shore was left where it was, as though the shore had infinite mass. So
+   * every sweep the curtain's own contraction -- the springs asking the
+   * vanished ocean to shut -- was written into the sunk points and then thrown
+   * away by the pin, and none of it ever reached the crust that had to move.
+   *
+   * A reader watching the gaps stay open guessed exactly this: *extra
+   * horizontale kracht toekennen aan vertices met 90 graden.* This is where it
+   * belongs. Each shore point is pushed by the mean of what its own hanging
+   * crust is pulling at, so a shore with a wide curtain under it feels no more
+   * than one with a narrow one -- otherwise the Pacific would drag its own
+   * margins about by sheer weight of numbers.
+   */
+  shoreShare = 0,
+  /** Scratch for the shore pushes: 3 numbers and a count per vertex. */
+  shorePush?: Float64Array,
+  shoreCount?: Float64Array,
 ): void {
-  const { onShell, target, root } = scratch
+  const { onShell, target, root, depth } = scratch
+  const sharing = shoreShare > 0 && shorePush !== undefined && shoreCount !== undefined
+  if (sharing) { shorePush!.fill(0); shoreCount!.fill(0) }
   for (let v = 0; v < vertexCount; v++) {
     if (onShell[v]) continue
     const i = v * 3
     const length = Math.hypot(pos[i], pos[i + 1], pos[i + 2])
     if (length < 1e-9) continue
-    const at = underTheFold ? root[v] : -1
+    const at = depth[v] >= 0 && depth[v] <= underTheFoldKm ? root[v] : -1
     const deep = Math.min(length, target[v])
     if (at < 0) {
       // No shore to hang from: straight down, as before.
@@ -350,12 +383,35 @@ export function pullInward(
     }
     const j = at * 3
     const rl = Math.hypot(pos[j], pos[j + 1], pos[j + 2]) || 1
-    const tx = (pos[j] / rl) * deep
-    const ty = (pos[j + 1] / rl) * deep
-    const tz = (pos[j + 2] / rl) * deep
-    pos[i] += stiffness * (tx - pos[i])
-    pos[i + 1] += stiffness * (ty - pos[i + 1])
-    pos[i + 2] += stiffness * (tz - pos[i + 2])
+    const ux = pos[j] / rl, uy = pos[j + 1] / rl, uz = pos[j + 2] / rl
+    if (sharing) {
+      // Which way this hanging point is asking its shore to move, as a
+      // direction on the sphere. Collected now, applied once each below.
+      shorePush![at * 3] += pos[i] / length - ux
+      shorePush![at * 3 + 1] += pos[i + 1] / length - uy
+      shorePush![at * 3 + 2] += pos[i + 2] / length - uz
+      shoreCount![at]++
+    }
+    pos[i] += stiffness * (ux * deep - pos[i])
+    pos[i + 1] += stiffness * (uy * deep - pos[i + 1])
+    pos[i + 2] += stiffness * (uz * deep - pos[i + 2])
+  }
+  if (!sharing) return
+  for (let v = 0; v < vertexCount; v++) {
+    const n = shoreCount![v]
+    if (!n) continue
+    const i = v * 3
+    const length = Math.hypot(pos[i], pos[i + 1], pos[i + 2])
+    if (length < 1e-9) continue
+    const w = (shoreShare * stiffness) / n
+    let nx = pos[i] / length + w * shorePush![i]
+    let ny = pos[i + 1] / length + w * shorePush![i + 1]
+    let nz = pos[i + 2] / length + w * shorePush![i + 2]
+    const nl = Math.hypot(nx, ny, nz)
+    if (nl < 1e-9) continue
+    nx /= nl; ny /= nl; nz /= nl
+    // Along the sphere only: the shore's radius is the shell's business.
+    pos[i] = nx * length; pos[i + 1] = ny * length; pos[i + 2] = nz * length
   }
 }
 
