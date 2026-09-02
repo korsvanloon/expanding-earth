@@ -98,8 +98,22 @@ export function separateIslands(
   scratch: ContactScratch,
   /** Refill the buckets; pass false to reuse the ones from earlier in the step. */
   rebuild = true,
+  /**
+   * Look without touching.
+   *
+   * How deep two islands are into each other is the number that says what kind
+   * of failure this is, and the share of the sphere cannot say it. Arabia over
+   * Africa is 12,455 km2 at 200 Ma, which sounds like two continents in the
+   * same place; spread along 2,500 km of Red Sea it is a strip five kilometres
+   * wide, and the deepest single point anywhere in a run is 41 km on a mesh
+   * whose triangles are 129 km across. That is two rigid blocks meeting along
+   * a suture the mesh is too coarse to draw, not a reconstruction putting a
+   * continent in the wrong place -- and it is why pushing them apart wrecked
+   * everything: a 5 km error being corrected by moving whole continents.
+   */
+  measureOnly = false,
 ): IslandContacts {
-  if (stiffness <= 0) return { found: 0, deepestKm: 0, tests: 0, bucketed: 0 }
+  if (stiffness <= 0 && !measureOnly) return { found: 0, deepestKm: 0, tests: 0, bucketed: 0 }
   let tests = 0
   let bucketed = 0
   const { buckets, cellIsland, mixed } = scratch
@@ -213,7 +227,7 @@ export function separateIslands(
   // all. Summed rather than averaged, because fifty points of a margin pressed
   // into a neighbour really is fifty times the push of one; dividing by the
   // island's size is what keeps that from firing a craton across the globe.
-  if (found) {
+  if (found && !measureOnly) {
     for (const v of scratch.members) {
       const island = vertexIsland[v]
       const mass = sizes[island]

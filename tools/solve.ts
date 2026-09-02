@@ -676,6 +676,13 @@ function main() {
     const held = distortion(heldPairs, pos, radiusAt(t))
     markIslands()
     const tiled = coverage(pos, mesh, faceCount, probes, cells, buckets, faceIsland)
+    // How deep, as well as how much. A share of the sphere cannot tell a suture
+    // the mesh is too coarse to draw from a continent in the wrong place; the
+    // depth can. Measured, never applied -- see measureOnly in lib/contact.ts.
+    const dents = separateIslands(
+      pos, mesh, faceCount, vertexCount, vertexIsland, faceIsland,
+      mesh.vertexAlive, radiusAt(t), 0, contactScratch, true, true,
+    )
     // Should be impossible; said out loud rather than trusted, because when the
     // probes did sit on the mesh this went wrong in total silence.
     if (tiled.boundaryHits > 0 && !warnedBoundary) {
@@ -689,6 +696,7 @@ function main() {
       timeMa: t,
       radiusKm: radiusAt(t),
       ...tiled,
+      islandOverlapDeepestKm: dents.deepestKm,
       ...foldedShare(pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount),
       ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, mesh.faceAlive),
       reliefKm: relief(pos, vertexCount, radiusAt(t)),

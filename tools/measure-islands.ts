@@ -77,6 +77,44 @@ function main() {
 
   const foldReport: string[] = []
   const pairReport: string[] = []
+  // How far apart is each pair of islands *today*?
+  //
+  // Because that decides what an overlap means. Two blocks that are neighbours
+  // on the present-day Earth were one block further back -- Arabia rifted from
+  // Africa about 25 Ma ago, Australia from Antarctica about 85 -- so a model
+  // winding the clock back is *supposed* to bring them together. If the pairs
+  // that overlap turn out to be exactly the pairs that are adjacent today,
+  // then what is being measured is not two continents in the wrong place. It
+  // is a suture the mesh has no way to represent, and pushing them apart is
+  // fighting the reconstruction rather than fixing it.
+  const gapTodayKm = new Map<string, number>()
+  {
+    const dirs0 = new Float32Array(mesh, 16, vertexCount * 3)
+    const byIsland = new Map<number, number[]>()
+    for (let v = 0; v < vertexCount; v++) {
+      const id = vertexIsland[v]
+      if (!id) continue
+      const list = byIsland.get(id) ?? []
+      list.push(v)
+      byIsland.set(id, list)
+    }
+    const ids = [...byIsland.keys()].sort((a, b) => a - b)
+    for (let i = 0; i < ids.length; i++) {
+      for (let j = i + 1; j < ids.length; j++) {
+        let best = Infinity
+        for (const p of byIsland.get(ids[i])!) {
+          for (const q of byIsland.get(ids[j])!) {
+            const d = dirs0[p * 3] * dirs0[q * 3] + dirs0[p * 3 + 1] * dirs0[q * 3 + 1]
+              + dirs0[p * 3 + 2] * dirs0[q * 3 + 2]
+            const km = Math.acos(Math.min(1, Math.max(-1, d))) * 6371
+            if (km < best) best = km
+          }
+        }
+        gapTodayKm.set(`${ids[i]}+${ids[j]}`, best)
+      }
+    }
+  }
+
   console.log('sky covered by two different islands of strong crust at once')
   console.log('  Ma   any two triangles   two islands   one is an island   worst pair')
   for (const timeMa of [0, 20, 38, 60, 90, 120, 160, 200]) {
@@ -172,7 +210,8 @@ function main() {
     if (timeMa >= 120 && pairs.size) {
       pairReport.push(`${timeMa} Ma: ` + [...pairs.entries()]
         .sort((a, b) => b[1] - a[1])
-        .map(([k, n]) => `${k} ${((n / cells.length) * 4 * Math.PI * radius * radius).toFixed(0)} km2`)
+        .map(([k, n]) => `${k} ${((n / cells.length) * 4 * Math.PI * radius * radius).toFixed(0)} km2`
+          + ` (apart today: ${(gapTodayKm.get(k) ?? NaN).toFixed(0)} km)`)
         .join(', '))
     }
     const areaKm2 = 4 * Math.PI * radius * radius

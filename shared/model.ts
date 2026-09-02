@@ -62,6 +62,18 @@ export interface FrameDiagnostics {
    */
   islandOverlapFraction: number
   /**
+   * How far the deepest of those interpenetrations goes, km.
+   *
+   * The number that says what kind of failure it is, which the share above
+   * cannot. Every pair that overlaps turns out to be a pair the age grid says
+   * was one block at that moment -- Arabia and Africa have no dated sea floor
+   * between them at all -- so what is being measured is two rigid blocks
+   * meeting along a suture. At 41 km against a mesh spacing of 129 it is
+   * below what the triangulation can resolve, which is also why a constraint
+   * that pushed them apart made everything worse. See MODEL.md.
+   */
+  islandOverlapDeepestKm: number
+  /**
    * Fraction of the live crust lying inside out.
    *
    * Reported separately from the overlap because the two are measured
