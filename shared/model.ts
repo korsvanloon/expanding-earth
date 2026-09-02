@@ -366,6 +366,19 @@ export const FIT_TARGETS: FitTarget[] = [
   { a: 'india', b: 'africa', joinedByMa: 120, note: 'India still sat against Madagascar and Africa' },
   { a: 'greenland', b: 'north-america', joinedByMa: 60, note: 'The Labrador Sea had not opened' },
   { a: 'north-america', b: 'africa', joinedByMa: 190, note: 'North-west Africa against eastern North America' },
+  // Added because a reader looking at the globe said Africa stays much too far
+  // north, that southern Africa should finish on the pole and drive Antarctica
+  // up into the Pacific, and that Europe and Arabia are being crushed for want
+  // of the room that would make. They were pointing at the one join with a
+  // known date that this scorecard did not score. East Antarctica sat against
+  // Mozambique and Tanzania in Gondwana and the Mozambique Basin opened from
+  // about 165 Ma, so a model that has not closed it by 170 is wrong about the
+  // largest rotation in the southern hemisphere -- and had nothing telling it
+  // so.
+  {
+    a: 'antarctica', b: 'africa', joinedByMa: 170,
+    note: 'East Antarctica against Mozambique and Tanzania, before the Mozambique Basin opened',
+  },
   // Watched, not scored. Where Antarctica and Australia end up as the Pacific
   // shuts is the open question in this reconstruction, and hand-assembled
   // Expanding Earth maps put them somewhere the evidence cannot confirm.
