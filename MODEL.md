@@ -458,7 +458,7 @@ construction, so the lines come out as lines.
 | 5 Ma | 74 | 47 km | 97% | 0% |
 | 30 Ma | 63 | 166 km | 56% | 0% |
 | 60 Ma | 53 | 276 km | 32% | 0% |
-| 120 Ma | 25 | 788 km | 8% | 0% |
+| 120 Ma | 25 | 761 km | 8% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 167 blocks at its most divided and 10 at 200 Ma.
+The run finds 174 blocks at its most divided and 6 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 22 km/Myr to 6.3, the block count from as many as 167 to 10, and the biggest block grows to 53% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 22 km/Myr to 5.6, the block count from as many as 174 to 6, and the biggest block grows to 60% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 9.8 km/Myr | 99 | 5% | 0.5% |
-| 30 Ma | 0.644%/Myr | 21.3 km/Myr | 167 | 2% | 1.0% |
-| 60 Ma | 0.448%/Myr | 18.2 km/Myr | 133 | 10% | 1.8% |
-| 120 Ma | 0.256%/Myr | 16.9 km/Myr | 91 | 8% | 2.4% |
-| 200 Ma | 0.000%/Myr | 6.3 km/Myr | 10 | 53% | 3.3% |
+| 5 Ma | 0.620%/Myr | 9.7 km/Myr | 94 | 5% | 0.5% |
+| 30 Ma | 0.644%/Myr | 21.3 km/Myr | 166 | 1% | 1.0% |
+| 60 Ma | 0.448%/Myr | 18.1 km/Myr | 144 | 10% | 1.8% |
+| 120 Ma | 0.256%/Myr | 16.6 km/Myr | 91 | 14% | 2.6% |
+| 200 Ma | 0.000%/Myr | 5.6 km/Myr | 6 | 60% | 3.5% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -757,11 +757,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.24% | 0.01% | 0.000% | 0.00% | 0.04% | 1.6% |
-| 30 Ma | 5728 km | 1.92% | 0.03% | 0.000% | 0.06% | 0.17% | 5.5% |
-| 60 Ma | 5197 km | 4.51% | 0.09% | 0.000% | 0.77% | 0.31% | 9.2% |
-| 120 Ma | 4373 km | 9.93% | 1.27% | 0.609% | 2.87% | 0.55% | 13.0% |
-| 200 Ma | 3905 km | 13.08% | 2.84% | 1.775% | 4.82% | 0.86% | 21.6% |
+| 5 Ma | 6272 km | 0.29% | 0.02% | 0.000% | 0.00% | 0.04% | 1.6% |
+| 30 Ma | 5728 km | 1.99% | 0.03% | 0.000% | 0.07% | 0.18% | 5.6% |
+| 60 Ma | 5197 km | 4.52% | 0.14% | 0.000% | 0.74% | 0.31% | 9.4% |
+| 120 Ma | 4373 km | 9.93% | 1.44% | 0.579% | 2.24% | 0.56% | 14.0% |
+| 200 Ma | 3905 km | 12.79% | 3.13% | 1.447% | 2.48% | 0.91% | 21.6% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -775,14 +775,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 6% | +6 | 6 km | 6 km at 180 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 9% | +9 | 38 km | 2 km at 155 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 862 km | 742 km at 110 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 28 km | 7 km at 195 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 12% | +12 | 7 km | 2 km at 190 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 853 km | 745 km at 110 Ma |
 | Greenland &ndash; North America | 60 Ma | 38% | 41% | +3 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 946 km | 563 km at 170 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 7% | +7 | 4 km | 3 km at 125 Ma |
-| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 3 km | 1 km at 190 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2283 km | 2283 km at 200 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1012 km | 688 km at 170 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 10 km | 2 km at 185 Ma |
+| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 9 km | 2 km at 175 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2260 km | 2260 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -1597,6 +1597,68 @@ What is still untested is the other half of the invention: the threshold of
 0.70 that decides which crust becomes an island held rigid, and therefore the
 seventeen islands themselves. The flattening test above kept them, so it says
 nothing about what they are worth.
+
+## Land crushed to a line, and the accounting that found it
+
+A reader at 43 Ma turned the mesh on and photographed two bright seams &mdash;
+one off Alaska, one through the Caribbean &mdash; where the triangulation had
+been flattened until its edges piled onto each other. Then the right question:
+*kun je eens kijken of het aantal samengeperste land ongeveer even groot is als
+de spleten die we hebben?*
+
+It is not about equal. It is larger, at every epoch. Rest area here is the
+triangle's area on today's Earth, so the squeeze is very slightly overstated
+&mdash; the solver also un-stretches rifted margins, which asks about a percent
+less of the globe:
+
+| | bare sky | squeezed out of continent | out of sea floor | stretched back in |
+|---|---|---|---|---|
+| 20 Ma | 4.6 Mkm&sup2; | 13.2 | 17.7 | 27.0 |
+| 43 Ma | 11.8 | **19.2** | 28.3 | 33.4 |
+| 80 Ma | 17.9 | 26.4 | 23.2 | 27.3 |
+| 120 Ma | 23.8 | 33.5 | 11.9 | 19.4 |
+| 200 Ma | 25.2 | **45.2** | 0.0 | 18.2 |
+
+The budget closes: at 43 Ma, &minus;19.2 &minus;28.3 +33.4 is &minus;14.1
+against a measured area deficit of 14.0. So these are one failure and not two.
+**The model pays for a closure it cannot make by flattening continent
+somewhere else**, and by 200 Ma there is no sea floor left to take any of it:
+the sea-floor column reaches zero while the continental one reaches 45 million
+square kilometres, a fifth of the whole shell's area.
+
+And it was allowed to. `foldMargin` is the barrier that stops a triangle
+turning inside out, and it stood at **0.08** for everything &mdash; a triangle
+could be squeezed to a twelfth of its own area before anything objected. The
+comment beside it said as much: low enough that badly sheared sea floor can
+still be squashed nearly flat. For sea floor about to be swallowed that is
+defensible. For continent it is not.
+
+So continental crust has its own floor. Shortening continent means thickening
+it, and halving a triangle's area means doubling its thickness, which is what an
+orogen is; much past that is not a thing that happens. Measured at 45 Ma:
+
+| floor on continent | under half its area | under a fifth | flattest keeps | squeezed | pairs |
+|---|---|---|---|---|---|
+| 0.08, as it was | 8.07% | **5.53%** | **0.0%** | 20.0 Mkm&sup2; | 193 km, 52% |
+| 0.35 | 8.23% | 0.56% | 2.2% | 18.5 | 192 km, 52% |
+| **0.50, shipped** | 5.46% | **0.20%** | 0.9% | 17.3 | **191 km, 52%** |
+| 0.60 | 3.13% | 0.16% | 3.1% | 16.3 | 191 km, 52% |
+
+A triangle keeping *nothing* of its area is what the bright seams were. At 0.50
+the share of continent squeezed past a fifth falls by a factor of 28, and it
+costs nothing at all: the held-out pairs move two kilometres the right way,
+bare sky does not move, the strain asked of weak crust goes 7.3% to 7.4%.
+
+0.60 measures marginally better still and 0.50 is the number with an argument
+behind it, so 0.50 ships.
+
+**It is overwhelmed in deep time.** The barrier is one Newton step a sweep, and
+where the convergence demanded is largest it loses: at 120 Ma 2.19% of continent
+is still under a fifth of its area and at 200 Ma 4.84%, with the flattest
+triangle back to keeping nothing. Early on the fix is nearly complete; late on
+it is a third of one. What is left is not a bad barrier but too much convergence
+asked of too few triangles &mdash; the same 129 km quantisation that holds the
+gaps open.
 
 ## Known weaknesses
 

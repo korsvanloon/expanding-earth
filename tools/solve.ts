@@ -164,6 +164,24 @@ const CONFIG = {
    * gradient that pushes a fold back out has vanished along with the area.
    */
   foldMargin: Number(process.env.FOLD_MARGIN ?? 0.08),
+  /**
+   * The same floor for continental crust, which needs a different one.
+   *
+   * A reader at 43 Ma with the mesh on found land crushed to a bright line off
+   * Alaska and through the Caribbean, and asked whether the crust being
+   * squeezed came to about as much as the gaps. It comes to more: at 43 Ma,
+   * 19.2 million km2 squeezed out of continent against 11.8 of bare sky, and
+   * at 200 Ma 45.2 against 25.2. So the two are one failure -- the model pays
+   * for a closure it cannot make by flattening continent somewhere else -- and
+   * at a margin of 0.08 it is allowed to, right down to a twelfth of the
+   * crust's own area.
+   *
+   * Sea floor squashed flat is defensible; it is about to be swallowed anyway.
+   * Continent is not. Shortening continental crust means thickening it, and
+   * halving a triangle's area means doubling its thickness, which is what an
+   * orogen is. Much past that is not a thing that happens.
+   */
+  landMargin: Number(process.env.LAND_MARGIN ?? 0.5),
   /** How many rounds of redrawing slivers per step. */
   /**
    * How many passes of retriangulation a step gets.
@@ -432,6 +450,11 @@ function main() {
    * together.
    */
   const closing = new Uint8Array(faceCount)
+  /**
+   * How much of its own area each triangle must keep. Continental crust gets
+   * its own floor; see CONFIG.landMargin.
+   */
+  const faceMargin = new Float64Array(faceCount)
   const foldScratch = newFoldScratch(vertexCount)
   const shorePush = new Float64Array(vertexCount * 3)
   const shoreCount = new Float64Array(vertexCount)
@@ -595,6 +618,16 @@ function main() {
     console.log(
       `[solve] ${((100 * stiffened) / faceCount).toFixed(0)}% of the shell resists stretching ` +
         `more than its crustal type alone would say, on the strength of how thick it is`,
+    )
+  }
+
+  for (let f = 0; f < faceCount; f++) {
+    faceMargin[f] = faceAges[f] >= PERMANENT_MA ? CONFIG.landMargin : CONFIG.foldMargin
+  }
+  if (CONFIG.landMargin !== CONFIG.foldMargin) {
+    console.log(
+      `[solve] continental crust may not be squeezed below ${(100 * CONFIG.landMargin).toFixed(0)}% `
+      + `of its own area; sea floor may go to ${(100 * CONFIG.foldMargin).toFixed(0)}%`,
     )
   }
 
@@ -1543,7 +1576,7 @@ function main() {
       contactBucketed += contacts.bucketed
       unfold(
         pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext,
-        CONFIG.foldMargin,
+        CONFIG.foldMargin, faceMargin,
       )
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness, onShell, holdOut)
       // Beside the sphere, not once a step: the closing rim hauls the top of
@@ -1585,6 +1618,7 @@ function main() {
     if (tracing) trace.push(`sweeps ${stretchNow(t).toFixed(3)}`)
     foldedNow = unfold(
       pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
+      faceMargin,
     )
     // Redraw whatever the move has left as slivers, then settle again: a
     // triangulation that has stopped describing the crust well is one nudge
@@ -2587,6 +2621,8 @@ function unfold(
   faceCount: number,
   r: number,
   margin: number,
+  /** A floor per triangle, where one kind of crust may keep more than another. */
+  floor?: Float64Array,
 ) {
   let caught = 0
   for (let f = 0; f < faceCount; f++) {
@@ -2601,7 +2637,7 @@ function unfold(
     // other two follow by rotating the three corners.
     const gax = by * cz - bz * cy, gay = bz * cx - bx * cz, gaz = bx * cy - by * cx
     const det = ax * gax + ay * gay + az * gaz
-    const want = 2 * margin * restAreaNow[f] * r
+    const want = 2 * (floor ? floor[f] : margin) * restAreaNow[f] * r
     if (det >= want) continue
     const gbx = cy * az - cz * ay, gby = cz * ax - cx * az, gbz = cx * ay - cy * ax
     const gcx = ay * bz - az * by, gcy = az * bx - ax * bz, gcz = ax * by - ay * bx

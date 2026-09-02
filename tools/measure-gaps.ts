@@ -20,11 +20,33 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { REGIONS, sampleCurve, type Meta } from '../shared/model.js'
+import { PERMANENT_MA, REGIONS, sampleCurve, type Meta } from '../shared/model.js'
 import { readChannel, readFrames } from '../shared/frames.js'
 import { readTopology, applyTopology } from '../shared/topology.js'
 import { bucketFace, cellBuckets, cellOf, inside, probeCells, probeDirections } from './lib/coverage.js'
 import { directionToUv } from '../shared/sphere.js'
+import { R0_KM } from '../shared/model.js'
+
+/**
+ * The solid angle a triangle covers, seen from the centre.
+ *
+ * Van Oosterom and Strackee, which needs no trigonometry beyond one arctangent
+ * and stays accurate for the slivers a closing ridge leaves behind.
+ */
+function solid(
+  pos: ArrayLike<number>, a: number, b: number, c: number,
+): number {
+  const la = Math.hypot(pos[a], pos[a + 1], pos[a + 2]) || 1
+  const lb = Math.hypot(pos[b], pos[b + 1], pos[b + 2]) || 1
+  const lc = Math.hypot(pos[c], pos[c + 1], pos[c + 2]) || 1
+  const ax = pos[a] / la, ay = pos[a + 1] / la, az = pos[a + 2] / la
+  const bx = pos[b] / lb, by = pos[b + 1] / lb, bz = pos[b + 2] / lb
+  const cx = pos[c] / lc, cy = pos[c + 1] / lc, cz = pos[c + 2] / lc
+  const num = Math.abs(ax * (by * cz - bz * cy) + ay * (bz * cx - bx * cz) + az * (bx * cy - by * cx))
+  const den = 1 + (ax * bx + ay * by + az * bz)
+    + (bx * cx + by * cy + bz * cz) + (cx * ax + cy * ay + cz * az)
+  return 2 * Math.atan2(num, den)
+}
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
@@ -182,6 +204,51 @@ function main() {
     }
     holes.sort((a, b) => b.probes - a.probes)
 
+    // Where the area went.
+    //
+    // A reader looking at 43 Ma with the mesh on saw land crushed to a line --
+    // a bright seam off Alaska, another through the Caribbean -- and asked
+    // whether the crust being squeezed came to about the same as the gaps.
+    // If it does, the two are one failure: the model is paying for a closure
+    // it cannot make by flattening continent somewhere else.
+    //
+    // Rest area here is the triangle's area on today's Earth. The solver also
+    // un-stretches rifted margins, which asks about a percent less of the
+    // globe than this does, so the squeeze below is very slightly overstated.
+    let squeezedLand = 0
+    let squeezedSea = 0
+    let stretched = 0
+    let restTotal = 0
+    let nowTotal = 0
+    // How flat the flattest land gets, which is a different question from how
+    // much area is lost in total: a broad eleven percent squeeze over every
+    // continent and a few triangles crushed to a line come to the same
+    // millions of square kilometres and look nothing alike. The bright seams a
+    // reader can see are these.
+    let landArea = 0
+    let flatHalf = 0
+    let flatFifth = 0
+    let worstLand = 1
+    for (let f = 0; f < faceCount; f++) {
+      if (!alive[f]) continue
+      const a3 = indices[f * 3] * 3, b3 = indices[f * 3 + 1] * 3, c3 = indices[f * 3 + 2] * 3
+      const rest = solid(dirs, a3, b3, c3) * R0_KM * R0_KM
+      const now = solid(pos, a3, b3, c3) * r * r
+      restTotal += rest
+      nowTotal += now
+      if (faceAges[f] >= PERMANENT_MA) {
+        landArea += rest
+        const kept = rest > 0 ? now / rest : 1
+        if (kept < 0.5) flatHalf += rest
+        if (kept < 0.2) flatFifth += rest
+        if (kept < worstLand) worstLand = kept
+      }
+      if (now < rest) {
+        if (faceAges[f] >= PERMANENT_MA) squeezedLand += rest - now
+        else squeezedSea += rest - now
+      } else stretched += now - rest
+    }
+
     const sphere = 4 * Math.PI * r * r
     const area = (n: number) => (n / probeCount) * sphere / 1e6
     console.log(
@@ -192,6 +259,18 @@ function main() {
       '   against: '
       + [...named].sort((a, b) => b[1] - a[1]).slice(0, 6)
         .map(([k, n]) => `${k} ${(100 * n / missed).toFixed(0)}%`).join(', '),
+    )
+    console.log(
+      `   area: crust wants ${(restTotal / 1e6).toFixed(1)} Mkm2, covers `
+      + `${(nowTotal / 1e6).toFixed(1)}; squeezed out of continent `
+      + `${(squeezedLand / 1e6).toFixed(1)}, out of sea floor `
+      + `${(squeezedSea / 1e6).toFixed(1)}, stretched back in `
+      + `${(stretched / 1e6).toFixed(1)}; bare ${area(missed).toFixed(1)}`,
+    )
+    console.log(
+      `   land: ${(100 * flatHalf / (landArea || 1)).toFixed(2)}% of continent is under half `
+      + `its own area, ${(100 * flatFifth / (landArea || 1)).toFixed(2)}% under a fifth; `
+      + `the flattest triangle keeps ${(100 * worstLand).toFixed(1)}%`,
     )
     for (const hole of holes.slice(0, 5)) {
       // Where it is, as the mean direction of its cells, in the frame the
