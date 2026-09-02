@@ -584,6 +584,32 @@ export interface FractureOptions {
    */
   strengthQuantile?: number
   /**
+   * A curve is a spreading axis, not a fracture zone, if the sea floor is this
+   * much younger on the line than 60 km either side (Ma) and the crust it runs
+   * on is younger than `axisAgeMa`.
+   *
+   * `ridgeAgeMa` below refuses young crust cell by cell and does not catch
+   * these: it reads the age field smoothed over 250 km to get a regional
+   * spreading direction, and that smoothing averages straight across a ridge
+   * axis, so the value it sees there is not young. The curves this removes have
+   * *mean* ages of 2 to 8 Ma.
+   *
+   * The test is the shape of the age field rather than its value. Crust is made
+   * at a ridge, so the age has a minimum on the axis and rises on both sides;
+   * a fracture zone is a step, older one side and younger the other, with no
+   * minimum. Both conditions are needed, because an old suture can dip by
+   * chance.
+   *
+   * Set against 27 curves a reader marked as wrong, five of them because a
+   * ridge had been picked instead of a scarp. Looked up by place, four of the
+   * five have a bowl of 1.76 to 8.35 on crust of 2 to 34 Ma, and the two the
+   * reader flagged for a different reason -- the bearing, not the kind -- have
+   * bowls of -0.22 and -0.55 on crust of 130 Ma. At 0.8 and 40 Ma the rule
+   * takes 43 curves of 709 and catches four of the five.
+   */
+  axisBowlMa?: number
+  axisAgeMa?: number
+  /**
    * Crust younger than this is the ridge axis and is skipped, Ma.
    *
    * At a spreading centre the age rises in both directions, so the gradient
@@ -775,9 +801,46 @@ export function fractureZones(
     width, height, axis: guide.axis, coherence: guide.coherence,
     ridgeness: thin, known: sharp.known,
   }
-  const curves = linkCurves(zones, guide, r0, {
+  const linked = linkCurves(zones, guide, r0, {
     minLengthKm: options.minLengthKm ?? 400,
     bridgeCells: options.bridgeCells ?? 4,
+  })
+
+  // Throw away the spreading axes. See axisBowlMa.
+  const axisBowlMa = options.axisBowlMa ?? 0.8
+  const axisAgeMa = options.axisAgeMa ?? 40
+  const rawAgeAt = (x: number, y: number, z: number) => {
+    const [c, r] = directionToPixel(x, y, z, ageWidth, ageHeight)
+    return age[r * ageWidth + c]
+  }
+  const curves = axisBowlMa <= 0 ? linked : linked.filter((curve) => {
+    let bowl = 0
+    let bowlN = 0
+    let ageSum = 0
+    let ageN = 0
+    for (const at of curve) {
+      const [x, y, z] = cellDirection(at % width, Math.floor(at / width), width, height)
+      const here = rawAgeAt(x, y, z)
+      if (Number.isFinite(here)) { ageSum += here; ageN++ }
+      const line = lineamentAt(guide, x, y, z)
+      if (!line || !Number.isFinite(here)) continue
+      let nx = line.ty * z - line.tz * y
+      let ny = line.tz * x - line.tx * z
+      let nz = line.tx * y - line.ty * x
+      const nl = Math.hypot(nx, ny, nz) || 1
+      nx /= nl; ny /= nl; nz /= nl
+      const beside = (sign: number) => {
+        const [px, py, pz] = advanceAlong(x, y, z, nx * sign, ny * sign, nz * sign, 60 / r0)
+        return rawAgeAt(px, py, pz)
+      }
+      const plus = beside(1)
+      const minus = beside(-1)
+      if (!Number.isFinite(plus) || !Number.isFinite(minus)) continue
+      bowl += (plus + minus) / 2 - here
+      bowlN++
+    }
+    if (!bowlN || !ageN) return true
+    return !(bowl / bowlN > axisBowlMa && ageSum / ageN < axisAgeMa)
   })
   // Anything that did not join a long enough curve is not a fracture zone. This
   // is the test that removes a seamount, which is round: it lights up a cell or

@@ -203,19 +203,29 @@ export interface ZoneSummary {
  */
 export function describeZones(picked: number[], zones: ZoneSummary[]): string {
   if (!picked.length) return ''
+  // The place leads, because the place is what lasts.
+  //
+  // An id is a position in a list the pipeline rebuilds from scratch, so a
+  // number written down against one build points at a different curve in the
+  // next -- which has now cost two rounds of this project: a reader sent
+  // twenty-seven ids, the detector was improved, and every number in the list
+  // had moved. `tools/measure-zones.ts` takes a `lon,lat` for exactly this
+  // reason, so that is the first thing on each line and the id trails as a
+  // convenience for the build it was picked from.
   return [
-    'picked fracture zones on the Expanding Earth globe -- id, length, the '
-      + 'centre of the curve as lon, lat in degrees, then the mean sea-floor '
-      + 'age along it, how far the gravity swings along it (a seamount chain '
-      + 'is lumpy, a scarp is not) and how far the age dips on the line '
-      + 'against 60 km either side (positive means a spreading axis)',
+    'picked fracture zones on the Expanding Earth globe. lon,lat of the '
+      + "curve's centre first, because that is what survives a rebuild -- an id "
+      + 'is a position in a list and moves. Then its length, the mean sea-floor '
+      + 'age along it, how far the gravity swings along it (a seamount chain is '
+      + 'lumpy, a scarp is not), and how far the age dips on the line against '
+      + '60 km either side (positive means a spreading axis).',
     ...picked.map((id) => {
       const zone = zones[id - 1]
       return zone
-        ? `#${id} -- ${zone.lengthKm} km, centred at `
-          + `${zone.lon.toFixed(1)}, ${zone.lat.toFixed(1)}`
+        ? `${zone.lon.toFixed(1)},${zone.lat.toFixed(1)}  ${zone.lengthKm} km`
           + `; ${zone.ageMa === null ? 'undated' : `${zone.ageMa} Ma`}`
           + `, swing ${zone.swingE} E, bowl ${zone.bowlMa.toFixed(2)} Ma`
+          + `  (#${id} in this build)`
         : `#${id} -- no record of this one`
     }),
   ].join('\n')

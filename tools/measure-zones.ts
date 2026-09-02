@@ -14,7 +14,13 @@
  * what any named id actually is -- its gravity signature, its age, how it sits
  * against the flow. Run it with ids to interrogate:
  *
- *     pnpm exec tsx tools/measure-zones.ts 1605 958 444 424 1160
+ *     pnpm exec tsx tools/measure-zones.ts 12.7,-53.9 -27.8,31.4 1605 958
+ *
+ * A place is the better handle and the viewer's copy button now puts it first:
+ * an id is a position in a list this rebuilds from scratch, so a number written
+ * down against one build points at a different curve in the next. That has cost
+ * two rounds already -- a reader sent 27 ids, the detector's bearing was fixed,
+ * and every number had moved.
  */
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
@@ -536,6 +542,60 @@ function main() {
     }
     console.log(`  and between the two fields themselves: median `
       + `${q(fields, 0.5).toFixed(0)} deg, p90 ${q(fields, 0.9).toFixed(0)} deg`)
+    console.log()
+  }
+
+  // --- 1c. what a young-axis rule would cost ---------------------------
+  //
+  // A reader marked 27 curves as wrong, and five of them are spreading axes
+  // rather than fracture zones: #603, #187, #179, #174 and #651, with a bowl
+  // between 1.56 and 9.26 on crust between 4 and 21 Ma. Bowl is how much
+  // younger the sea floor is on the line than 60 km either side, which is what
+  // a ridge does and a scarp does not, and the detector already refuses crust
+  // under 8 Ma outright -- these are all older than that.
+  //
+  // So: how much does a rule cost that drops a curve for being both bowled and
+  // young? Printed as a grid, because a threshold chosen against five examples
+  // and no cost is a threshold chosen against nothing.
+  {
+    const scoredAll = curves.map((c) => {
+      const a = across(c, 60)
+      if (!a) return null
+      let sum = 0, n = 0
+      for (const at of c) {
+        const [x, y, z] = dir(at)
+        const [ac, ar] = directionToPixel(x, y, z, ageFull.width, ageFull.height)
+        const v = ageMa[ar * ageFull.width + ac]
+        if (Number.isFinite(v)) { sum += v; n++ }
+      }
+      return { bowl: a.bowl, age: n ? sum / n : NaN }
+    })
+    console.log('curves a young-axis rule would drop, of ' + curves.length)
+    console.log('  bowl over \\ younger than    20 Ma   30 Ma   40 Ma   60 Ma')
+    for (const bowl of [0.5, 0.8, 1.2, 2.0]) {
+      const row = [20, 30, 40, 60].map((age) => {
+        let n = 0
+        for (const s2 of scoredAll) {
+          if (s2 && Number.isFinite(s2.age) && s2.bowl > bowl && s2.age < age) n++
+        }
+        return `${n}`.padStart(7)
+      })
+      console.log(`  ${bowl.toFixed(1).padStart(9)}${row.join('')}`)
+    }
+    // And whether the rule catches the five it was built for.
+    const labelled = [603, 187, 179, 174, 651]
+    for (const bowl of [0.8]) {
+      for (const age of [30]) {
+        const caught = labelled.filter((id) => {
+          const s2 = scoredAll[id - 1]
+          return s2 && Number.isFinite(s2.age) && s2.bowl > bowl && s2.age < age
+        })
+        console.log(
+          `  bowl > ${bowl} and younger than ${age} Ma catches `
+          + `${caught.length} of the 5 named axes (${caught.join(', ') || 'none'})`,
+        )
+      }
+    }
     console.log()
   }
 

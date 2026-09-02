@@ -168,6 +168,13 @@ export const CONFIG = {
    * nothing but the smoothness of the fit.
    */
   alignmentGate: 0.82,
+  /**
+   * A spreading axis is not a fracture zone. See axisBowlMa in
+   * tools/lib/structure.ts for what these mean and the 27 labelled curves they
+   * were set against; zero switches the test off.
+   */
+  axisBowlMa: Number(process.env.AXIS_BOWL ?? 0.8),
+  axisAgeMa: Number(process.env.AXIS_AGE ?? 40),
   strengthQuantile: 0.5,
   minZoneLengthKm: 400,
   crestReachKm: 60,
@@ -394,6 +401,8 @@ function main() {
         sharpLines, ageMa, ageFull.width, ageFull.height, R0_KM,
         {
           alignmentGate: CONFIG.alignmentGate,
+          axisBowlMa: CONFIG.axisBowlMa,
+          axisAgeMa: CONFIG.axisAgeMa,
           strengthQuantile: CONFIG.strengthQuantile,
           minLengthKm: CONFIG.minZoneLengthKm,
         },
