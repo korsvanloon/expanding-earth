@@ -150,7 +150,7 @@ export const CONFIG = {
    * fracture zone from an abyssal hill before following either. Set crestPull
    * above zero and pass such a field as `crest` and the follower is waiting.
    */
-  crestPull: 0,
+  crestPull: Number(process.env.CREST_PULL ?? 0),
   /**
    * What counts as a fracture zone; see tools/lib/structure.ts for each.
    *
