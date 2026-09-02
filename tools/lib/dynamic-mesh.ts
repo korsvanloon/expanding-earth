@@ -33,6 +33,15 @@ import { length3 } from '../../shared/sphere.js'
 const MAX_NEIGHBOURS = 11
 
 /**
+ * The longest rest length a flip may take from the present-day mesh, km.
+ *
+ * An icosphere at subdivision 6 has edges of about 129 km and a new diagonal
+ * spans two of them at most, so anything past this is a pair of survivors that
+ * stand for crust far apart today. See `todayKm` in flip.
+ */
+const MAX_REST_KM = 400
+
+/**
  * Below this quality a triangle counts as a needle. Quality is one for an
  * equilateral triangle and falls to zero as one is drawn out; a quarter is
  * about a smallest angle of eight degrees.
@@ -333,10 +342,47 @@ export class DynamicMesh {
    * it -- the crust that used to be in the way simply is not there any more.
    */
   flip(a: number, b: number, c: number, d: number, f: number, g: number, restEdge: Float64Array,
-    pos: Float64Array): void {
+    pos: Float64Array,
+    /**
+     * Present-day unit direction per vertex, and the Earth's radius.
+     *
+     * What the new diagonal should be asked to measure. Born at the length it
+     * happens to find -- which is what this did -- the edge carries whatever
+     * deformation the crust was under at that instant into its own rest state,
+     * where nothing can ever recover it. Measured over a run, 77% of all the
+     * stretch ever added to a traced fracture zone arrives on the step the mesh
+     * redraws the ground beneath it: 1.87% per segment on redrawn ground
+     * against 0.14% elsewhere, from a fifth of the opportunities.
+     *
+     * The two ends of the new diagonal are real crust with a real distance
+     * between them today, and that is what it should measure, exactly as every
+     * edge does at the start of the run. Omit these and the old behaviour
+     * stands, which is still what a flip inside dead crust wants: there the
+     * rock between the two ends is gone, so nothing was stretched to bring them
+     * together and the length they find is the truth.
+     */
+    dirs?: Float32Array, r0?: number): void {
     const lengthOf = (x: number, y: number) =>
       length3(pos[x * 3] - pos[y * 3], pos[x * 3 + 1] - pos[y * 3 + 1],
         pos[x * 3 + 2] - pos[y * 3 + 2])
+    /**
+     * How far apart two points are on today's Earth, or null when that is not
+     * a length any edge should be asked to hold.
+     *
+     * A vertex that has swallowed its neighbours stands for crust a long way
+     * from where it started, so a pair of survivors can be a thousand
+     * kilometres apart today while sitting side by side now. Asking an edge to
+     * hold that would tear the mesh open; those keep the length they find.
+     */
+    const todayKm = (x: number, y: number) => {
+      if (!dirs || !r0) return null
+      const km = r0 * length3(
+        dirs[x * 3] - dirs[y * 3],
+        dirs[x * 3 + 1] - dirs[y * 3 + 1],
+        dirs[x * 3 + 2] - dirs[y * 3 + 2],
+      )
+      return km > 0 && km <= MAX_REST_KM ? km : null
+    }
     const rest = new Map<number, number>()
     const width = this.vertexCount
     for (const face of [f, g]) {
@@ -346,7 +392,7 @@ export class DynamicMesh {
         rest.set(Math.min(x, y) * width + Math.max(x, y), restEdge[face * 3 + k])
       }
     }
-    rest.set(Math.min(c, d) * width + Math.max(c, d), lengthOf(c, d))
+    rest.set(Math.min(c, d) * width + Math.max(c, d), todayKm(c, d) ?? lengthOf(c, d))
 
     const write = (face: number, x: number, y: number, z: number) => {
       const before = [this.faceVerts[face * 3], this.faceVerts[face * 3 + 1],
@@ -646,6 +692,16 @@ export function retriangulate(
   /** Crustal strength per triangle, and the strength above which nothing gives. */
   strength?: Float32Array,
   breaksBelow = 1,
+  /**
+   * Present-day directions and the Earth's radius, so a new diagonal is asked
+   * to measure the distance its two ends really have on today's Earth rather
+   * than whatever it finds itself with. See the note in `flip`; without these
+   * the redrawing quietly writes the crust's current deformation into its own
+   * rest state, which is where three quarters of the stretch along the traced
+   * fracture zones was coming from.
+   */
+  dirs?: Float32Array,
+  r0?: number,
 ): number {
   const along: number[] = []
   const order: number[] = []
@@ -684,7 +740,7 @@ export function retriangulate(
         // until this line: the continents stopped travelling because the mesh
         // was absorbing the motion instead of passing it on.
         if (strength && Math.max(strength[found[2]], strength[found[3]]) >= breaksBelow) continue
-        mesh.flip(a, b, found[0], found[1], found[2], found[3], restEdge, pos)
+        mesh.flip(a, b, found[0], found[1], found[2], found[3], restEdge, pos, dirs, r0)
         flipped++
         did++
         break

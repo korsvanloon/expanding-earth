@@ -1118,7 +1118,7 @@ function main() {
     // triangulation that has stopped describing the crust well is one nudge
     // from turning inside out.
     flippedTotal += retriangulate(
-      mesh, pos, restEdge, CONFIG.flipPasses, rigidity, CONFIG.breaksBelow,
+      mesh, pos, restEdge, CONFIG.flipPasses, rigidity, CONFIG.breaksBelow, dirs, r0,
     )
     if (tracing) trace.push(`flips ${stretchNow(t).toFixed(3)}`)
     settleCollapsed()
