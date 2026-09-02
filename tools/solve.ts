@@ -330,6 +330,12 @@ const CONFIG = {
    * from. See `dragIslands`; `DRAG=0` switches it off.
    */
   slabDrag: Number(process.env.DRAG ?? 0),
+  // Off. Measured at 40 Ma against 0, it moves the share of held-out pairs
+  // inside one triangle from 44% to 48% and leaves the median where it was,
+  // and it pays for that in the two things a reader had just asked to be rid
+  // of: inside-out triangles 0.12% -> 0.31% and the deepest dented surface
+  // point 0 km -> 3 km. So the dilution it was built to fix was real and was
+  // not what is holding the gaps open.
   /**
    * Whether the curtain's closing pull acts along the sphere rather than
    * straight between its ends. `CLOSE_TANGENT=0` gets the plain distance
