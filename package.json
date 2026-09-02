@@ -8,7 +8,7 @@
   "scripts": {
     "data": "tsx tools/run.ts && tsx tools/write-docs.ts",
     "dev": "pnpm run data && vite",
-    "build": "pnpm run data && tsc -b && vite build",
+    "build": "tsx tools/run.ts && tsc -b && vite build",
     "preview": "vite preview",
     "artifact": "pnpm run build && tsx tools/build-artifact.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.tools.json",

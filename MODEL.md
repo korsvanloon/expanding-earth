@@ -1221,10 +1221,11 @@ cease to exist. And the collapse it would replace is expensive:
   track points and 55% of the conjugate pair ends were stored in triangles that
   had come apart.
 
-So it is built, in `tools/lib/fold.ts`, behind `FOLD_IN=1`. Nothing is deleted
-and nothing is renamed: the triangle stays in the mesh, keeps its corners, and
-is pulled down inside the shell by however much crust lies between it and the
-nearest living shore, measured through the mesh along present-day rest lengths.
+So it is built, in `tools/lib/fold.ts`, and it is what ships; `FOLD_IN=0` gets
+the collapse back. Nothing is deleted and nothing is renamed: the triangle stays
+in the mesh, keeps its corners, and is pulled down inside the shell by however
+much crust lies between it and the nearest living shore, measured through the
+mesh along present-day rest lengths.
 The depth is compressed as `R&middot;exp(-d/R)`, which is the exact hanging
 length while there is room &mdash; and there is not always room. Taking today's
 60,000 km of ridge, the crust that has not formed yet needs a curtain 542 km
@@ -1345,8 +1346,24 @@ overlap is a real regression with no such excuse.
 The fold, for now, because the join it fixes is the one with a date and the
 joins it breaks are in the half of the world this model was already fitting
 best. That is a judgement, not a result, and the numbers above are all here so
-it can be reversed: `FOLD_IN` unset restores the collapse exactly &mdash; same
+it can be reversed: `FOLD_IN=0` restores the collapse exactly &mdash; same
 frames.bin to the byte.
+
+The first attempt at shipping it did not ship anything, and the way it failed is
+worth recording. The reconstruction is not committed; it is regenerated from the
+textures by `pnpm build`, on a reader's machine and in the Pages workflow alike.
+So the fold, which lived behind an environment variable that only a local shell
+set, was written up, committed and deployed &mdash; and the globe on the site
+was still the collapse. The check that exists precisely to catch that, *quotes
+the run it ships with*, passed: `pnpm build` was calling the script that
+**refills** MODEL.md's generated tables before the test compared them, so the
+committed numbers were being checked against themselves. Two things are fixed.
+The solver's default is now the shipped model rather than an environment
+variable, and the build no longer rewrites the documents it is about to be
+checked against.
+
+A generated table is only evidence if something can fail. This one could not,
+for as long as the thing that wrote it ran first.
 
 What the trade says is that the two halves of the world are being solved by
 different mechanisms, and the model has never had to choose before. The Atlantic

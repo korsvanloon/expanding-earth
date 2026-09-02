@@ -35,10 +35,19 @@ jobs:
 
       # `pnpm build` regenerates the reconstruction from the textures and the
       # crustal model in the repository before bundling. That is two hundred
-      # one-million-year steps over eighty thousand triangles, forty relaxation
-      # sweeps each: two to three minutes on this runner, down from twenty once
-      # the retriangulation stopped measuring every triangle a thousand times
-      # over. Nothing is fetched from the network.
+      # one-million-year steps over eighty thousand triangles, eighty relaxation
+      # sweeps each: ten minutes on this runner. Nothing is fetched from the
+      # network.
+      #
+      # It deliberately does *not* rewrite the documents the way `pnpm data`
+      # does. It used to, and that made the check below vacuous: the build
+      # refilled MODEL.md's generated tables from whatever it had just
+      # computed, so the committed numbers were compared against themselves
+      # and a document quoting a different run than the one being deployed
+      # passed every time. It happened -- the whole fold was written up,
+      # committed and shipped while the run on the site was still the collapse,
+      # because the solver's default lived in an environment variable that only
+      # a local shell ever set.
       - run: pnpm build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
