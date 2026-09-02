@@ -227,6 +227,17 @@ const CONFIG = {
    * try one.
    */
   islandContactStiffness: Number(process.env.CONTACT_K ?? 0),
+  /**
+   * How far a redrawn edge's rest length moves towards the distance its two
+   * ends really have on today's Earth, 0 to 1.
+   *
+   * Zero is the old rule -- born at whatever length it finds -- which writes
+   * the crust's deformation at that instant into its own rest state, and is
+   * where 77% of all the stretch along the traced fracture zones came from.
+   * One is the honest answer and too abrupt to apply: see the note in
+   * dynamic-mesh.ts flip.
+   */
+  flipRestTruth: Number(process.env.FLIP_TRUTH ?? 0),
   radialStiffness: Number(process.env.RADIAL_K ?? 0.35),
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,
@@ -1119,6 +1130,7 @@ function main() {
     // from turning inside out.
     flippedTotal += retriangulate(
       mesh, pos, restEdge, CONFIG.flipPasses, rigidity, CONFIG.breaksBelow, dirs, r0,
+      CONFIG.flipRestTruth,
     )
     if (tracing) trace.push(`flips ${stretchNow(t).toFixed(3)}`)
     settleCollapsed()

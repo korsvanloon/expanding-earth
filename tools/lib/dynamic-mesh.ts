@@ -361,7 +361,24 @@ export class DynamicMesh {
      * rock between the two ends is gone, so nothing was stretched to bring them
      * together and the length they find is the truth.
      */
-    dirs?: Float32Array, r0?: number): void {
+    dirs?: Float32Array, r0?: number,
+    /**
+     * How far to move the new diagonal's rest length towards the truth, 0 to 1.
+     *
+     * One is the honest answer and it is too honest to apply at once. The
+     * quadrilateral is already deformed when the flip happens, so a diagonal
+     * born at its present-day length pulls immediately, ruins the triangle
+     * quality the flip came to repair, and gets flipped again: 554,332 flips
+     * against 167,016 and 531,398 refused collapses against 46,408, with
+     * folded crust nine times worse and doubled-over crust a hundred times.
+     * The old rule hid that deformation; this exposes all of it in one step,
+     * and how hard the mesh fights back is a measure of how much it was
+     * leaning on the leak.
+     *
+     * A share instead. A given piece of crust is redrawn many times over a
+     * run, so a fraction each time converges on the truth without the shock.
+     */
+    truth = 1): void {
     const lengthOf = (x: number, y: number) =>
       length3(pos[x * 3] - pos[y * 3], pos[x * 3 + 1] - pos[y * 3 + 1],
         pos[x * 3 + 2] - pos[y * 3 + 2])
@@ -392,7 +409,12 @@ export class DynamicMesh {
         rest.set(Math.min(x, y) * width + Math.max(x, y), restEdge[face * 3 + k])
       }
     }
-    rest.set(Math.min(c, d) * width + Math.max(c, d), todayKm(c, d) ?? lengthOf(c, d))
+    {
+      const found = lengthOf(c, d)
+      const today = todayKm(c, d)
+      const born = today === null ? found : found + (today - found) * truth
+      rest.set(Math.min(c, d) * width + Math.max(c, d), born)
+    }
 
     const write = (face: number, x: number, y: number, z: number) => {
       const before = [this.faceVerts[face * 3], this.faceVerts[face * 3 + 1],
@@ -702,6 +724,8 @@ export function retriangulate(
    */
   dirs?: Float32Array,
   r0?: number,
+  /** How far a new diagonal's rest length moves towards the truth; see `flip`. */
+  truth = 1,
 ): number {
   const along: number[] = []
   const order: number[] = []
@@ -740,7 +764,7 @@ export function retriangulate(
         // until this line: the continents stopped travelling because the mesh
         // was absorbing the motion instead of passing it on.
         if (strength && Math.max(strength[found[2]], strength[found[3]]) >= breaksBelow) continue
-        mesh.flip(a, b, found[0], found[1], found[2], found[3], restEdge, pos, dirs, r0)
+        mesh.flip(a, b, found[0], found[1], found[2], found[3], restEdge, pos, dirs, r0, truth)
         flipped++
         did++
         break

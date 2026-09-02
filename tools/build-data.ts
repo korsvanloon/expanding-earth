@@ -373,10 +373,25 @@ function main() {
   // Detected whether or not anything steers by them, because they are worth
   // looking at: the viewer paints them on the crust so that a reader can put
   // them beside the traced paths and see for themselves whether the two agree.
-  const detected = vgg && lines
+  // One field for both jobs now, the sharp one. It used to walk along the
+  // blurred field on the reasoning that the sharp axis is too noisy to follow
+  // for hundreds of kilometres and that following it would destroy the very
+  // continuity being tested. Reasoned rather than measured, and wrong: swept
+  // over four scales, taking the bearing from the sharp field brings a curve's
+  // angle against the line a reader can see from a median 25 degrees to 18,
+  // and 27 curves a reader marked as wrong from 27 degrees to 19, while the
+  // curves stay just as long -- 709 of them at a median 559 km against 679 at
+  // 569. Smoothing a bearing over a hundred kilometres cuts the corner of
+  // everything that bends inside that distance, which is what the reader saw:
+  // "the line I can see is more curved". See tools/measure-zones.ts, which
+  // sweeps it with GUIDE_WINDOW and GUIDE_SMOOTH.
+  const sharpLines = vgg
+    ? lineaments(vgg, R0_KM, CONFIG.crestWindowKm, CONFIG.crestSmoothKm)
+    : undefined
+  const detected = vgg && lines && sharpLines
     ? fractureZones(
-        lineaments(vgg, R0_KM, CONFIG.crestWindowKm, CONFIG.crestSmoothKm),
-        lines, ageMa, ageFull.width, ageFull.height, R0_KM,
+        sharpLines,
+        sharpLines, ageMa, ageFull.width, ageFull.height, R0_KM,
         {
           alignmentGate: CONFIG.alignmentGate,
           strengthQuantile: CONFIG.strengthQuantile,
