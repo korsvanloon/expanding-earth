@@ -3,7 +3,7 @@ import { createJSONStorage, persist } from 'zustand/middleware'
 import { DEFAULT_SURFACE_MAP, SURFACE_MAPS } from '@shared/maps'
 import { REGIONS } from '@shared/model'
 
-export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'islands' | 'fabric'
+export type ViewMode = 'surface' | 'age' | 'strain' | 'rigidity' | 'islands' | 'fabric' | 'thickness'
 
 /**
  * A point of crust the user has picked off the globe.
@@ -25,6 +25,17 @@ export interface Pick {
   /** Age of the crust, or null for continental crust the grid does not date. */
   ageMa: number | null
   island: number
+  /**
+   * How thick the crust is here, km, from ECM1.
+   *
+   * Reported because it is a solver input that had no way of being checked. A
+   * reader comparing the strength map against a published thickness map asked
+   * whether ours was right -- Arabia looked thicker than the Himalaya -- and
+   * the answer was that they were reading strength, where an orogen is
+   * deliberately weak despite being the thickest crust on the planet. Fair
+   * question to have no way of settling. Now there is a number.
+   */
+  thicknessKm: number
   /** Which rigid block it belongs to, or null before the plate map arrives. */
   block: number | null
   /**
@@ -174,6 +185,7 @@ export function describePicks(picks: Pick[]): string {
       `#${p.vertex}  today (${place(p.todayLon, p.todayLat)})`
       + `  at ${p.timeMa.toFixed(0)} Ma (${place(p.thenLon, p.thenLat)})`
       + `  ${p.ageMa === null ? 'continental' : `sea floor ${p.ageMa.toFixed(0)} Ma`}`
+      + `  crust ${p.thicknessKm.toFixed(0)} km`
       + `  island ${p.island}  block ${p.block ?? 'not fetched yet'}`
       + `  fabric ${p.fabric.toFixed(0)}`
       + (p.pair
@@ -280,7 +292,7 @@ interface Remembered {
  * mode that paints as whatever happens to share its number.
  */
 export const VIEW_MODES: ViewMode[] = [
-  'surface', 'age', 'strain', 'rigidity', 'islands', 'fabric',
+  'surface', 'age', 'strain', 'rigidity', 'islands', 'fabric', 'thickness',
 ]
 
 /**

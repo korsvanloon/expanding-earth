@@ -15,6 +15,11 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
   },
   { id: 'strain', label: 'Strain', hint: 'Deformation the reconstruction demands of the crust' },
   {
+    id: 'thickness',
+    label: 'Crustal thickness',
+    hint: 'Kilometres of crust, from ECM1. Blue 5 km, red 75, the same ramp published thickness maps use so this can be held up against one. Thick is not the same as strong: the orogens are the thickest crust there is and the weakest in the map above',
+  },
+  {
     id: 'islands',
     label: 'Strong islands',
     hint: 'The shields, platforms and stable basins that are held to their own shape; everything between them is free to deform',

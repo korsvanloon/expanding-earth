@@ -6,6 +6,7 @@ in float aIsland;
 in float aAge;
 in float aStrain;
 in float aRigidity;
+in float aThickness;
 in float aSeam;
 
 out vec3 vDir;
@@ -13,6 +14,7 @@ out float vIsland;
 out float vAge;
 out float vStrain;
 out float vRigidity;
+out float vThickness;
 out float vSeam;
 out vec3 vNormal;
 /**
@@ -33,6 +35,7 @@ void main() {
   vAge = aAge;
   vStrain = aStrain;
   vRigidity = aRigidity;
+  vThickness = aThickness;
   vSeam = aSeam;
   // The mesh is always a sphere, so the outward normal is just the position.
   vNormal = normalize(mat3(modelMatrix) * normalize(position));
@@ -60,7 +63,7 @@ uniform float uPickedZones[${ZONE_LIMIT}];
 uniform int uPickedCount;
 uniform float uTimeMa;
 uniform float uMaxAgeMa;
-uniform int uMode;        // 0 surface, 1 crustal age, 2 strain, 3 rigidity, 4 islands, 5 fabric
+uniform int uMode;        // 0 surface, 1 age, 2 strain, 3 rigidity, 4 islands, 5 fabric, 6 thickness
 uniform float uGrid;
 uniform vec3 uLight;
 /** Below 1 the shell turns to glass, so the mesh and the far side show through. */
@@ -90,6 +93,8 @@ in float vIsland;
 in float vAge;
 in float vStrain;
 in float vRigidity;
+/** Crustal thickness in km, from ECM1; see thicknessRamp. */
+in float vThickness;
 /**
  * How far this fragment's triangle reaches across crust that is gone, 0 to 1.
  *
@@ -226,6 +231,26 @@ vec3 rigidityRamp(float r) {
 }
 
 
+/**
+ * Crustal thickness, 5 to 75 km.
+ *
+ * Deliberately the same blue-green-yellow-red as every published crustal
+ * thickness map, against this project's own preference for single-hue ramps.
+ * The whole use of this mode is holding the globe up against one of those maps
+ * and seeing whether Tibet comes out red and the Pacific blue, and a ramp that
+ * cannot be compared to them would not do that job.
+ */
+vec3 thicknessRamp(float km) {
+  float t = clamp((km - 5.0) / 70.0, 0.0, 1.0);
+  vec3 c;
+  if (t < 0.25) c = mix(vec3(0.13, 0.30, 0.45), vec3(0.35, 0.68, 0.72), t * 4.0);
+  else if (t < 0.45) c = mix(vec3(0.35, 0.68, 0.72), vec3(0.62, 0.80, 0.55), (t - 0.25) * 5.0);
+  else if (t < 0.62) c = mix(vec3(0.62, 0.80, 0.55), vec3(0.97, 0.93, 0.72), (t - 0.45) / 0.17);
+  else if (t < 0.82) c = mix(vec3(0.97, 0.93, 0.72), vec3(0.96, 0.65, 0.35), (t - 0.62) / 0.20);
+  else c = mix(vec3(0.96, 0.65, 0.35), vec3(0.85, 0.13, 0.11), (t - 0.82) / 0.18);
+  return srgbToLinear(c);
+}
+
 void main() {
   // Before anything else: a cross-section throws away everything off the slice.
   if (uSlab > 0.0 && abs(dot(vPos, uCut)) > uSlab) discard;
@@ -244,6 +269,8 @@ void main() {
     base = surface(vDir);
   } else if (uMode == 3) {
     base = rigidityRamp(vRigidity);
+  } else if (uMode == 6) {
+    base = thicknessRamp(vThickness);
   } else if (uMode == 5) {
     base = fabricRamp(vDir);
   } else if (uMode == 4) {

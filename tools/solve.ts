@@ -519,6 +519,46 @@ function main() {
    * than the crustal type does. Sea floor is seven kilometres thick and takes
    * the type's answer; a forty-kilometre orogen takes its own.
    */
+  /**
+   * Flatten the strength field, to find out what it is worth.
+   *
+   * The crustal *classification* is ECM1's -- shield, platform, basin, orogen,
+   * extended crust -- and published. The number this model turns each class
+   * into is ours: `CRUST_RIGIDITY` in shared/crust.ts, eleven values between
+   * 0.05 and 1.0 that were reasoned about and never measured against anything.
+   * A reader asked whether that was our invention and whether it should go.
+   *
+   * `FLAT_K=0.6` gives every triangle the same strength and changes nothing
+   * else -- the islands of strong crust are baked into mesh.bin and still held
+   * -- so the difference between that run and this one is exactly what the
+   * invented field is earning.
+   */
+  const flat = Number(process.env.FLAT_K ?? 0)
+  if (flat > 0) {
+    rigidity.fill(flat)
+    console.log(`[solve] every triangle given strength ${flat}; the strength field is switched off`)
+  }
+  /**
+   * Or take strength from thickness instead: thicker is stronger.
+   *
+   * `STRENGTH=thickness`. The reader's own suggestion, and the appeal of it is
+   * that it uses nothing but published numbers -- ECM1's thickness grid,
+   * linearly from 5 km to 75 -- where the class mapping above is ours.
+   *
+   * It is also the exact inversion of this model's most counterintuitive call.
+   * Under the classes an orogen is the weakest continental crust there is,
+   * 0.20, because a mountain belt is by definition crust that folded; under
+   * thickness it becomes the strongest thing on the planet at 0.96. And stable
+   * sea floor goes the other way, 0.60 down to 0.03. So this measures whether
+   * that call is earning anything.
+   */
+  if (process.env.STRENGTH === 'thickness') {
+    for (let f = 0; f < faceCount; f++) {
+      rigidity[f] = Math.max(0.02, Math.min(1, (thickness[f] - 5) / 70))
+    }
+    console.log('[solve] strength taken from ECM1 thickness rather than crustal class')
+  }
+
   const stretchResist = new Float64Array(faceCount)
   {
     const intact: number[] = []

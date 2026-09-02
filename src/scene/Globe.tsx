@@ -416,6 +416,7 @@ export function Globe({ data }: { data: Dataset }) {
     g.setAttribute('aDir', new THREE.BufferAttribute(data.dirs, 3))
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
+    g.setAttribute('aThickness', new THREE.BufferAttribute(data.thickness, 1))
     g.setAttribute('aSeam', dynamic(buffers.seam, 1))
     g.setIndex(
       new THREE.BufferAttribute(buffers.index, 1).setUsage(THREE.DynamicDrawUsage),
@@ -652,6 +653,7 @@ export function Globe({ data }: { data: Dataset }) {
       thenLat,
       ageMa: age >= PERMANENT_MA ? null : age,
       island: data.islands[vertex],
+      thicknessKm: data.thickness[vertex],
       // Null until the plate map has been asked for. It is only wanted here,
       // on a right-click, so the first one starts the fetch and the next one
       // has an answer.
