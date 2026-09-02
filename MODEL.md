@@ -769,6 +769,7 @@ the answer is probably not everywhere.
 | India &ndash; Africa | 120 Ma | 0% | 15% | +15 | 184 km | 181 km at 130 Ma |
 | Greenland &ndash; North America | 60 Ma | 38% | 36% | -2 | 0 km | 0 km at 10 Ma |
 | North America &ndash; Africa | 190 Ma | 0% | 15% | +15 | 0 km | 0 km at 175 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 164 km | 99 km at 130 Ma |
 | Antarctica &ndash; South America | watched | 0% | 20% | +20 | 24 km | 14 km at 90 Ma |
 | Australia &ndash; North America | watched | 0% | 0% | +0 | 1635 km | 1635 km at 200 Ma |
 <!-- /from-the-run -->
@@ -1144,6 +1145,44 @@ triangulation can resolve. Which is also, in hindsight, exactly why pushing them
 apart wrecked the reconstruction: a five-kilometre error being corrected by
 moving whole continents on a 129 km mesh. The right response to a residual below
 the resolution is to report it and leave it alone.
+
+## The rotation nothing was measuring
+
+A reader looking at 200 Ma said Africa stays much too far north, that southern
+Africa should finish on the pole and drive Antarctica up into the Pacific, and
+that Europe and Arabia are being crushed for want of the room that would make.
+They had found the one join with a known date that this scorecard did not
+score.
+
+East Antarctica sat against Mozambique and Tanzania in Gondwana, and the
+Mozambique Basin opened from about 165 Ma, so by 170 the two should be together.
+Scored at last, it is the worst pair in the table by a factor of three: 164 km
+apart, which is close, but **5% of the shorter margin in contact** against 15%
+to 40% for every other pair. They touch at a point instead of lying along each
+other.
+
+And the size of what is missing, from where the continents finish against where
+they sit today. Africa's centre of area goes from 7&deg;N to 1&deg;S &mdash;
+eight degrees. Africa reaches about 35 degrees either side of its centre, so its
+southern tip finishes near 36&deg;S; for southern Africa to sit on the pole the
+centre would have to be near 55&deg;S. That is **some fifty degrees of rotation
+the model does not perform**, and it is the largest motion in the southern
+hemisphere. Antarctica, for its part, comes up only from 87&deg;S to 69&deg;S.
+
+This is worth writing at length because of what it says about the day's other
+results. Four constraints were built and measured and all four were rejected:
+holding the traced tracks smooth, fewer retriangulation passes, pushing rigid
+islands out of each other, and dropping the spreading axes from the detector.
+Every one was judged on the conjugate residuals and on seven scorecard pairs
+that did not include this rotation. A setting that improved the southern
+hemisphere could only lose by that measure &mdash; it costs something on the
+pairs being watched and earns nothing on the one that was absent. **Where a
+reader's eye and the numbers keep disagreeing, the numbers are the thing to
+check first.** They disagreed four times in one afternoon.
+
+The scorecard measures rather than constrains, so nothing about the
+reconstruction changed when this row was added. What changed is that the failure
+now has a number, 5%, and that number is in every run from here.
 
 ## Known weaknesses
 
