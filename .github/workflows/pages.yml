@@ -30,6 +30,32 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # The reconstruction, if this exact set of inputs has been solved before.
+      #
+      # It is not committed -- 22 MB a run, and measured on two real versions
+      # git stores about 5.9 MB for each one with no delta compression between
+      # them at all, because the frames are byte-split differences and a model
+      # change moves nearly every byte. Committing it would grow the repository
+      # by roughly 7.5 MB per shipped change, permanently, and every clone and
+      # every CI checkout would pay for the whole history of runs.
+      #
+      # Caching it costs nothing and answers the same complaint. The key is a
+      # hash of everything the pipeline reads: the solver and the shared code,
+      # the age and height maps, and the datasets in data-src. A change to
+      # anything under src/ -- which is most days -- now deploys without
+      # solving. A change to the solver misses, and pays the four minutes,
+      # which is correct: the run really is different.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            public/data
+            .stage
+          key: >-
+            data-${{ hashFiles('tools/**/*.ts', 'shared/**/*.ts',
+            'public/textures/age-map.png', 'public/textures/height-map.jpg',
+            'data-src/**') }}
+
+
       - run: pnpm typecheck
       - run: pnpm test
 

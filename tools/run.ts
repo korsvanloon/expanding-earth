@@ -5,7 +5,8 @@
  * work anyway.
  */
 import { spawnSync } from 'node:child_process'
-import { readFileSync, readdirSync, statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { subdivision } from './lib/resolution.js'
@@ -41,17 +42,49 @@ const inputs = [
   ...readdirSync(resolve(ROOT, 'data-src')).map((name) => resolve(ROOT, 'data-src', name)),
 ]
 
-const mtime = (path: string) => {
+/**
+ * What the inputs are, by content rather than by clock.
+ *
+ * This used to compare modification times, and that is wrong in the one place
+ * it matters most. A fresh checkout writes every file at the same instant, so
+ * in the Pages workflow "is the output newer than every input" is a coin toss
+ * -- and a restored build cache arrives with new timestamps too. A hash is the
+ * same answer on a laptop, on a runner, and after a cache restore.
+ *
+ * It also closes the failure this file's own comment warns about from the other
+ * side: a change with no effect on the data now provably has none, because the
+ * hash is unchanged, rather than merely appearing to.
+ */
+const inputHash = (() => {
+  const digest = createHash('sha256')
+  for (const path of [...inputs].sort()) {
+    digest.update(path.slice(ROOT.length))
+    try {
+      digest.update(readFileSync(path))
+    } catch {
+      digest.update('missing')
+    }
+  }
+  return digest.digest('hex')
+})()
+
+const META = resolve(ROOT, 'public/data/meta.json')
+/** The hash the data on disk was built from, written after a successful run. */
+const STAMP = resolve(ROOT, 'public/data/inputs.sha')
+const builtFrom = (() => {
   try {
-    return statSync(path).mtimeMs
+    return readFileSync(STAMP, 'utf8').trim()
   } catch {
     return null
   }
-}
-
-const META = resolve(ROOT, 'public/data/meta.json')
-const output = mtime(META)
-const newestInput = Math.max(...inputs.map((p) => mtime(p) ?? 0))
+})()
+const haveData = (() => {
+  try {
+    return statSync(META).size > 0
+  } catch {
+    return false
+  }
+})()
 
 /**
  * What resolution the data on disk was built at.
@@ -69,8 +102,8 @@ const builtAt = (() => {
   }
 })()
 
-if (output !== null && output > newestInput && builtAt === subdivision()) {
-  console.log('[data] up to date')
+if (haveData && builtFrom === inputHash && builtAt === subdivision()) {
+  console.log(`[data] up to date (inputs ${inputHash.slice(0, 12)})`)
 } else {
   if (builtAt !== null && builtAt !== subdivision()) {
     console.log(`[data] on disk is subdivision ${builtAt}, asked for ${subdivision()}; rebuilding`)
@@ -83,4 +116,7 @@ if (output !== null && output > newestInput && builtAt === subdivision()) {
     )
     if (result.status !== 0) process.exit(result.status ?? 1)
   }
+  // Only once both stages have succeeded, or a crash halfway would leave a
+  // stamp claiming the half-built data was current.
+  writeFileSync(STAMP, `${inputHash}\n`)
 }
