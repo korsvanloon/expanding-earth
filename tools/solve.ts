@@ -355,6 +355,31 @@ const CONFIG = {
   // point 0 km -> 3 km. So the dilution it was built to fix was real and was
   // not what is holding the gaps open.
   /**
+   * How strongly neighbouring crust is made to move together, 0 to 1.
+   *
+   * The measured failure this attacks: against a deformation budget the data
+   * puts at about one percent of the sphere, the reconstruction deforms twelve
+   * to twenty-six -- and squeezed and stretched come out nearly equal at every
+   * epoch, so almost all of it cancels globally. That is not crust being
+   * deformed by a closure it cannot make. It is a plate whose leading edge is
+   * squashed and whose trailing edge is stretched instead of the plate moving,
+   * and it is high spatial frequency: squeeze immediately beside stretch.
+   *
+   * Making the crust stiffer does not touch it. Every triangle at maximum
+   * strength still deforms 19.7% at 60 Ma against 21.3%, and costs a fifth of
+   * the fit. The springs are not giving in; the positions cannot satisfy the
+   * constraints, and a position solver spreads the residual as deformation.
+   *
+   * So this constrains the *displacement* rather than the crust: each point is
+   * pulled towards the average of what its neighbours have moved this step,
+   * which leaves a long-wavelength motion untouched and suppresses exactly the
+   * short-wavelength churn. It is what a plate is, expressed without having to
+   * find one.
+   */
+  coherence: Number(process.env.COHERE ?? 0),
+  /** How many neighbourhood rounds each application spreads over. */
+  coherenceRounds: Number(process.env.COHERE_ROUNDS ?? 2),
+  /**
    * Whether the curtain's closing pull acts along the sphere rather than
    * straight between its ends. `CLOSE_TANGENT=0` gets the plain distance
    * spring back; see the note where it is applied.
@@ -456,6 +481,9 @@ function main() {
    */
   const faceMargin = new Float64Array(faceCount)
   const foldScratch = newFoldScratch(vertexCount)
+  /** Scratch for the coherence constraint; see CONFIG.coherence. */
+  const moved = new Float64Array(vertexCount * 3)
+  const smoothed = new Float64Array(vertexCount * 3)
   const shorePush = new Float64Array(vertexCount * 3)
   const shoreCount = new Float64Array(vertexCount)
   const crustAlive = CONFIG.foldInward ? crustHere : mesh.faceAlive
@@ -1606,6 +1634,15 @@ function main() {
       // back out. Measured identical to fifteen digits. Turning the placed
       // positions instead sticks, because the next sweep's fit then finds the
       // island where the turn left it.
+      // Neighbouring crust moves together. Every eighth sweep rather than
+      // every one: it is a smoothing pass over forty thousand points and it
+      // does not need to be exact, only present.
+      if (CONFIG.coherence > 0 && sweep % 8 === 7) {
+        cohere(
+          pos, previous, shrink, adjacency, vertexCount, mesh.vertexAlive,
+          CONFIG.coherence, CONFIG.coherenceRounds, moved, smoothed,
+        )
+      }
       if (CONFIG.foldInward && CONFIG.slabDrag > 0) {
         dragIslands(
           pos, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
@@ -1957,6 +1994,64 @@ function dragIslands(
     pos[i * 3] = x * co + (ay * z - az * y) * si + ax * dot * (1 - co)
     pos[i * 3 + 1] = y * co + (az * x - ax * z) * si + ay * dot * (1 - co)
     pos[i * 3 + 2] = z * co + (ax * y - ay * x) * si + az * dot * (1 - co)
+  }
+}
+
+/**
+ * Pull every point towards the motion its neighbours are making.
+ *
+ * The displacement this step, smoothed over the neighbourhood a couple of
+ * rounds, and then each point moved part of the way from where it is to where
+ * that smoothed motion would have put it. A uniform translation or rotation is
+ * its own average and comes through untouched; squeeze beside stretch is not,
+ * and is what this removes. See CONFIG.coherence.
+ */
+function cohere(
+  pos: Float64Array,
+  previous: Float64Array,
+  shrink: number,
+  adjacency: ReturnType<typeof buildVertexAdjacency>,
+  vertexCount: number,
+  alive: Uint8Array,
+  strength: number,
+  rounds: number,
+  moved: Float64Array,
+  smoothed: Float64Array,
+) {
+  for (let v = 0; v < vertexCount; v++) {
+    const i = v * 3
+    moved[i] = pos[i] - previous[i] * shrink
+    moved[i + 1] = pos[i + 1] - previous[i + 1] * shrink
+    moved[i + 2] = pos[i + 2] - previous[i + 2] * shrink
+  }
+  let from = moved
+  let into = smoothed
+  for (let round = 0; round < rounds; round++) {
+    for (let v = 0; v < vertexCount; v++) {
+      const i = v * 3
+      if (!alive[v]) { into[i] = from[i]; into[i + 1] = from[i + 1]; into[i + 2] = from[i + 2]; continue }
+      let sx = from[i], sy = from[i + 1], sz = from[i + 2]
+      let n = 1
+      for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+        const w = adjacency.neighbours[k] * 3
+        sx += from[w]; sy += from[w + 1]; sz += from[w + 2]
+        n++
+      }
+      into[i] = sx / n; into[i + 1] = sy / n; into[i + 2] = sz / n
+    }
+    const swap = from
+    from = into
+    into = swap
+  }
+  for (let v = 0; v < vertexCount; v++) {
+    if (!alive[v]) continue
+    const i = v * 3
+    const wantX = previous[i] * shrink + from[i]
+    const wantY = previous[i + 1] * shrink + from[i + 1]
+    const wantZ = previous[i + 2] * shrink + from[i + 2]
+    pos[i] += strength * (wantX - pos[i])
+    pos[i + 1] += strength * (wantY - pos[i + 1])
+    pos[i + 2] += strength * (wantZ - pos[i + 2])
   }
 }
 
