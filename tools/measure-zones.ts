@@ -21,7 +21,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadRaster } from './lib/raster.js'
 import { readGrid, gridValue } from './lib/grid.js'
-import { fractureZones, lineamentAt, lineaments } from './lib/structure.js'
+import { crestOffsetKm, fractureZones, lineamentAt, lineaments } from './lib/structure.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { R0_KM } from '../shared/model.js'
 
@@ -59,7 +59,12 @@ function main() {
     ageMa[i] = ageFull.data[i] === NODATA ? NaN : (ageFull.data[i] / 255) * CONFIG.maxAgeMa
   }
   const vgg = readGrid(readFileSync(resolve(ROOT, 'data-src/vgg.grid')))
-  const guide = lineaments(vgg, R0_KM, CONFIG.structureWindowKm, CONFIG.structureSmoothKm)
+  // The bearing the walk follows. Swept with GUIDE_WINDOW/GUIDE_SMOOTH,
+  // because the blurring that makes the axis followable is also what makes it
+  // cut corners, and nobody had measured the trade.
+  const guideWindowKm = Number(process.env.GUIDE_WINDOW ?? CONFIG.structureWindowKm)
+  const guideSmoothKm = Number(process.env.GUIDE_SMOOTH ?? CONFIG.structureSmoothKm)
+  const guide = lineaments(vgg, R0_KM, guideWindowKm, guideSmoothKm)
   const sharp = lineaments(vgg, R0_KM, CONFIG.crestWindowKm, CONFIG.crestSmoothKm)
   const { zones, curves } = fractureZones(
     sharp, guide, ageMa, ageFull.width, ageFull.height, R0_KM,
@@ -398,6 +403,140 @@ function main() {
         + `median ${quantile(rest, 0.5)?.toFixed(0)} Ma`,
       )
     }
+  }
+
+  /**
+   * How far each curve sits from the crest it is supposed to be on, and how
+   * straight it is against the crest's own bend.
+   *
+   * A reader gave 27 curves they judged wrong and said what was wrong with
+   * most of them: the line runs ten or twenty degrees off the one they can see,
+   * or the one they can see is more curved. Neither the seamount test nor the
+   * ridge test says anything about those -- twenty of the twenty-seven are
+   * flagged by neither -- because neither is a question about geometry.
+   *
+   * This is. The walk takes its bearing from the *blurred* field, smoothed over
+   * a hundred kilometres, because the sharp field's axis is too noisy to follow
+   * for hundreds of kilometres at a stretch. A bearing smoothed over a hundred
+   * kilometres cuts the corner of anything that bends inside that distance, so
+   * the prediction is that a bad curve drifts off the crest along its length
+   * while a good one stays on it. `crestOffsetKm` asks the sharp field where
+   * the strongest line within reach actually is.
+   */
+  const crestDrift = (curve: number[]) => {
+    let sum = 0
+    let n = 0
+    let worst = 0
+    for (const at of curve) {
+      const [x, y, z] = dir(at)
+      const line = lineamentAt(guide, x, y, z)
+      if (!line) continue
+      let nx = line.ty * z - line.tz * y
+      let ny = line.tz * x - line.tx * z
+      let nz = line.tx * y - line.ty * x
+      const nl = Math.hypot(nx, ny, nz) || 1
+      const offset = crestOffsetKm(sharp, x, y, z, nx / nl, ny / nl, nz / nl, 60, R0_KM)
+      if (offset === null) continue
+      sum += Math.abs(offset)
+      if (Math.abs(offset) > worst) worst = Math.abs(offset)
+      n++
+    }
+    return n ? { mean: sum / n, worst, n } : null
+  }
+  {
+    const flagged = process.env.LABELLED
+      ? process.env.LABELLED.split(',').map(Number)
+      : []
+    const all: number[] = []
+    const bad: number[] = []
+    for (let i = 0; i < curves.length; i++) {
+      const d = crestDrift(curves[i])
+      if (!d) continue
+      all.push(d.mean)
+      if (flagged.includes(i + 1)) bad.push(d.mean)
+    }
+    const q = (v: number[], p: number) => {
+      const sorted = [...v].sort((a, b) => a - b)
+      return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
+    }
+    console.log('how far a curve sits from the crest it should be on, km')
+    console.log(`  all ${all.length} curves:   p25 ${q(all, 0.25).toFixed(1)}  median `
+      + `${q(all, 0.5).toFixed(1)}  p75 ${q(all, 0.75).toFixed(1)}  p90 ${q(all, 0.9).toFixed(1)}`)
+    if (bad.length) {
+      console.log(`  the ${bad.length} called wrong: p25 ${q(bad, 0.25).toFixed(1)}  median `
+        + `${q(bad, 0.5).toFixed(1)}  p75 ${q(bad, 0.75).toFixed(1)}  p90 ${q(bad, 0.9).toFixed(1)}`)
+    }
+    console.log()
+  }
+
+  /**
+   * How many degrees the curve runs off the line the sharp field sees.
+   *
+   * The reader's words were "ten or twenty degrees off the line I see", so
+   * measure degrees. The walk takes its bearing from the blurred field, which
+   * is smoothed over a hundred kilometres; the line a person sees in the
+   * gravity is the sharp field, smoothed over twenty-five. The angle between
+   * the curve's own direction and the sharp axis under it is the error being
+   * complained about, and the angle between the two *fields* is how much of it
+   * is the blurring rather than the walk.
+   */
+  const bearingError = (curve: number[]) => {
+    let offCrest = 0
+    let betweenFields = 0
+    let n = 0
+    for (let i = 1; i + 1 < curve.length; i++) {
+      const [x, y, z] = dir(curve[i])
+      const a = dir(curve[i - 1])
+      const b = dir(curve[i + 1])
+      // The curve's own direction here, as a chord between its neighbours.
+      let tx = b[0] - a[0], ty = b[1] - a[1], tz = b[2] - a[2]
+      const tl = Math.hypot(tx, ty, tz)
+      if (tl < 1e-9) continue
+      tx /= tl; ty /= tl; tz /= tl
+      const fine = lineamentAt(sharp, x, y, z)
+      const blurred = lineamentAt(guide, x, y, z)
+      if (!fine || !blurred) continue
+      // Axes, so the sign of the dot product carries no information.
+      const angle = (u: readonly [number, number, number], v: readonly [number, number, number]) => {
+        const d = Math.abs(u[0] * v[0] + u[1] * v[1] + u[2] * v[2])
+        return (Math.acos(Math.min(1, d)) * 180) / Math.PI
+      }
+      offCrest += angle([tx, ty, tz], [fine.tx, fine.ty, fine.tz])
+      betweenFields += angle(
+        [blurred.tx, blurred.ty, blurred.tz], [fine.tx, fine.ty, fine.tz],
+      )
+      n++
+    }
+    return n ? { offCrest: offCrest / n, betweenFields: betweenFields / n, n } : null
+  }
+  {
+    const flagged = process.env.LABELLED
+      ? process.env.LABELLED.split(',').map(Number)
+      : []
+    const all: number[] = []
+    const bad: number[] = []
+    const fields: number[] = []
+    for (let i = 0; i < curves.length; i++) {
+      const e = bearingError(curves[i])
+      if (!e) continue
+      all.push(e.offCrest)
+      fields.push(e.betweenFields)
+      if (flagged.includes(i + 1)) bad.push(e.offCrest)
+    }
+    const q = (v: number[], p: number) => {
+      const sorted = [...v].sort((a, b) => a - b)
+      return sorted[Math.min(sorted.length - 1, Math.floor(p * sorted.length))]
+    }
+    console.log('degrees between the curve and the sharp line under it')
+    console.log(`  all ${all.length} curves:   p25 ${q(all, 0.25).toFixed(0)}  median `
+      + `${q(all, 0.5).toFixed(0)}  p75 ${q(all, 0.75).toFixed(0)}  p90 ${q(all, 0.9).toFixed(0)}`)
+    if (bad.length) {
+      console.log(`  the ${bad.length} called wrong: p25 ${q(bad, 0.25).toFixed(0)}  median `
+        + `${q(bad, 0.5).toFixed(0)}  p75 ${q(bad, 0.75).toFixed(0)}  p90 ${q(bad, 0.9).toFixed(0)}`)
+    }
+    console.log(`  and between the two fields themselves: median `
+      + `${q(fields, 0.5).toFixed(0)} deg, p90 ${q(fields, 0.9).toFixed(0)} deg`)
+    console.log()
   }
 
   const nearest = places.map(({ lon, lat }) => {
