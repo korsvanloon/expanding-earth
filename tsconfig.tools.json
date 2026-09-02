@@ -8,8 +8,7 @@
     "noEmit": true,
     "skipLibCheck": true,
     "types": ["node"],
-    "baseUrl": ".",
-    "paths": { "@shared/*": ["shared/*"] }
+    "paths": { "@shared/*": ["./shared/*"] }
   },
   "include": ["tools", "shared"]
 }
