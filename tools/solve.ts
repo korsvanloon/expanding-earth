@@ -1602,6 +1602,7 @@ function main() {
     JSON.stringify({
       ...meta,
       folded: CONFIG.foldInward,
+      builtAt: new Date().toISOString(),
       frameCount: frames.length,
       diagnostics,
       fixedRadiusDiagnostics,

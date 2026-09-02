@@ -238,6 +238,17 @@ export interface Meta {
   folded?: boolean
 
   /**
+   * When the reconstruction in this dataset was computed, ISO.
+   *
+   * Shown in the viewer, and the reason is a reader waiting a quarter of an
+   * hour for a Pages build and then having no way to tell whether the globe in
+   * front of them was the new run or a cached old one. The data is not
+   * committed -- every build recomputes it -- so nothing else on the page says
+   * which run it is.
+   */
+  builtAt?: string
+
+  /**
    * How near a frame's age a piece of crust has to be to be paired at it, Ma.
    *
    * The floor of the conjugate check. A pair may have spread for up to this

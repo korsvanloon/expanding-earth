@@ -106,7 +106,20 @@ export function Panel({ data }: { data: Dataset }) {
           note={`biggest ${(100 * biggestBlock).toFixed(0)}% of the shell`}
         />
         <Stat label="Median strain" value={`${(100 * strain).toFixed(1)}%`} note="asked of the crust" />
+        <Stat
+          label="Bare sphere"
+          value={`${(100 * bare).toFixed(1)}%`}
+          note="no crust overhead; the mouth of an unshut ridge"
+        />
       </div>
+      <p className="caption">
+        {/* Which run this is. The reconstruction is not committed -- every build
+            recomputes it -- so without this there is no way to tell a fresh
+            deploy from a page the browser had cached, which cost a reader a
+            quarter of an hour of waiting to check nothing. */}
+        {data.meta.folded ? 'Un-erupted crust folded inside the shell' : 'Un-erupted crust collapsed away'}
+        {data.meta.builtAt ? `, solved ${new Date(data.meta.builtAt).toLocaleString()}` : ''}.
+      </p>
 
       <label className="field">
         <span>Show</span>
