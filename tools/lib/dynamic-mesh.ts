@@ -726,6 +726,16 @@ export function retriangulate(
   r0?: number,
   /** How far a new diagonal's rest length moves towards the truth; see `flip`. */
   truth = 1,
+  /**
+   * Which faces may be redrawn at all, if not every live one.
+   *
+   * Under the fold (tools/lib/fold.ts) most of the mesh at 200 Ma is crust that
+   * has not erupted yet, hanging inside the shell. Redrawing that is worse than
+   * pointless: an edge flipped between a point on the surface and a point two
+   * thousand kilometres down is not a fault in any rock, and it would spend the
+   * flip budget on the one part of the mesh no measurement reads.
+   */
+  only?: Uint8Array,
 ): number {
   const along: number[] = []
   const order: number[] = []
@@ -743,7 +753,7 @@ export function retriangulate(
     // thousand. Over the run that was a billion.
     order.length = 0
     for (let f = 0; f < mesh.faceCount; f++) {
-      if (!mesh.faceAlive[f]) continue
+      if (!mesh.faceAlive[f] || (only && !only[f])) continue
       order.push(f)
       roundness[f] = worstAngle(mesh, pos, f)
     }
@@ -764,6 +774,7 @@ export function retriangulate(
         // until this line: the continents stopped travelling because the mesh
         // was absorbing the motion instead of passing it on.
         if (strength && Math.max(strength[found[2]], strength[found[3]]) >= breaksBelow) continue
+        if (only && (!only[found[2]] || !only[found[3]])) continue
         mesh.flip(a, b, found[0], found[1], found[2], found[3], restEdge, pos, dirs, r0, truth)
         flipped++
         did++

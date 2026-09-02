@@ -1184,6 +1184,123 @@ The scorecard measures rather than constrains, so nothing about the
 reconstruction changed when this row was added. What changed is that the failure
 now has a number, 5%, and that number is in every run from here.
 
+## Swallowing the crust instead of deleting it
+
+A reader looking at the mesh proposed the other way of un-making sea floor:
+*misschien is het beter om in plaats van driehoeken weg te gooien en opnieuw te
+bouwen ze naar binnen te schuiven* &mdash; rather than throwing triangles away
+and rebuilding, push them inward &mdash; with the rule that *als een driehoek
+binnen de aarde zit, telt hij voor de alle kracht berekening niet meer mee en
+mag het opgepropt worden*: once a triangle is inside the Earth it counts for no
+force and may be crumpled.
+
+It is the more faithful reading of the hypothesis. On an expanding Earth new
+crust arrives from below, so run backwards it should return below rather than
+cease to exist. And the collapse it would replace is expensive:
+
+- **46,408 collapses a run are refused**, because collapsing them would tear the
+  surface. The dead crust then stays on the shell and holds the ocean open.
+- **164,175 edges are flipped**, and a flip hands its new edge whatever length
+  it finds. Three quarters of all the residual stretch along the traced fracture
+  zones happens on ground a flip has just redrawn.
+- A collapse **renames a triangle's corners**, which is why 21.5% of the shell
+  at 120 Ma was painted from crust more than 300 km away, and why 43% of the
+  track points and 55% of the conjugate pair ends were stored in triangles that
+  had come apart.
+
+So it is built, in `tools/lib/fold.ts`, behind `FOLD_IN=1`. Nothing is deleted
+and nothing is renamed: the triangle stays in the mesh, keeps its corners, and
+is pulled down inside the shell by however much crust lies between it and the
+nearest living shore, measured through the mesh along present-day rest lengths.
+The depth is compressed as `R&middot;exp(-d/R)`, which is the exact hanging
+length while there is room &mdash; and there is not always room. Taking today's
+60,000 km of ridge, the crust that has not formed yet needs a curtain 542 km
+deep at 10 Ma, 2,844 at 60, and 4,496 at 120 Ma against a radius of 4,373. Past
+roughly 100 Ma there is not enough Earth to hang it in, so the surplus turns
+into crumpling, which self-intersects and is allowed to.
+
+### What closes the ocean, and the rule that had to bend
+
+Run with the dead crust simply switched out of every force, the ridges never
+shut. A uniform shrink moves the two flanks and the gap between them by the same
+factor and closes nothing, so at 20 Ma the surviving crust covered 95.7% of the
+sphere it was supposed to tile and the continents crawled.
+
+The closure has to come from somewhere, and the honest place is the top of the
+curtain. A dead triangle with corners either side of a ridge is not saying
+nothing: the crust between those corners does not exist yet, so they belong in
+the same place. That is what a collapse used to assert by merging them, and here
+it is a spring of rest length zero. **A triangle inside the Earth carries no
+force; a triangle straddling the surface still does.**
+
+That works, and then a second reading of the rule turned out to matter more. The
+reader also drew the cross-section: *we kunnen het vervormen van driehoeken dus
+minimaliseren als ze dus een beetje naar beneden mogen bewegen voordat ze
+helemaal plat tegen elkaar aan knallen.* Two things came out of chasing that.
+
+**The lip.** Crust either side of a shutting ridge does not have to stay flat on
+the sphere while the gap closes. If it may tip down into the slot, the triangles
+rotate instead of deforming. Pinned hard to the sphere they have no such
+freedom and the closure has to come out of their own length. So the pull back
+onto the shell is released within 400 km of a closing rim and full strength away
+from it, and stays one-sided everywhere: crust may dip below the shell, never
+sit above it.
+
+**Sea floor does not shorten.** Stretching and shortening are not the same thing
+to seven kilometres of basalt. It pulls apart readily &mdash; that is a rift,
+and the model always allowed it &mdash; but shortening oceanic lithosphere means
+subducting or folding it. Resistance had been symmetric in both directions since
+the first solver, and that is precisely what the fold exposed: measured at 40 Ma
+with the rim closing, the crust that exists ended up covering 93.4% of the
+sphere against the 99.1% its own area asks for, and the deficit was not spread
+&mdash; **young middling-strength crust lost 21.2% of its area** and old weak
+crust 6.7%, while the cratons lost 0.2% and the median triangle was within 0.3%
+of its rest size. The ridges themselves shut: only 0.65% of the sphere was
+still under an unshut rim. The closure was being paid for by crushing the sea
+floor beside the ridge instead of moving the plate behind it.
+
+Asked to resist shortening, and with the whole curtain rather than only its rim
+pulling its ends together, that mostly goes away: 98.6% covered against 99.1%
+wanted, bare sky 6.69% down to 1.54%, young middling crust from &minus;21.2% to
+&minus;9.3%.
+
+### And it still loses
+
+The only real test is the conjugate pairs held back from the solver. Median
+separation, and the share of them inside one triangle spacing:
+
+| at 40 Ma | median | within 129 km | bare sky |
+|---|---|---|---|
+| collapse, as shipped | **187 km** | **52%** | 0.00% |
+| fold, rim closes | 270 km | 39% | 6.69% |
+| fold, rim, no shortening | 224 km | 39% | 6.34% |
+| fold, whole curtain | 233 km | 43% | 1.54% |
+| fold, curtain, no shortening, lip | 238 km | 48% | 1.52% |
+
+At 20 Ma the fold is *better* than the collapse &mdash; 159 km against 169
+&mdash; and from 40 Ma on it is a fifth to a half worse, at 60 Ma 274 km against
+228. The plates move at about two thirds the speed and the shell breaks into
+half again as many blocks.
+
+The reason is structural rather than a setting left unturned. A collapse is not
+a force: it removes a degree of freedom, and the mesh is then permanently
+shorter whether the crust likes it or not. A spring of rest length zero asks for
+the same thing and can be argued with by every other spring sharing those
+points, and the argument is settled locally &mdash; so a ridge shuts while the
+continent behind it stays put. Everything above is the attempt to give the crust
+a way of agreeing that does not cost area: let it tip, refuse to let it shorten,
+ask the whole vanished ocean rather than its rim. Together those recover most of
+the geometry and about half the gap on the pairs, and half is not enough.
+
+So it ships switched off, as machinery with its numbers written down rather than
+as the model. What would have to change is the closure, not the fold: something
+that transports a plate rather than pulling on its edge. The other half of the
+same reader's proposal &mdash; a mesh graded by spreading rate, coarse where
+nothing deforms and fine where it does &mdash; is the more promising half, and
+for a reason this measurement makes concrete: the closure is quantised to a
+129 km triangle whatever the age grid says vanished, and the Atlantic removes
+about 10 km of it in a million years.
+
 ## Known weaknesses
 
 - **The crust tiles, and this is now evidence rather than an artefact.** An

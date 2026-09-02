@@ -17,6 +17,12 @@ export interface InlineData {
   plates?: ArrayBuffer
   topology: ArrayBuffer
   /**
+   * How far inside the shell each point sits, per frame, when the run folded
+   * un-erupted crust inwards rather than collapsing it away. Absent otherwise;
+   * `meta.folded` says which. See tools/lib/fold.ts.
+   */
+  sink?: ArrayBuffer
+  /**
    * The fracture-zone tracks, if the build has them. Optional because a
    * published artifact keeps only every other frame, so a pair whose age falls
    * on a dropped frame has no frame to be judged at; the overlay is simply

@@ -54,10 +54,13 @@ import {
 } from '../shared/model.js'
 import { CRATON_RIGIDITY, WEAK_RIGIDITY } from '../shared/crust.js'
 import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topology.js'
-import { writeFrames } from '../shared/frames.js'
+import { writeChannel, writeFrames } from '../shared/frames.js'
 import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
-import { cellBuckets, coverage, probeCells, probeDirections } from './lib/coverage.js'
+import {
+  markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
+} from './lib/fold.js'
+import { cellBuckets, coverage, probeCells, probeDirections, type Tiling } from './lib/coverage.js'
 import { newContactScratch, separateIslands, type IslandContacts } from './lib/contact.js'
 import { distortion, shapePairs } from './lib/shape.js'
 import { conjugateFit } from './lib/flowlines.js'
@@ -81,6 +84,13 @@ const STAGE = resolve(ROOT, '.stage')
  * which is why it is stated here rather than tuned per pair.
  */
 const CONTACT_KM = Number(process.env.CONTACT_KM ?? 200)
+
+/**
+ * Whether this run folds its un-erupted crust inside the shell instead of
+ * collapsing it away. Read before CONFIG because two of CONFIG's defaults
+ * depend on it: the fold needs crust that will not be crushed.
+ */
+const FOLDING = Number(process.env.FOLD_IN ?? 0) > 0
 
 const CONFIG = {
   /** Integration step, Myr. Small enough that each step is a small nudge. */
@@ -242,6 +252,61 @@ const CONFIG = {
    */
   flipRestTruth: Number(process.env.FLIP_TRUTH ?? 0),
   radialStiffness: Number(process.env.RADIAL_K ?? 0.35),
+  /**
+   * Send un-erupted crust inside the shell instead of deleting it.
+   *
+   * The two ways of un-making sea floor, and they are not variations on each
+   * other: with this off, an edge with un-erupted crust on both sides is
+   * collapsed and the triangle between them leaves the mesh; with it on, the
+   * triangle stays, keeps its corners' names, and is pulled down inside the
+   * Earth where it carries no force. See tools/lib/fold.ts for why the second
+   * is both the more faithful reading of the hypothesis and the way out of
+   * everything the collapse costs.
+   *
+   * A knob rather than a replacement because the whole point is to be able to
+   * measure one against the other on the same data.
+   */
+  foldInward: FOLDING,
+  /**
+   * How hard the top of the curtain pulls the two flanks of a ridge together.
+   *
+   * Not negotiable in principle -- the crust between them does not exist yet --
+   * so full strength, and it is the crust either side that decides how much of
+   * that it can give. Only read under the fold.
+   */
+  closeStiffness: Number(process.env.CLOSE_K ?? 1),
+  /**
+   * How far back from a closing ridge the crust may tip down into the slot
+   * instead of staying flat on the shell, km of crust.
+   *
+   * Three triangles' worth. Zero pins everything to the sphere, which is what
+   * the model did before the fold and what makes the closure come out of the
+   * crust's own length instead of out of its attitude. Only read under the
+   * fold; see **The lip** in tools/lib/fold.ts.
+   */
+  lipKm: Number(process.env.LIP_KM ?? 400),
+  /**
+   * The least an edge resists being made *shorter* than the crust along it.
+   *
+   * Stretching and shortening are not the same thing to a piece of sea floor.
+   * Seven kilometres of basalt pulls apart readily -- that is what a rift is,
+   * and the model has always let it -- but it does not shorten: shortening
+   * oceanic lithosphere means subducting it or folding it, and neither is a
+   * spring giving a little. Resistance had been symmetric, and under the fold
+   * that is what goes wrong: the top of the curtain shuts a ridge by crushing
+   * the weak crust beside it rather than by moving it, and at 40 Ma the crust
+   * that exists ends up 5.7% smaller in area than the crust it is made of,
+   * which is where the bare sky comes from.
+   *
+   * Zero leaves the springs symmetric, which is what every measurement before
+   * the fold was made with.
+   */
+  compressResist: Number(process.env.COMPRESS_K ?? (FOLDING ? 0.9 : 0)),
+  /**
+   * Whether the whole curtain of un-erupted crust pulls its ends together, or
+   * only the rim of it that still touches the surface. See markCrust.
+   */
+  curtainCloses: Number(process.env.CURTAIN_K ?? 1) > 0,
   /** Stop early; for convergence experiments. */
   endMa: Number(process.env.END_MA ?? 0) || undefined,
 }
@@ -290,6 +355,45 @@ function main() {
 
   const mesh = new DynamicMesh(vertexCount, faceCount, indices)
   const adjacency = buildVertexAdjacency(indices, vertexCount)
+
+  /**
+   * Which triangles are crust right now, as against which are in the mesh.
+   *
+   * With the fold on these are two different questions: a triangle whose sea
+   * floor has not erupted yet is still in the mesh, still drawn, and is not
+   * crust -- so it must appear in no spring, no fold guard, no island, no area
+   * and no score. Everything in this file that used to ask `mesh.faceAlive`
+   * asks `crustAlive` instead, which is `crustHere` under the fold and
+   * `mesh.faceAlive` itself otherwise, because with the collapse doing the
+   * un-making a face that is in the mesh *is* crust.
+   */
+  const crustHere = new Uint8Array(faceCount).fill(1)
+  /**
+   * The triangles whose crust is not there yet and whose corners are, which are
+   * the ones doing the closing. Never set without the fold: with the collapse
+   * doing the un-making, the topology is what brings the two flanks of a ridge
+   * together.
+   */
+  const closing = new Uint8Array(faceCount)
+  const foldScratch = newFoldScratch(vertexCount)
+  const crustAlive = CONFIG.foldInward ? crustHere : mesh.faceAlive
+  /** Which points belong on the shell; undefined when they all do. */
+  const onShell = CONFIG.foldInward ? foldScratch.onShell : undefined
+  /** How hard each of them is held out there; undefined when it is absolutely. */
+  const holdOut = CONFIG.foldInward ? foldScratch.hold : undefined
+  /** The same, for the routines that take a mesh to measure coverage of. */
+  const shell: Tiling = { faceVerts: mesh.faceVerts, faceAlive: crustAlive }
+  /**
+   * How far inside the shell each point sits, for the viewer: 255 on the
+   * surface, 0 at the centre. Written only when the fold runs -- the frames
+   * themselves keep directions alone, so without this the curtain would be
+   * projected straight back onto the sphere it hangs beneath.
+   */
+  const sink = new Uint8Array(vertexCount).fill(255)
+  const sinks: Uint8Array[] = []
+  let fold: FoldResult = { sunk: 0, deepestKm: 0, hangingKm: 0 }
+  /** The share of the sphere still under a ridge that has not shut. */
+  let unshutShare = 0
 
   /**
    * The size and shape each triangle has today, kept per triangle rather than
@@ -472,7 +576,7 @@ function main() {
    */
   const markIslands = () => {
     for (let f = 0; f < faceCount; f++) {
-      if (!mesh.faceAlive[f]) { faceIsland[f] = 0; continue }
+      if (!crustAlive[f]) { faceIsland[f] = 0; continue }
       // The raw array, not islands.vertexIsland. There are two conventions in
       // this file and mixing them is silent: mesh.bin numbers the islands from
       // one with zero for none, and the solver shifts that to zero-based with
@@ -672,8 +776,12 @@ function main() {
     atLastFrame.set(pos)
 
     for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
-    const strain = faceStrain(pos, mesh.faceVerts, restAreaNow, faceCount, mesh.faceAlive)
+    const strain = faceStrain(pos, mesh.faceVerts, restAreaNow, faceCount, crustAlive)
     frames.push(quantise(pos, vertexCount))
+    if (CONFIG.foldInward) {
+      readSink(pos, vertexCount, radiusAt(t), sink)
+      sinks.push(Uint8Array.from(sink))
+    }
     recordTopology()
     // Per-vertex readings are computed on the solver's names, so a point that
     // has been merged away holds nothing -- and the drawn triangulation still
@@ -681,7 +789,7 @@ function main() {
     // triangle is. Hand each of them its survivor's reading, the same way
     // settleCollapsed hands them its position.
     const vertexStrain = perVertexStrain(
-      strain, mesh.faceVerts, restAreaNow, faceCount, vertexCount, mesh.faceAlive,
+      strain, mesh.faceVerts, restAreaNow, faceCount, vertexCount, crustAlive,
     )
     for (let v = 0; v < vertexCount; v++) {
       if (!mesh.vertexAlive[v]) vertexStrain[v] = vertexStrain[mesh.survivor(v)]
@@ -689,12 +797,85 @@ function main() {
     strains.push(vertexStrain)
     const held = distortion(heldPairs, pos, radiusAt(t))
     markIslands()
-    const tiled = coverage(pos, mesh, faceCount, probes, cells, buckets, faceIsland)
+    const tiled = coverage(pos, shell, faceCount, probes, cells, buckets, faceIsland)
+    // How much of the sphere is still under a ridge that has not shut.
+    //
+    // Under the fold the crust that exists can cover less than the whole sphere
+    // -- there is no closed triangulation forcing it to -- and the share that
+    // is bare says nothing about *why*. This splits it: sky over a triangle
+    // whose crust has not erupted is a closure the solver did not manage, and
+    // sky over nothing at all is crust that has been pulled apart.
+    if (CONFIG.foldInward) {
+      let rest = 0
+      let now = 0
+      for (let f = 0; f < faceCount; f++) {
+        if (!crustHere[f]) continue
+        rest += restAreaNow[f]
+        const a3 = mesh.faceVerts[f * 3] * 3
+        const b3 = mesh.faceVerts[f * 3 + 1] * 3
+        const c3 = mesh.faceVerts[f * 3 + 2] * 3
+        now += solidAngle(pos, a3, b3, c3) * radiusAt(t) * radiusAt(t)
+      }
+      const sphere = 4 * Math.PI * radiusAt(t) ** 2
+      console.log(
+        `[area] ${t} Ma  crust wants ${(100 * rest / sphere).toFixed(2)}% of the sphere, `
+        + `covers ${(100 * now / sphere).toFixed(2)}%`,
+      )
+      if (process.env.AREA_TRACE) {
+        const band = (f: number) => (rigidity[f] >= 0.9 ? 0 : rigidity[f] >= 0.5 ? 1 : 2)
+        const young = (f: number) => (faceAges[f] < t + 20 ? 1 : 0)
+        const names = ['craton', 'middle', 'weak  ']
+        const w = [0, 0, 0, 0, 0, 0]
+        const h = [0, 0, 0, 0, 0, 0]
+        const ratios: number[] = []
+        const edges: number[] = []
+        for (let f = 0; f < faceCount; f++) {
+          if (!crustHere[f]) continue
+          const at = band(f) * 2 + young(f)
+          const a3 = mesh.faceVerts[f * 3] * 3
+          const b3 = mesh.faceVerts[f * 3 + 1] * 3
+          const c3 = mesh.faceVerts[f * 3 + 2] * 3
+          const area = solidAngle(pos, a3, b3, c3) * radiusAt(t) * radiusAt(t)
+          w[at] += restAreaNow[f]
+          h[at] += area
+          ratios.push(area / restAreaNow[f])
+          for (let k = 0; k < 3; k++) {
+            const i = mesh.faceVerts[f * 3 + k] * 3
+            const j = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
+            edges.push(
+              length3(pos[i] - pos[j], pos[i + 1] - pos[j + 1], pos[i + 2] - pos[j + 2])
+              / edgeTarget[f * 3 + k],
+            )
+          }
+        }
+        for (let i = 0; i < 6; i++) {
+          console.log(
+            `[area]   ${names[i >> 1]} ${i % 2 ? 'young' : 'old  '}  `
+            + `wants ${(100 * w[i] / sphere).toFixed(2)}%  covers ${(100 * h[i] / sphere).toFixed(2)}%`
+            + `  (${(100 * (h[i] / w[i] - 1)).toFixed(1)}%)`,
+          )
+        }
+        ratios.sort((x, y) => x - y)
+        edges.sort((x, y) => x - y)
+        const q = (a: number[], p: number) => a[Math.floor(p * (a.length - 1))].toFixed(3)
+        console.log(
+          `[area]   area/rest  p10 ${q(ratios, 0.1)}  median ${q(ratios, 0.5)}  p90 ${q(ratios, 0.9)}`
+          + `   edge/target  p10 ${q(edges, 0.1)}  median ${q(edges, 0.5)}  p90 ${q(edges, 0.9)}`,
+        )
+      }
+    }
+    unshutShare = CONFIG.foldInward
+      ? coverage(
+        pos, { faceVerts: mesh.faceVerts, faceAlive: closing }, faceCount,
+        probes, cells, buckets,
+      ).gapFraction
+      : 1
+    unshutShare = 1 - unshutShare
     // How deep, as well as how much. A share of the sphere cannot tell a suture
     // the mesh is too coarse to draw from a continent in the wrong place; the
     // depth can. Measured, never applied -- see measureOnly in lib/contact.ts.
     const dents = separateIslands(
-      pos, mesh, faceCount, vertexCount, vertexIsland, faceIsland,
+      pos, shell, faceCount, vertexCount, vertexIsland, faceIsland,
       mesh.vertexAlive, radiusAt(t), 0, contactScratch, true, true,
     )
     // Should be impossible; said out loud rather than trusted, because when the
@@ -711,9 +892,9 @@ function main() {
       radiusKm: radiusAt(t),
       ...tiled,
       islandOverlapDeepestKm: dents.deepestKm,
-      ...foldedShare(pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount),
-      ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, mesh.faceAlive),
-      reliefKm: relief(pos, vertexCount, radiusAt(t)),
+      ...foldedShare(pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount),
+      ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, crustAlive),
+      reliefKm: relief(pos, vertexCount, radiusAt(t), onShell),
       blockCount: plateReport.count,
       biggestBlockShare: plateReport.biggest[0] ?? 0,
       // The crust the grid took away arriving here, per Myr: the forcing. Zero
@@ -1052,12 +1233,21 @@ function main() {
     for (let i = 0; i < vertexCount * 3; i++) pos[i] *= shrink
     if (tracing) trace.push(`shrink ${stretchNow(t).toFixed(3)}`)
 
-    // Un-make the crust that had not been made yet.
-    const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
+    // Un-make the crust that had not been made yet: either by closing it up,
+    // or by sending it back down where it came from. See tools/lib/fold.ts.
+    if (CONFIG.foldInward) {
+      markCrust(mesh, faceAges, t, crustHere, closing, foldScratch, CONFIG.curtainCloses)
+      fold = measureFold(
+        mesh, restEdge, crustHere, closing, vertexCount, rNext, CONFIG.lipKm, foldScratch,
+      )
+      pullInward(pos, vertexCount, foldScratch, 1)
+    } else {
+      const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
+      refusedTotal += closed.refused
+      easedTotal += closed.eased
+      settleCollapsed()
+    }
     markIslands()
-    refusedTotal += closed.refused
-    easedTotal += closed.eased
-    settleCollapsed()
 
     if (tracing) trace.push(`collapse ${stretchNow(t).toFixed(3)}`)
     driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
@@ -1081,19 +1271,42 @@ function main() {
       const forward = sweep % 2 === 0
       for (let n = 0; n < faceCount; n++) {
         const f = forward ? n : faceCount - 1 - n
-        if (!mesh.faceAlive[f]) continue
-        const stiffness = stretchResist[f]
+        // Three kinds of triangle under the fold, and only the first exists as
+        // crust: the ones whose sea floor has erupted pull towards the length
+        // they have today, the rim of the curtain pulls towards nothing at all
+        // because the crust between its corners is not there yet, and whatever
+        // is hanging below that is crumpled and asks for nothing. Without the
+        // fold there is only the first kind: `closing` is all zeros, so this
+        // reads exactly as it did.
+        const shuts = closing[f]
+        if (!crustAlive[f] && !shuts) continue
+        const stiffness = shuts ? CONFIG.closeStiffness : stretchResist[f]
         if (stiffness === 0) continue
         for (let k = 0; k < 3; k++) {
-          const i = mesh.faceVerts[f * 3 + k] * 3
-          const j = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
-          const target = edgeTarget[f * 3 + k]
+          const va = mesh.faceVerts[f * 3 + k]
+          const vb = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
+          // Every edge of the rim, not only the pairs that are both still on
+          // the surface. Restricting it to those was the obvious reading -- the
+          // two points either side of a ridge belong together, and an edge to a
+          // corner on its way down only fights the fold for that corner -- and
+          // it is wrong: a rim triangle with two corners already sinking has no
+          // such pair, and over 20 Myr leaving those out cost a third of the
+          // closure (bare sky 2.85% -> 3.75%, the held-out pairs 159 -> 194 km).
+          // What the rim asks for is that its three corners end up in the same
+          // place. Where that place is, the fold decides.
+          const i = va * 3
+          const j = vb * 3
+          const target = shuts ? 0 : edgeTarget[f * 3 + k]
           const dx = pos[i] - pos[j]
           const dy = pos[i + 1] - pos[j + 1]
           const dz = pos[i + 2] - pos[j + 2]
           const length = length3(dx, dy, dz)
           if (length < 1e-9) continue
-          const c = (0.5 * stiffness * (length - target)) / length
+          // Harder to shorten than to stretch; see CONFIG.compressResist.
+          const resist = length < target && stiffness < CONFIG.compressResist
+            ? CONFIG.compressResist
+            : stiffness
+          const c = (0.5 * resist * (length - target)) / length
           const cx = dx * c, cy = dy * c, cz = dz * c
           pos[i] -= cx; pos[i + 1] -= cy; pos[i + 2] -= cz
           pos[j] += cx; pos[j + 1] += cy; pos[j + 2] += cz
@@ -1105,7 +1318,7 @@ function main() {
       // first sweep: a sweep moves points by kilometres and a grid cell is two
       // degrees, so the lists are still right at the end of the step.
       contacts = separateIslands(
-        pos, mesh, faceCount, vertexCount, vertexIsland, faceIsland,
+        pos, shell, faceCount, vertexCount, vertexIsland, faceIsland,
         mesh.vertexAlive, rNext, CONFIG.islandContactStiffness, contactScratch,
         sweep === 0,
       )
@@ -1114,26 +1327,31 @@ function main() {
       contactTests += contacts.tests
       contactBucketed += contacts.bucketed
       unfold(
-        pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext,
+        pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin,
       )
-      relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness)
+      relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness, onShell, holdOut)
+      // Beside the sphere, not once a step: the closing rim hauls the top of
+      // the curtain towards the surface every sweep, and this is what keeps
+      // sending it back down.
+      if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, CONFIG.radialStiffness)
       holdIslands(
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
         rNext, islandFacing,
       )
     }
-    relaxToSphere(pos, vertexCount, rNext, 1)
+    relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
+    if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, 1)
     if (tracing) trace.push(`sweeps ${stretchNow(t).toFixed(3)}`)
     foldedNow = unfold(
-      pos, mesh.faceVerts, mesh.faceAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
+      pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
     )
     // Redraw whatever the move has left as slivers, then settle again: a
     // triangulation that has stopped describing the crust well is one nudge
     // from turning inside out.
     flippedTotal += retriangulate(
       mesh, pos, restEdge, CONFIG.flipPasses, rigidity, CONFIG.breaksBelow, dirs, r0,
-      CONFIG.flipRestTruth,
+      CONFIG.flipRestTruth, CONFIG.foldInward ? crustHere : undefined,
     )
     if (tracing) trace.push(`flips ${stretchNow(t).toFixed(3)}`)
     settleCollapsed()
@@ -1173,8 +1391,12 @@ function main() {
       const d = diagnostics[diagnostics.length - 1]
       console.log(
         `  ${String(t).padStart(3)} Ma  R=${d.radiusKm.toFixed(0)} km  ` +
-          `points=${String(mesh.liveVertices).padStart(5)}  ` +
+          (CONFIG.foldInward
+            ? `folded in=${((100 * fold.sunk) / vertexCount).toFixed(1)}% `
+              + `deep=${fold.deepestKm.toFixed(0)}/${fold.hangingKm.toFixed(0)}km  `
+            : `points=${String(mesh.liveVertices).padStart(5)}  `) +
           `bare=${(100 * d.gapFraction).toFixed(2)}%  ` +
+          (CONFIG.foldInward ? `unshut=${(100 * unshutShare).toFixed(2)}%  ` : '') +
           `doubled=${(100 * d.overlapFraction).toFixed(2)}%  ` +
           `folded=${(100 * d.foldFraction).toFixed(2)}%  ` +
           `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%  ` +
@@ -1189,9 +1411,13 @@ function main() {
   console.log(
     `[solve] ${((Date.now() - started) / 1000).toFixed(1)}s; ` +
       `${foldedNow} triangles still being pushed back out at the last step, ` +
-      `${vertexCount - mesh.liveVertices} of ${vertexCount} points closed away, ` +
-      `${refusedTotal} collapses refused to keep the surface whole, ` +
-      `${easedTotal} edges redrawn inside dying crust to let the closure carry on, ` +
+      (CONFIG.foldInward
+        ? `${fold.sunk} of ${vertexCount} points hanging inside the shell, `
+          + `the deepest ${fold.deepestKm.toFixed(0)} km down carrying `
+          + `${fold.hangingKm.toFixed(0)} km of crust, `
+        : `${vertexCount - mesh.liveVertices} of ${vertexCount} points closed away, `
+          + `${refusedTotal} collapses refused to keep the surface whole, `
+          + `${easedTotal} edges redrawn inside dying crust to let the closure carry on, `) +
       `${flippedTotal} edges redrawn`,
   )
   if (mesh.eulerCharacteristic() !== 2) {
@@ -1212,12 +1438,19 @@ function main() {
   const topologyBuffer = Buffer.from(writeTopology(topologyDeltas))
   writeFileSync(resolve(OUT, 'topology.bin'), topologyBuffer)
   writeFileSync(resolve(OUT, 'frames.bin'), frameBuffer)
+  // Only under the fold: the frames carry directions alone, so without this the
+  // curtain would be drawn projected straight back onto the shell it hangs
+  // beneath -- which is worse than either honest picture.
+  if (CONFIG.foldInward) {
+    writeFileSync(resolve(OUT, 'sink.bin'), Buffer.from(writeChannel(sinks)))
+  }
   writeFileSync(resolve(OUT, 'strain.bin'), strainBuffer)
   writeFileSync(resolve(OUT, 'plates.bin'), plateBuffer)
   writeFileSync(
     resolve(OUT, 'meta.json'),
     JSON.stringify({
       ...meta,
+      folded: CONFIG.foldInward,
       frameCount: frames.length,
       diagnostics,
       fixedRadiusDiagnostics,
@@ -2064,14 +2297,36 @@ function unfold(
   return caught
 }
 
-function relaxToSphere(pos: Float64Array, vertexCount: number, r: number, stiffness: number) {
+function relaxToSphere(
+  pos: Float64Array,
+  vertexCount: number,
+  r: number,
+  stiffness: number,
+  /**
+   * Which vertices belong on the shell. Under the fold the rest of them hang
+   * inside it and this must leave them alone: pulling them back out is the one
+   * thing that would undo the fold, silently, every sweep.
+   */
+  onShell?: Uint8Array,
+  /**
+   * How hard each point is held out at `r` when it has dipped below it. One
+   * everywhere without the fold; nought at the lip of a closing ridge, where
+   * the crust is meant to tip into the slot rather than be squashed flat.
+   * Sitting *above* the shell is never allowed and never weighted: nothing
+   * holds crust up there.
+   */
+  hold?: Float64Array,
+) {
   for (let i = 0; i < vertexCount; i++) {
+    if (onShell && !onShell[i]) continue
     const x = pos[i * 3]
     const y = pos[i * 3 + 1]
     const z = pos[i * 3 + 2]
     const length = length3(x, y, z)
     if (length < 1e-12) continue
-    const s = 1 + stiffness * (r / length - 1)
+    const k = hold && length < r ? stiffness * hold[i] : stiffness
+    if (k <= 0) continue
+    const s = 1 + k * (r / length - 1)
     pos[i * 3] = x * s
     pos[i * 3 + 1] = y * s
     pos[i * 3 + 2] = z * s
@@ -2148,13 +2403,19 @@ function quantise(pos: Float64Array, vertexCount: number) {
 // --- diagnostics -----------------------------------------------------------
 
 /** RMS departure from the sphere: how far the model has to buckle the crust. */
-function relief(pos: Float64Array, vertexCount: number, r: number) {
+function relief(pos: Float64Array, vertexCount: number, r: number, onShell?: Uint8Array) {
   let sum = 0
+  let counted = 0
   for (let i = 0; i < vertexCount; i++) {
+    // Only crust that is on the surface has relief. The rest is hanging inside
+    // the shell on purpose, and averaging that in would report the depth of the
+    // fold as the roughness of the Earth.
+    if (onShell && !onShell[i]) continue
     const d = length3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) - r
     sum += d * d
+    counted++
   }
-  return Math.sqrt(sum / vertexCount)
+  return counted ? Math.sqrt(sum / counted) : 0
 }
 
 /**

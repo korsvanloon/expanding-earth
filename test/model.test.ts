@@ -4,7 +4,7 @@ import { DynamicMesh, collapseVanished, retriangulate } from '../tools/lib/dynam
 import {
   applyTopology, readTopology, topologyDelta, writeTopology,
 } from '../shared/topology'
-import { crustScale, sampleCurve, MIN_SCALE, TAU_MA, type Meta } from '../shared/model'
+import { crustScale, sampleCurve, MIN_SCALE, PERMANENT_MA, TAU_MA, type Meta } from '../shared/model'
 import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
 import { newContactScratch, separateIslands } from '../tools/lib/contact'
@@ -16,7 +16,8 @@ import { SEAM_FULL_KM, SEAM_START_KM, measureSeams, seamReach } from '../shared/
 import { SURFACE_MAPS } from '../shared/maps'
 import { VIEW_MODES, remembered } from '../src/store'
 import { readTracks, writeTracks } from '../shared/tracks'
-import { readFrames, writeFrames } from '../shared/frames'
+import { readChannel, readFrames, writeChannel, writeFrames } from '../shared/frames'
+import { markCrust, measureFold, newFoldScratch, pullInward } from '../tools/lib/fold'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import { flowAt, flowField } from '../tools/lib/flowfield'
@@ -1388,6 +1389,141 @@ describe('carrying the frames to the viewer', () => {
     ]
     const round = readFrames(writeFrames(frames, 1).buffer as ArrayBuffer, 1)
     expect([...round]).toEqual([...frames[0], ...frames[1], ...frames[2]])
+  })
+
+  it('gives back a one-byte channel exactly, wrap and all', () => {
+    // How deep inside the shell each point sits under the fold. Nearly all of
+    // it is 255 and the rest changes by a step or two a frame, so it goes over
+    // as differences too -- with Uint8 wrapping instead of Int16.
+    const frames = [
+      Uint8Array.from([255, 0, 128, 255]),
+      Uint8Array.from([0, 255, 129, 254]),
+      Uint8Array.from([255, 255, 1, 0]),
+    ]
+    const round = readChannel(writeChannel(frames).buffer as ArrayBuffer, 4)
+    expect([...round]).toEqual([...frames[0], ...frames[1], ...frames[2]])
+  })
+})
+
+describe('folding un-erupted crust inside the shell', () => {
+  /**
+   * A patch of the sphere whose crust has not erupted yet, at 10 Ma, with
+   * everything else already there.
+   *
+   * The claim being tested is the one the whole file rests on: the crust that
+   * exists stays on the shell, the crust that does not hangs below it by as
+   * much crust as lies between it and the nearest living shore, and the
+   * triangles at the join -- the ones with a corner either side -- are the ones
+   * asked to bring the two shores together.
+   */
+  const patch = (radiusRad: number) => {
+    const { positions, indices } = buildIcosphere(4)
+    const vertexCount = positions.length / 3
+    const faceCount = indices.length / 3
+    const mesh = new DynamicMesh(vertexCount, faceCount, indices)
+    const faceAge = new Float32Array(faceCount).fill(PERMANENT_MA)
+    // Centred on the north pole, so "inside the patch" is just a latitude.
+    for (let f = 0; f < faceCount; f++) {
+      let z = 0
+      for (let k = 0; k < 3; k++) z += positions[indices[f * 3 + k] * 3 + 2]
+      if (Math.acos(Math.min(1, z / 3)) < radiusRad) faceAge[f] = 0
+    }
+    const restEdge = new Float64Array(faceCount * 3)
+    for (let f = 0; f < faceCount; f++) {
+      for (let k = 0; k < 3; k++) {
+        const a = indices[f * 3 + k] * 3
+        const b = indices[f * 3 + ((k + 1) % 3)] * 3
+        restEdge[f * 3 + k] = R0_KM * Math.hypot(
+          positions[a] - positions[b], positions[a + 1] - positions[b + 1],
+          positions[a + 2] - positions[b + 2],
+        )
+      }
+    }
+    const pos = Float64Array.from(positions, (v) => v * R0_KM)
+    return { mesh, pos, faceAge, restEdge, vertexCount, faceCount, positions, indices }
+  }
+
+  it('sinks only the crust that is not there yet, by how much crust it carries', () => {
+    const { mesh, pos, faceAge, restEdge, vertexCount, faceCount } = patch(0.5)
+    const crustHere = new Uint8Array(faceCount)
+    const closing = new Uint8Array(faceCount)
+    const scratch = newFoldScratch(vertexCount)
+    markCrust(mesh, faceAge, 10, crustHere, closing, scratch)
+    const result = measureFold(
+      mesh, restEdge, crustHere, closing, vertexCount, R0_KM, 0, scratch,
+    )
+    pullInward(pos, vertexCount, scratch, 1)
+
+    expect(result.sunk).toBeGreaterThan(0)
+    // Every point that touches crust is still exactly on the shell, and every
+    // point that does not is below it.
+    for (let v = 0; v < vertexCount; v++) {
+      const at = Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
+      if (scratch.onShell[v]) expect(at).toBeCloseTo(R0_KM, 6)
+      else expect(at).toBeLessThan(R0_KM)
+    }
+    // The patch is 0.5 radians across, so its middle is about a quarter of a
+    // radian -- 1,600 km of crust -- from the nearest shore, and the deepest
+    // point hangs by that much rather than by some fixed amount.
+    expect(result.hangingKm).toBeGreaterThan(1000)
+    expect(result.hangingKm).toBeLessThan(0.5 * R0_KM)
+    // Compressed towards the centre, never past it.
+    expect(result.deepestKm).toBeLessThan(result.hangingKm)
+    expect(result.deepestKm).toBeLessThan(R0_KM)
+  })
+
+  it('asks the triangles at the join, and only those, to shut the gap', () => {
+    const { mesh, faceAge, restEdge, vertexCount, faceCount } = patch(0.5)
+    const crustHere = new Uint8Array(faceCount)
+    const closing = new Uint8Array(faceCount)
+    const scratch = newFoldScratch(vertexCount)
+    markCrust(mesh, faceAge, 10, crustHere, closing, scratch)
+    measureFold(mesh, restEdge, crustHere, closing, vertexCount, R0_KM, 0, scratch)
+
+    let shut = 0
+    for (let f = 0; f < faceCount; f++) {
+      if (!closing[f]) continue
+      shut++
+      // Not crust, and touching some.
+      expect(crustHere[f]).toBe(0)
+      let touching = 0
+      for (let k = 0; k < 3; k++) if (scratch.onShell[mesh.faceVerts[f * 3 + k]]) touching++
+      expect(touching).toBeGreaterThan(0)
+    }
+    expect(shut).toBeGreaterThan(0)
+    // A rim, not the whole patch: the crust deep inside it is crumpled and
+    // asks for nothing.
+    let dead = 0
+    for (let f = 0; f < faceCount; f++) if (!crustHere[f]) dead++
+    expect(shut).toBeLessThan(dead)
+  })
+
+  it('releases the crust at the lip of a closing ridge and holds the rest out', () => {
+    const { mesh, faceAge, restEdge, vertexCount, faceCount, positions } = patch(0.5)
+    const crustHere = new Uint8Array(faceCount)
+    const closing = new Uint8Array(faceCount)
+    const scratch = newFoldScratch(vertexCount)
+    markCrust(mesh, faceAge, 10, crustHere, closing, scratch)
+    measureFold(mesh, restEdge, crustHere, closing, vertexCount, R0_KM, 400, scratch)
+
+    // The patch is at the north pole, so the south pole is as far from any
+    // closing ridge as the sphere allows: pinned to the shell. A point on the
+    // rim is free to tip into the slot.
+    let farthest = 0
+    for (let v = 1; v < vertexCount; v++) {
+      if (positions[v * 3 + 2] < positions[farthest * 3 + 2]) farthest = v
+    }
+    expect(scratch.hold[farthest]).toBe(1)
+    let atTheLip = 0
+    for (let f = 0; f < faceCount; f++) {
+      if (!closing[f]) continue
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.faceVerts[f * 3 + k]
+        if (scratch.onShell[v]) { atTheLip = v; break }
+      }
+      if (atTheLip) break
+    }
+    expect(scratch.hold[atTheLip]).toBe(0)
   })
 })
 

@@ -231,6 +231,13 @@ export interface Meta {
   endTimeMa: number
 
   /**
+   * Whether un-erupted crust was folded inside the shell rather than collapsed
+   * away, which is what says there is a `sink.bin` to read. See
+   * tools/lib/fold.ts.
+   */
+  folded?: boolean
+
+  /**
    * How near a frame's age a piece of crust has to be to be paired at it, Ma.
    *
    * The floor of the conjugate check. A pair may have spread for up to this

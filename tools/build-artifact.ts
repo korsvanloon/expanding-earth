@@ -26,6 +26,14 @@ import {
   FACE_REMOVED, type TopologyDelta, readTopology, topologyDelta, writeTopology,
 } from '../shared/topology.js'
 import { SURFACE_MAPS } from '../shared/maps.js'
+import { readChannel, writeChannel } from '../shared/frames.js'
+
+/** Cut a flat per-frame byte channel back into the frames writeChannel wants. */
+function frameList(flat: Uint8Array, count: number): Uint8Array[] {
+  const out: Uint8Array[] = []
+  for (let at = 0; at + count <= flat.length; at += count) out.push(flat.subarray(at, at + count))
+  return out
+}
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
@@ -88,6 +96,11 @@ function main() {
   const frames = new Int16Array(readFileSync(resolve(DATA, 'frames.bin')).buffer)
   const strain = readFileSync(resolve(DATA, 'strain.bin'))
   const plates = readFileSync(resolve(DATA, 'plates.bin'))
+  const sinkFile = meta.folded ? readFileSync(resolve(DATA, 'sink.bin')) : null
+  const sink = sinkFile ? readChannel(
+    sinkFile.buffer.slice(sinkFile.byteOffset, sinkFile.byteOffset + sinkFile.byteLength),
+    meta.vertexCount,
+  ) : null
   const topologyFile = readFileSync(resolve(DATA, 'topology.bin'))
   const topology = readTopology(
     topologyFile.buffer.slice(
@@ -113,6 +126,7 @@ function main() {
   const thinnedFrames = new Int16Array(kept.length * stride)
   const thinnedStrain = new Uint8Array(kept.length * meta.vertexCount)
   const thinnedPlates = new Uint8Array(kept.length * meta.vertexCount)
+  const thinnedSink = sink ? new Uint8Array(kept.length * meta.vertexCount) : null
   kept.forEach((f, i) => {
     thinnedFrames.set(frames.subarray(f * stride, (f + 1) * stride), i * stride)
     thinnedStrain.set(
@@ -121,6 +135,10 @@ function main() {
     )
     thinnedPlates.set(
       plates.subarray(f * meta.vertexCount, (f + 1) * meta.vertexCount),
+      i * meta.vertexCount,
+    )
+    thinnedSink?.set(
+      sink!.subarray(f * meta.vertexCount, (f + 1) * meta.vertexCount),
       i * meta.vertexCount,
     )
   })
@@ -141,6 +159,11 @@ function main() {
     frames: gzipSync(deltaSplit(thinnedFrames, stride, kept.length), { level: 9 }),
     strain: gzipSync(Buffer.from(thinnedStrain), { level: 9 }),
     plates: gzipSync(Buffer.from(thinnedPlates), { level: 9 }),
+    // Part of the geometry rather than a view mode, so unlike the strain and
+    // the plates this one cannot be left out of a standalone file.
+    ...(thinnedSink
+      ? { sink: gzipSync(Buffer.from(writeChannel(frameList(thinnedSink, meta.vertexCount))), { level: 9 }) }
+      : {}),
     topology: gzipSync(thinTopology(topology, kept, meta.faceCount, meshIndices), { level: 9 }),
     // The tracks travel unchanged: they are vertex indices, and the vertices
     // are the same. Only the pairs lose something -- an artifact keeps every

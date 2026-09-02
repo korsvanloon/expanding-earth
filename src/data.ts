@@ -5,7 +5,7 @@ import {
 import type { InlineData } from '@/assets'
 import { asset, inlineData } from '@/assets'
 import { readTracks, type Tracks } from '@shared/tracks'
-import { readFrames } from '@shared/frames'
+import { readChannel, readFrames } from '@shared/frames'
 
 export interface Dataset {
   meta: Meta
@@ -80,6 +80,16 @@ export interface Dataset {
    */
   gravity: Float32Array
   gravityRoughness: Float32Array
+  /**
+   * How far inside the shell each point sits, per frame: 255 on the surface, 0
+   * at the centre, one byte a point.
+   *
+   * Null unless the run folded its un-erupted crust inwards instead of
+   * collapsing it away (tools/lib/fold.ts). The frames themselves carry unit
+   * directions and nothing else, which is what makes them small; this is the
+   * one radial thing the reconstruction has to say, so it travels beside them.
+   */
+  sink: Uint8Array | null
   radiusKm: number[]
 }
 
@@ -97,7 +107,7 @@ export function buildIndex(
 
 export async function loadDataset(): Promise<Dataset> {
   const inline = inlineData()
-  const { meta, mesh, frames, strain, plates, topology, tracks } =
+  const { meta, mesh, frames, strain, plates, topology, tracks, sink } =
     inline ? await inline : await fetchDataset()
 
   const [vertexCount, faceCount, , cutPairCount] = new Uint32Array(mesh, 0, 4)
@@ -176,6 +186,7 @@ export async function loadDataset(): Promise<Dataset> {
     crustType: vertexType,
     gravity: gravityFabric,
     gravityRoughness,
+    sink: sink ? readChannel(sink, vertexCount) : null,
     tracks: tracks ? readTracks(tracks) : undefined,
     radiusKm: meta.crustModels[0].radiusKm,
   }
@@ -192,7 +203,13 @@ async function fetchDataset(): Promise<InlineData> {
     fetch(asset('data/topology.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/tracks.bin')).then((r) => (r.ok ? r.arrayBuffer() : undefined)),
   ])
-  return { meta, mesh, frames, topology, tracks }
+  // Part of the geometry, so it has to be in hand before the first frame is
+  // drawn rather than fetched behind it -- but only asked for when the run that
+  // produced this data folded, which the metadata has just told us.
+  const sink = meta.folded
+    ? await fetch(asset('data/sink.bin')).then((r) => (r.ok ? r.arrayBuffer() : undefined))
+    : undefined
+  return { meta, mesh, frames, topology, tracks, sink }
 }
 
 /**
@@ -266,7 +283,14 @@ export function sampleFrame(
     const vy = pay + (pby - pay) * f
     const vz = paz + (pbz - paz) * f
     const length = Math.hypot(vx, vy, vz) || 1
-    const s = radius / length
+    // Crust that had not erupted yet hangs inside the shell rather than being
+    // deleted, so a point is a direction times however much of the radius it
+    // has left. Blended between keyframes like everything else; the two are
+    // never more than a step apart, so a straight blend of the depths is right.
+    const deep = data.sink
+      ? (data.sink[sa + i] + (data.sink[sb + i] - data.sink[sa + i]) * f) / 255
+      : 1
+    const s = (radius * deep) / length
     positions[j] = vx * s
     positions[j + 1] = vy * s
     positions[j + 2] = vz * s

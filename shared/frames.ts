@@ -65,3 +65,43 @@ export function readFrames(buffer: ArrayBuffer, vertexCount: number): Int16Array
   }
   return out
 }
+
+/**
+ * The same differencing for a one-byte-per-vertex channel.
+ *
+ * How far inside the shell each point sits under the fold (tools/lib/fold.ts):
+ * one byte a point a frame, which is 8.2 MB raw over a two-hundred-frame run.
+ * Almost all of it is 255 -- crust on the surface -- and what is not changes by
+ * a step or two a frame, so the differences are nearly all zero and a
+ * compressor removes them. No byte split here: there is only one byte.
+ *
+ * Uint8 arithmetic wraps on the way out and on the way in, so this loses
+ * nothing.
+ */
+export function writeChannel(frames: Uint8Array[]): Uint8Array {
+  if (!frames.length) return new Uint8Array(0)
+  const count = frames[0].length
+  const out = new Uint8Array(frames.length * count)
+  const previous = new Uint8Array(count)
+  for (let f = 0; f < frames.length; f++) {
+    const frame = frames[f]
+    const at = f * count
+    for (let i = 0; i < count; i++) out[at + i] = (frame[i] - previous[i]) & 255
+    previous.set(frame)
+  }
+  return out
+}
+
+/** And back, giving exactly the frames `writeChannel` was handed. */
+export function readChannel(buffer: ArrayBuffer, count: number): Uint8Array {
+  const bytes = new Uint8Array(buffer)
+  const frameCount = Math.floor(bytes.length / count)
+  const out = new Uint8Array(frameCount * count)
+  for (let f = 0; f < frameCount; f++) {
+    const at = f * count
+    for (let i = 0; i < count; i++) {
+      out[at + i] = f === 0 ? bytes[i] : (out[at - count + i] + bytes[at + i]) & 255
+    }
+  }
+  return out
+}
