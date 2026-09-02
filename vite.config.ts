@@ -48,5 +48,18 @@ export default defineConfig({
   },
   server: { port: 3000 },
   // legacy/ is the earlier prototype, kept for reference but not built or tested.
-  test: { include: ['test/**/*.test.ts'] },
+  test: {
+    include: ['test/**/*.test.ts'],
+    /**
+     * Vitest's default is five seconds, and several of these are not unit
+     * tests: they decode an 8192x4096 age raster, walk a hundred thousand
+     * probe directions over eighty thousand triangles, or replay a whole run's
+     * connectivity. The slowest takes three and a half seconds on an idle
+     * machine, which means it fails on a busy one -- and the Pages workflow
+     * runs this suite twice, the second time straight after a ten-minute solve
+     * has had the box to itself. A deploy that fails because a raster decode
+     * took six seconds tells nobody anything.
+     */
+    testTimeout: 30000,
+  },
 })

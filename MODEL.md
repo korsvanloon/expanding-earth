@@ -1334,6 +1334,44 @@ getting wrong:
 | weak-crust strain, collapse | 4.3% | 7.1% | 14.0% |
 | weak-crust strain, fold | 7.0% | 11.2% | 16.3% |
 
+And it costs the drawing, which is where a reader looked first: *het valt me op
+dat wanneer edges flippen de driehoekjes grijs worden.* They do, and the grey is
+this document's own suture colour, painted where a triangle's corners are more
+than a couple of hundred kilometres apart on today's Earth &mdash; the signal
+that its inside is being painted by interpolating across crust that is not
+between them. Under the collapse that share was 2.0% of the shell at 13 Ma and
+31% at 200. Under the fold it is **4.8% and 50.3%**.
+
+Which is the opposite of what the fold was supposed to buy. Nothing is renamed
+any more &mdash; that was the whole argument for it &mdash; but a flip carries
+corners apart just as effectively as a collapse did, and with the collapse gone
+the flips are the *only* mechanism and they do 1.75 times the work: 287,643 in a
+run against 164,175. **Removing the renaming did not preserve the crust's
+identity; it moved the loss into the one mechanism left.** The median triangle is
+untouched, 129 km across at 90 Ma as it was on day one; the loss is a tail
+concentrated along the closing ridges, p90 427 km at 60 Ma and p99 1,513.
+
+The flips are not optional. Switched off entirely under the fold the closure
+fails: bare sky goes from 6.58% to **20.23%** at 200 Ma, the share still under an
+unshut ridge from 8.14% to **22.46%**, inside-out triangles from 0.93% to 2.92%,
+and the held-out pairs at 120 Ma from 435 km to 691. A rim triangle can only
+contract if its edges point across the ridge, and it is a flip that re-points
+them once the crust either side has slid. Under the fold, flipping *is* the
+closure.
+
+One part of the grey was a mistake and is fixed. A single flip replaces a quad's
+diagonal, and over all 122,880 interior edges of the present-day mesh that joins
+two apexes **178 to 228 km** apart, median 213. The tint started at 220 &mdash;
+*inside* that range &mdash; so most single flips tinted, and a single flip
+bridges nothing: the quad still covers exactly the ground it covered before,
+drawn the other way. Started above the widest single flip instead, at 240 km,
+the figure goes from 4.8% to 4.2% at 13 Ma and 50.3% to 47.8% at 200. Which
+settles what it was: a small false positive on top of a large true one.
+
+What would actually reduce it is the graded mesh, again and for the same reason.
+A triangle slivers because 129 km of crust has to absorb a closure of ten
+kilometres a million years; it is flipped because it slivered.
+
 The bare figure is not quite the same claim under the two. A closed
 triangulation of a sphere covers every direction whatever shape its triangles
 are, so the collapse's 0.00% was partly true by construction &mdash; its area

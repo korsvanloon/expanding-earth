@@ -27,13 +27,30 @@ import { R0_KM } from './model.js'
  *
  * The shell is an icosphere, so a triangle's own edges are a fixed length on
  * today's sphere whatever the time -- present-day directions never move, which
- * is the whole point of them. At subdivision 6 that is about 129 km, and the
- * widest of any triangle in the present-day mesh is 132. One collapse either
- * side puts the corners 260 km apart; by 200 Ma the worst of them reach four
- * thousand.
+ * is the whole point of them. At subdivision 6 that is 110 to 132 km, and by
+ * 200 Ma the worst spans reach nearly three thousand.
+ *
+ * The start had been 220 km, and that was wrong for a reason worth writing
+ * down. A single edge flip replaces a quad's diagonal, joining the two apexes
+ * either side of it: measured over all 122,880 interior edges of the present-day
+ * mesh, that distance runs from 178 to **228 km**, median 213. So the old
+ * threshold sat *inside* the range one flip produces, and most single flips
+ * tinted. They should not. A flip removes no crust and bridges no gap -- the
+ * quad still covers exactly the ground it covered before, drawn the other way
+ * -- so a triangle one flip old is still made of the crust it is painted with.
+ *
+ * This matters much more since the model started folding un-erupted crust
+ * inside the shell rather than collapsing it away: there are no collapses left,
+ * so flips are the *only* thing that can carry a triangle's corners apart, and
+ * there are 287,643 of them in a run. Tinting the first one turned the tint
+ * from a warning into a picture of the retriangulation.
+ *
+ * So it starts above the widest single flip, and the ramp keeps its 300 km.
+ * Two flips in the same neighbourhood reach past it, which is the point at
+ * which a triangle really has stopped standing for contiguous crust.
  */
-export const SEAM_START_KM = 220
-export const SEAM_FULL_KM = 520
+export const SEAM_START_KM = 240
+export const SEAM_FULL_KM = 540
 
 /** How much of a seam a triangle spanning `spanKm` of today's crust is, 0 to 1. */
 export function seamReach(spanKm: number): number {
