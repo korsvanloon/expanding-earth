@@ -917,6 +917,12 @@ function main() {
    * five times a step.
    */
   const tracing = process.env.STRETCH_TRACE === '1'
+  const ratioBefore = new Float64Array(tracks.ageMa.length)
+  const ratioAfter = new Float64Array(tracks.ageMa.length)
+  let stretchOnTouched = 0
+  let stretchOnCalm = 0
+  let touchedSteps = 0
+  let calmSteps = 0
   const segmentRestKm = new Float64Array(tracks.ageMa.length)
   if (tracing) {
     for (let track = 0; track + 1 < tracks.offsets.length; track++) {
@@ -938,6 +944,48 @@ function main() {
       }
     }
   }
+  /**
+   * Every live segment's length as a share of its present-day length, written
+   * into `into`, with NaN where the crust is gone.
+   *
+   * The step-by-step version of stretchNow. Two adjacent points of a track are
+   * crust forty kilometres apart whose age is older than both ends, so the
+   * distance between them cannot change; taking it before and after a step
+   * gives what that step did to it, and the difference can then be split by
+   * whether the mesh redrew the ground underneath in the meantime.
+   */
+  const segmentRatios = (t: number, into: Float64Array) => {
+    const place = (j: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.survivor(tracks.pointVerts[j * 3 + k]) * 3
+        const w = tracks.pointWeights[j * 3 + k]
+        x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+      }
+      return [x, y, z] as const
+    }
+    into.fill(NaN)
+    for (let track = 0; track + 1 < tracks.offsets.length; track++) {
+      for (let i = tracks.offsets[track]; i + 1 < tracks.offsets[track + 1]; i++) {
+        if (segmentRestKm[i] < 1) continue
+        if (tracks.ageMa[i] < t || tracks.ageMa[i + 1] < t) continue
+        const a = place(i)
+        const b = place(i + 1)
+        into[i] = length3(a[0] - b[0], a[1] - b[1], a[2] - b[2]) / segmentRestKm[i]
+      }
+    }
+  }
+
+  /** Whether the mesh redrew the ground under a segment during this step. */
+  const segmentTouched = (i: number) => {
+    for (const j of [i, i + 1]) {
+      for (let k = 0; k < 3; k++) {
+        if (mesh.touched[tracks.pointVerts[j * 3 + k]]) return true
+      }
+    }
+    return false
+  }
+
   /** Median segment length as a share of its present-day length, right now. */
   const stretchNow = (t: number): number => {
     const ratios: number[] = []
@@ -982,7 +1030,11 @@ function main() {
 
     const shrink = rNext / rPrev
     const trace: string[] = []
-    if (tracing) trace.push(`start ${stretchNow(t).toFixed(3)}`)
+    if (tracing) {
+      trace.push(`start ${stretchNow(t).toFixed(3)}`)
+      segmentRatios(t, ratioBefore)
+      mesh.touched.fill(0)
+    }
     for (let i = 0; i < vertexCount * 3; i++) pos[i] *= shrink
     if (tracing) trace.push(`shrink ${stretchNow(t).toFixed(3)}`)
 
@@ -1075,7 +1127,32 @@ function main() {
     followRegions(rNext)
 
     contactsTotal += contactsNow
-    if (tracing && t % 10 === 0) console.log(`[stretch] ${t} Ma  ${trace.join('  ')}`)
+    if (tracing) {
+      // What this step did to each segment, split by whether the mesh redrew
+      // the ground under it in the meantime. A flip hands its new edge whatever
+      // length it finds, so an edge that has just been redrawn has forgotten
+      // what was ever asked of it; if the residual stretch lives there, that is
+      // where to look next.
+      segmentRatios(t, ratioAfter)
+      let touchedSum = 0, touchedN = 0, calmSum = 0, calmN = 0
+      for (let i = 0; i < ratioBefore.length; i++) {
+        if (!Number.isFinite(ratioBefore[i]) || !Number.isFinite(ratioAfter[i])) continue
+        const change = ratioAfter[i] - ratioBefore[i]
+        if (segmentTouched(i)) { touchedSum += change; touchedN++ }
+        else { calmSum += change; calmN++ }
+      }
+      stretchOnTouched += touchedSum
+      stretchOnCalm += calmSum
+      touchedSteps += touchedN
+      calmSteps += calmN
+      if (t % 10 === 0) {
+        console.log(
+          `[stretch] ${t} Ma  ${trace.join('  ')}`
+          + `  | redrawn ${touchedN} segments ${(touchedSum / (touchedN || 1) * 100).toFixed(3)}%`
+          + `  untouched ${calmN} segments ${(calmSum / (calmN || 1) * 100).toFixed(3)}%`,
+        )
+      }
+    }
     if (t % meta.frameStepMa === 0) {
       record(t)
       const d = diagnostics[diagnostics.length - 1]
@@ -1199,6 +1276,16 @@ function main() {
     for (let f = 0; f < faceCount; f++) if (faceIsland[f]) islandFaces++
     console.log(
       `[solve] ${islandFaces} of ${faceCount} faces belong to an island of strong crust`,
+    )
+  }
+  if (tracing) {
+    console.log(
+      `[solve] stretch added per segment-step: `
+        + `${(stretchOnTouched / (touchedSteps || 1) * 100).toFixed(4)}% on ground the mesh `
+        + `redrew (${touchedSteps} segment-steps), `
+        + `${(stretchOnCalm / (calmSteps || 1) * 100).toFixed(4)}% on ground it did not `
+        + `(${calmSteps}); totals ${(stretchOnTouched * 100).toFixed(0)}% and `
+        + `${(stretchOnCalm * 100).toFixed(0)}%`,
     )
   }
   console.log(

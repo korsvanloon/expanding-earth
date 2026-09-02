@@ -81,6 +81,17 @@ export class DynamicMesh {
    * is that this one still knows whose crust it is.
    */
   readonly drawnVerts: Int32Array
+  /**
+   * Vertices whose neighbourhood the mesh has redrawn since this was cleared.
+   *
+   * Set by every flip and every collapse, cleared by whoever is asking. A flip
+   * gives its new edge whatever rest length it happens to find -- the mesh's
+   * own comment calls it a fault -- so an edge that has just been redrawn has
+   * forgotten what was ever asked of it. This is what lets the stretch along
+   * the fracture zones be split into the part that happens on freshly redrawn
+   * ground and the part that happens on ground nothing touched.
+   */
+  readonly touched: Uint8Array
   readonly faceAlive: Uint8Array
   readonly vertexAlive: Uint8Array
   /** Which surviving vertex each original vertex has been merged into. */
@@ -97,6 +108,7 @@ export class DynamicMesh {
   ) {
     this.faceVerts = Int32Array.from(indices)
     this.drawnVerts = Int32Array.from(indices)
+    this.touched = new Uint8Array(vertexCount)
     this.faceAlive = new Uint8Array(faceCount).fill(1)
     this.vertexAlive = new Uint8Array(vertexCount).fill(1)
     this.mergedInto = new Int32Array(vertexCount)
@@ -382,6 +394,10 @@ export class DynamicMesh {
 
     write(f, c, d, a)
     write(g, d, c, b)
+    this.touched[a] = 1
+    this.touched[b] = 1
+    this.touched[c] = 1
+    this.touched[d] = 1
   }
 
   /** Flips whose drawn equivalent could not be named; expected to stay zero. */
@@ -410,6 +426,8 @@ export class DynamicMesh {
       this.incident[a].add(f)
     }
     this.incident[b].clear()
+    this.touched[a] = 1
+    this.touched[b] = 1
     this.vertexAlive[b] = 0
     this.mergedInto[b] = a
     this.liveVertices--
