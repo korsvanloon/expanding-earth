@@ -6,7 +6,7 @@ import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeome
 import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
-import { buildIndex, radiusAt, sampleFrame, type Dataset } from '@/data'
+import { buildIndex, fetchLayer, radiusAt, sampleFrame, type Dataset } from '@/data'
 import { buildReferenceRotations } from '@/frames'
 import {
   clock, describePicks, onClockMoved, useStore, VIEW_MODES, ZONE_LIMIT, type Pick,
@@ -95,6 +95,30 @@ export function Globe({ data }: { data: Dataset }) {
   }, [wanted, held, file])
   raster('data/fabric.jpg', mode === 'fabric', fabric, setFabric)
   raster('data/zones.png', showZones, zones, setZones)
+
+  /**
+   * The per-frame byte maps, fetched when something first wants them.
+   *
+   * The strain belongs to one view mode and the plate map to a right-click, and
+   * between them they were a third of what a visitor waited for before the
+   * globe appeared. Assigned onto the dataset rather than held in state,
+   * because everything that reads them reads them straight off it; `arrived`
+   * is what makes React re-render once, so the buffers get re-sampled with the
+   * strain in place.
+   */
+  const [arrived, setArrived] = useState(0)
+  useEffect(() => {
+    if (mode !== 'strain' || data.strain) return
+    let live = true
+    void fetchLayer('strain').then((bytes) => {
+      if (!live || !bytes) return
+      data.strain = bytes
+      sampledTime.current = Number.NaN
+      setArrived((n) => n + 1)
+    })
+    return () => { live = false }
+  }, [mode, data])
+  useEffect(() => { void arrived }, [arrived])
 
   /**
    * The zone image again, on the processor's side, so a click can be answered.
@@ -614,7 +638,10 @@ export function Globe({ data }: { data: Dataset }) {
       thenLat,
       ageMa: age >= PERMANENT_MA ? null : age,
       island: data.islands[vertex],
-      block: data.plates[frame * data.vertexCount + vertex],
+      // Null until the plate map has been asked for. It is only wanted here,
+      // on a right-click, so the first one starts the fetch and the next one
+      // has an answer.
+      block: data.plates ? data.plates[frame * data.vertexCount + vertex] : null,
       fabric: data.gravityRoughness[vertex],
       pair,
       referenceFrame,

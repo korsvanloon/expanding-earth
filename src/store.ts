@@ -25,7 +25,8 @@ export interface Pick {
   /** Age of the crust, or null for continental crust the grid does not date. */
   ageMa: number | null
   island: number
-  block: number
+  /** Which rigid block it belongs to, or null before the plate map arrives. */
+  block: number | null
   /**
    * The conjugate pair this click landed on, if it landed on one.
    *
@@ -164,7 +165,8 @@ export function describePicks(picks: Pick[]): string {
       `#${p.vertex}  today (${place(p.todayLon, p.todayLat)})`
       + `  at ${p.timeMa.toFixed(0)} Ma (${place(p.thenLon, p.thenLat)})`
       + `  ${p.ageMa === null ? 'continental' : `sea floor ${p.ageMa.toFixed(0)} Ma`}`
-      + `  island ${p.island}  block ${p.block}  fabric ${p.fabric.toFixed(0)}`
+      + `  island ${p.island}  block ${p.block ?? 'not fetched yet'}`
+      + `  fabric ${p.fabric.toFixed(0)}`
       + (p.pair
         ? `\n        ^ on a conjugate pair: was one point at ${p.pair.ageMa.toFixed(0)} Ma `
           + `with (${place(p.pair.otherLon, p.pair.otherLat)}); `

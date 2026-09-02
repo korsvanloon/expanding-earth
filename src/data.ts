@@ -5,6 +5,7 @@ import {
 import type { InlineData } from '@/assets'
 import { asset, inlineData } from '@/assets'
 import { readTracks, type Tracks } from '@shared/tracks'
+import { readFrames } from '@shared/frames'
 
 export interface Dataset {
   meta: Meta
@@ -22,8 +23,16 @@ export interface Dataset {
   vertexAge: Float32Array
   /** Reconstructed unit directions: frameCount x vertexCount x 3, quantised. */
   frames: Int16Array
-  /** Per-vertex strain, one byte per vertex per frame. */
-  strain: Uint8Array
+  /**
+   * Per-vertex strain, one byte per vertex per frame, once it has arrived.
+   *
+   * Fetched only when something wants it, because only the strain view mode
+   * does and it is a megabyte over the wire. Until then the strain attribute
+   * is filled with zeros, which the other five modes never read; when it lands
+   * the buffers are re-sampled. Same reasoning as the fabric and zone rasters
+   * in src/scene/Globe.tsx, which were already lazy for the same reason.
+   */
+  strain: Uint8Array | null
   /**
    * Which plate each vertex belonged to, one byte per vertex per frame.
    *
@@ -32,7 +41,7 @@ export interface Dataset {
    * body, found by fitting rotations to the answer. Nothing was declared a
    * plate before the run. See findPlates in tools/solve.ts.
    */
-  plates: Uint8Array
+  plates: Uint8Array | null
   /** Which island of strong crust each vertex belongs to; 0 for none. */
   islands: Uint16Array
   /**
@@ -157,9 +166,9 @@ export async function loadDataset(): Promise<Dataset> {
     dirs,
     indices,
     vertexAge,
-    frames: new Int16Array(frames),
-    strain: new Uint8Array(strain),
-    plates: new Uint8Array(plates),
+    frames: readFrames(frames, vertexCount),
+    strain: strain ? new Uint8Array(strain) : null,
+    plates: plates ? new Uint8Array(plates) : null,
     islands: vertexIsland,
     topology: readTopology(topology, faceCount),
     rigidity: vertexRigidity,
@@ -173,16 +182,34 @@ export async function loadDataset(): Promise<Dataset> {
 }
 
 async function fetchDataset(): Promise<InlineData> {
-  const [meta, mesh, frames, strain, plates, topology, tracks] = await Promise.all([
+  // Everything the globe cannot be drawn without, and nothing else. The strain
+  // and the plate map belong to one view mode and one right-click, and between
+  // them they were a third of the wait.
+  const [meta, mesh, frames, topology, tracks] = await Promise.all([
     fetch(asset('data/meta.json')).then((r) => r.json() as Promise<Meta>),
     fetch(asset('data/mesh.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/frames.bin')).then((r) => r.arrayBuffer()),
-    fetch(asset('data/strain.bin')).then((r) => r.arrayBuffer()),
-    fetch(asset('data/plates.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/topology.bin')).then((r) => r.arrayBuffer()),
     fetch(asset('data/tracks.bin')).then((r) => (r.ok ? r.arrayBuffer() : undefined)),
   ])
-  return { meta, mesh, frames, strain, plates, topology, tracks }
+  return { meta, mesh, frames, topology, tracks }
+}
+
+/**
+ * Fetch one of the per-frame byte maps that only one part of the viewer wants.
+ *
+ * Resolves to null if it cannot be had, because neither of them is worth a
+ * broken globe: without the strain the strain mode is flat, and without the
+ * plate map a right-click says nothing about blocks.
+ */
+export async function fetchLayer(name: 'strain' | 'plates'): Promise<Uint8Array | null> {
+  try {
+    const response = await fetch(asset(`data/${name}.bin`))
+    if (!response.ok) return null
+    return new Uint8Array(await response.arrayBuffer())
+  } catch {
+    return null
+  }
 }
 
 export const radiusAt = (data: Dataset, timeMa: number) =>
@@ -243,6 +270,10 @@ export function sampleFrame(
     positions[j] = vx * s
     positions[j + 1] = vy * s
     positions[j + 2] = vz * s
+    if (!data.strain) {
+      strain[i] = 0
+      continue
+    }
     const s0 = data.strain[sa + i]
     const s1 = data.strain[sb + i]
     strain[i] = ((s0 + (s1 - s0) * f) / 127.5 - 1) * 0.2

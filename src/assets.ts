@@ -12,8 +12,9 @@ export interface InlineData {
   meta: Meta
   mesh: ArrayBuffer
   frames: ArrayBuffer
-  strain: ArrayBuffer
-  plates: ArrayBuffer
+  /** Only a self-contained artifact carries these; the site fetches them later. */
+  strain?: ArrayBuffer
+  plates?: ArrayBuffer
   topology: ArrayBuffer
   /**
    * The fracture-zone tracks, if the build has them. Optional because a

@@ -54,6 +54,7 @@ import {
 } from '../shared/model.js'
 import { CRATON_RIGIDITY, WEAK_RIGIDITY } from '../shared/crust.js'
 import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topology.js'
+import { writeFrames } from '../shared/frames.js'
 import { directionToUv, length3 } from '../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './lib/dynamic-mesh.js'
 import { cellBuckets, coverage, probeCells, probeDirections } from './lib/coverage.js'
@@ -67,6 +68,8 @@ import { buildIcosphere } from './lib/icosphere.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const OUT = resolve(ROOT, 'public/data')
+/** Where build-data leaves its handover; see STAGE in tools/build-data.ts. */
+const STAGE = resolve(ROOT, '.stage')
 
 /**
  * How near two margins have to be to count as in contact, km.
@@ -245,7 +248,7 @@ const CONFIG = {
 
 function main() {
   const meta = JSON.parse(
-    readFileSync(resolve(OUT, 'meta.partial.json'), 'utf8'),
+    readFileSync(resolve(STAGE, 'meta.partial.json'), 'utf8'),
   ) as Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'>
 
   const trackFile = readFileSync(resolve(OUT, 'tracks.bin'))
@@ -1203,17 +1206,8 @@ function main() {
     rmsStrain: 0,
   }))
 
-  const frameBuffer = Buffer.concat(frames.map((f) => Buffer.from(f.buffer)))
+  const frameBuffer = Buffer.from(writeFrames(frames, vertexCount))
   const strainBuffer = Buffer.concat(strains.map((s) => Buffer.from(s.buffer)))
-  // The first frame has no interval behind it to read a velocity from, so it
-  // borrows the plates of the second rather than claiming there were none.
-  if (plates.length > 1) {
-    plates[0] = plates[1]
-    diagnostics[0].blockCount = diagnostics[1].blockCount
-    diagnostics[0].biggestBlockShare = diagnostics[1].biggestBlockShare
-    diagnostics[0].forcingFraction = diagnostics[1].forcingFraction
-    diagnostics[0].medianSpeedKmMyr = diagnostics[1].medianSpeedKmMyr
-  }
   const plateBuffer = Buffer.concat(plates.map((p) => Buffer.from(p.buffer)))
   const topologyBuffer = Buffer.from(writeTopology(topologyDeltas))
   writeFileSync(resolve(OUT, 'topology.bin'), topologyBuffer)

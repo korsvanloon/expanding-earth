@@ -46,6 +46,12 @@ import {
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const TEXTURES = resolve(ROOT, 'public/textures')
 const OUT = resolve(ROOT, 'public/data')
+/**
+ * Where the handover to the solver goes. Not in public/data: everything there
+ * is copied onto the published site, and this is a hundred and ten kilobytes
+ * of the solver's own working notes that the viewer never reads.
+ */
+const STAGE = resolve(ROOT, '.stage')
 
 /** Quality of the crustal-fabric raster; see where it is written. */
 const FABRIC_QUALITY = 90
@@ -603,8 +609,9 @@ function main() {
     endTimeMa: CONFIG.endTimeMa,
     conjugateToleranceMa: CONFIG.conjugateToleranceMa,
   }
-  writeFileSync(resolve(OUT, 'meta.partial.json'), JSON.stringify(meta, null, 2))
-  console.log('[build-data] wrote public/data/mesh.bin, tracks.bin and meta.partial.json')
+  mkdirSync(STAGE, { recursive: true })
+  writeFileSync(resolve(STAGE, 'meta.partial.json'), JSON.stringify(meta, null, 2))
+  console.log('[build-data] wrote public/data/mesh.bin, tracks.bin and .stage/meta.partial.json')
 }
 
 /**

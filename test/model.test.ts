@@ -16,6 +16,7 @@ import { SEAM_FULL_KM, SEAM_START_KM, measureSeams, seamReach } from '../shared/
 import { SURFACE_MAPS } from '../shared/maps'
 import { VIEW_MODES, remembered } from '../src/store'
 import { readTracks, writeTracks } from '../shared/tracks'
+import { readFrames, writeFrames } from '../shared/frames'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { loadRaster } from '../tools/lib/raster'
 import { flowAt, flowField } from '../tools/lib/flowfield'
@@ -1353,6 +1354,40 @@ describe('keeping rigid crust out of rigid crust', () => {
       for (let v = 0; v < 4; v++) now += pos[v * 3 + k]
       expect(now).toBeCloseTo(was, 6)
     }
+  })
+})
+
+describe('carrying the frames to the viewer', () => {
+  // Ten megabytes of positions is two thirds of what a visitor waits for, so
+  // the frames go over the wire as differences with their bytes split. Both
+  // halves lean on Int16 arithmetic wrapping identically on the way out and the
+  // way in, which is the kind of thing that works until a position happens to
+  // land near the end of the range.
+  it('gives back exactly what it was handed', () => {
+    const vertexCount = 7
+    const words = vertexCount * 3
+    const frames = [0, 1, 2, 3].map((f) => Int16Array.from(
+      { length: words },
+      (_, i) => Math.round(32767 * Math.sin(i * 1.7 + f * 0.4)),
+    ))
+    const round = readFrames(
+      writeFrames(frames, vertexCount).buffer as ArrayBuffer, vertexCount,
+    )
+    for (let f = 0; f < frames.length; f++) {
+      expect([...round.subarray(f * words, (f + 1) * words)]).toEqual([...frames[f]])
+    }
+  })
+
+  it('survives a jump across the whole range, where the wrap-around bites', () => {
+    // A point at one extreme followed by the other is a difference of 65534,
+    // which does not fit in a short. It has to come back anyway.
+    const frames = [
+      Int16Array.from([32767, -32768, 0]),
+      Int16Array.from([-32768, 32767, 32767]),
+      Int16Array.from([0, 0, -32768]),
+    ]
+    const round = readFrames(writeFrames(frames, 1).buffer as ArrayBuffer, 1)
+    expect([...round]).toEqual([...frames[0], ...frames[1], ...frames[2]])
   })
 })
 
