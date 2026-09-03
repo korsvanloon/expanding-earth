@@ -123,7 +123,7 @@ export const KNOBS = [
   'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'ISLAND_HOLD',
   'LAND_MARGIN', 'LIP_KM', 'MAX_RATE', 'OCEAN_K', 'PLATE_TOL', 'POLE_MEMORY',
   'PROBES', 'RADIAL_K', 'SHORE_SHARE', 'SMALLEST_PLATE', 'STEP_TRACE',
-  'FRAME_STEP', 'STRENGTH', 'STRETCH_TRACE', 'SWEEPS', 'TRACK_K',
+  'FRAME_STEP', 'PAIR_K', 'STRENGTH', 'STRETCH_TRACE', 'SWEEPS', 'TRACK_K',
 ] as const
 
 const OVERRIDES = KNOBS.filter((name) => process.env[name] !== undefined)
@@ -247,7 +247,7 @@ const CONFIG = {
    * the springs argue back, so what survives is what many pairs and the age
    * grid agree on.
    */
-  conjugateStiffness: 0.15,
+  conjugateStiffness: Number(process.env.PAIR_K ?? 0.15),
   /**
    * How hard a traced fracture zone is held to being smooth, and how much of a
    * corner it is allowed before anything happens.
