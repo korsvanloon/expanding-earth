@@ -4,7 +4,7 @@ import { DynamicMesh, collapseVanished, retriangulate } from '../tools/lib/dynam
 import {
   applyTopology, readTopology, topologyDelta, writeTopology,
 } from '../shared/topology'
-import { crustScale, sampleCurve, MIN_SCALE, PERMANENT_MA, TAU_MA, type Meta } from '../shared/model'
+import { sampleCurve, PERMANENT_MA, type Meta } from '../shared/model'
 import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
 import { newContactScratch, separateIslands } from '../tools/lib/contact'
@@ -65,19 +65,6 @@ describe('icosphere', () => {
       )
     }
     expect(total).toBeCloseTo(4 * Math.PI, 6)
-  })
-})
-
-describe('crustScale', () => {
-  it('keeps crust at full size while it exists', () => {
-    expect(crustScale(50, 0)).toBe(1)
-    expect(crustScale(50, 50)).toBe(1)
-  })
-
-  it('fades crust out over TAU_MA once it is un-created', () => {
-    expect(crustScale(50, 50 + TAU_MA / 2)).toBeCloseTo(0.5, 10)
-    expect(crustScale(50, 50 + TAU_MA)).toBe(MIN_SCALE)
-    expect(crustScale(50, 200)).toBe(MIN_SCALE)
   })
 })
 

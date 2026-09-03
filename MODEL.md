@@ -1850,6 +1850,66 @@ is a straight line. That is where the fold stops being quantised by the
 triangulation, and it is the one place left where the model is asking for
 something the data was never consulted about.
 
+### Walking the edge instead of guessing across it
+
+So it walks. Sixteen points along every edge and sixteen over every triangle,
+each one a lookup in the age grid, sorted and written to `crust-age.bin` -- ten
+megabytes the browser never fetches, because only the solver wants it. The
+question *how much of this edge exists at 30 Ma* becomes counting how many of
+the sixteen are older than 30, which assumes nothing whatever about the shape of
+the age field. Eight kilometres of resolution on a 129 km edge, and the
+quantisation moves off the triangulation and onto the data.
+
+Same build, the fold read three ways, on the pairs held back from the solver:
+
+| | 20 Ma | 40 Ma | bare at 20 Ma | bare at 40 Ma |
+|---|---|---|---|---|
+| per face | 139 km, 70% | 151 km, 59% | 1.42% | 2.78% |
+| per corner | 131 km, 70% | 152 km, 62% | 1.41% | 2.84% |
+| sampled | **127 km, 72%** | **149 km, 62%** | **1.29%** | **2.73%** |
+
+Best on every measure, and no triangle anywhere turns inside out.
+
+### The bias was in the ruler
+
+Sampling the crust immediately doubled the deformation budget, 4.56 to 7.52
+million km&sup2; at the first step -- the same alarm the stand-in age had raised,
+and the same shape to it: two parts of the model answering one question
+differently.
+
+That number is the gap between what the crust is asked to cover and the sphere
+it has to cover, and only one side of it had changed. The solver now asks each
+triangle for its sampled surviving area. The sphere came from the radius curve,
+which *is* the model -- **R(t) = sqrt(A(t)/4&pi;), and nothing else sets it** --
+and that was still built from one median age per triangle, faded out over five
+million years with a floor under it. Which is an approximation of the sampled
+share, biased twice over: a triangle a ridge runs through has a median age of its
+own that says nothing about the strip in the middle of it, and the fade went on
+counting crust the grid says is gone.
+
+Give the radius curve the same sixteen samples and the gap closes: **7.52
+million km&sup2; to 1.61**, three tenths of one percent of the sphere, at the
+first step. The Earth comes out smaller for it, by about one and a half percent
+at the end of the record. `crustScale`, the fade, is deleted; nothing uses it.
+
+And the honest number is worse than the one it replaces, which is rather the
+point. The run deforms 11.8 million km&sup2; at the first step against a real
+allowance of 1.6 -- a factor of seven, where the old accounting read 1.6. Part
+of what the model was being credited with absorbing was its own bookkeeping.
+
+One check disagrees, and it is worth saying why it does not decide this. The
+mesh radius curve is compared every run against the same measurement taken at
+full 8192x4096 raster resolution, and that agreement got worse: 1.60% to 1.91%,
+one-sided and growing with time. It is not the sampling. The mesh curve counts a
+stretched margin at the size it had *before* it was stretched, because that is
+what the radius has to be sized for; the reference counts today's ground as it
+stands and models no un-stretching at all. That correction ramps in over each
+margin's own rifting, so the gap grows with time whatever the mesh does -- and
+the old 1.60% was the smaller number precisely because the fade was adding area
+back that the un-stretching had taken off. Two errors pointing opposite ways.
+The check is worth watching for a jump. It was never a score, and it had been
+read as one.
+
 ## Known weaknesses
 
 - **The crust does not tile, and the figure is honest about it.** An earlier

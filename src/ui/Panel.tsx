@@ -155,6 +155,7 @@ export function Panel({ data }: { data: Dataset }) {
       </label>
       <p className="caption">{paintingNote}</p>
       {mode === 'crust' && <CrustLegend />}
+      {mode === 'strain' && <StrainLegend />}
 
       <label className="field">
         <span>Hold still</span>
@@ -628,6 +629,42 @@ function PickedZones({ data }: { data: Dataset }) {
  * of showing them together: the classification is published, the number beside
  * it is this project's own.
  */
+/**
+ * Which way round the strain colours go, which the picture cannot say.
+ *
+ * A reader looking at the strain view asked what red was and what blue was, and
+ * nothing on the page answered: a diverging ramp is unreadable without its
+ * ends. The stops are the three colours in `strainRamp` and the saturation
+ * point is its own, so the bar is the shader rather than an impression of it.
+ *
+ * The number is an *area* strain per triangle, averaged over the triangles
+ * around each point: +10% is crust holding a tenth more ground than it has
+ * today, -10% a tenth less. Shear does not appear here at all, because shear
+ * preserves area.
+ */
+function StrainLegend() {
+  return (
+    <>
+      <div
+        className="ramp"
+        style={{
+          background:
+            'linear-gradient(to right, rgb(41,97,184), rgb(230,227,219), rgb(199,54,41))',
+        }}
+      />
+      <ul className="ramp-labels">
+        <li>&minus;12% squeezed</li>
+        <li>unchanged</li>
+        <li>+12% stretched</li>
+      </ul>
+      <p className="caption">
+        Area per triangle, against the ground it covers today. Anything past
+        twelve percent either way is the same colour as twelve.
+      </p>
+    </>
+  )
+}
+
 function CrustLegend() {
   return (
     <ul className="legend">

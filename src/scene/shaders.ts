@@ -14,8 +14,6 @@ in float aIsland;
 in float aAge;
 in float aStrain;
 in float aRigidity;
-in float aThickness;
-in float aCrustType;
 in float aSeam;
 
 out vec3 vDir;
@@ -23,18 +21,21 @@ out float vIsland;
 out float vAge;
 out float vStrain;
 out float vRigidity;
-out float vThickness;
 /**
- * Which ECM1 class this crust is, and which island it belongs to.
+ * Which island this crust belongs to, flat, and that is the whole point.
  *
- * Both are flat, and that is the whole point. A class and an island id are
- * identities, not quantities, and interpolating them across a triangle mixes
- * them: between island 3 and island 11 the old shader ran through every colour
- * from 3 to 11, which is the rainbow fringe a reader asked about along every
- * island's edge. Flat takes the value from one corner and holds it across the
- * face, so the edges are edges.
+ * An island id is an identity, not a quantity, and interpolating one across a
+ * triangle mixes them: between island 3 and island 11 the old shader ran
+ * through every colour from 3 to 11, which is the rainbow fringe a reader asked
+ * about along every island's edge. Flat takes the value from one corner and
+ * holds it across the face, so the edges are edges.
+ *
+ * The crustal class was carried the same way and is not here any more. Flat
+ * fixed its fringe but could not fix what it was: a property of a triangle
+ * being sent down a per-vertex channel, so what flat held across each face was
+ * one of its corners' idea of it, and the picture came out as vertex stars.
+ * That one is read from a raster now; see uCrust below.
  */
-flat out float vCrustType;
 flat out float vIslandFlat;
 out float vSeam;
 out vec3 vNormal;
@@ -56,8 +57,6 @@ void main() {
   vAge = aAge;
   vStrain = aStrain;
   vRigidity = aRigidity;
-  vThickness = aThickness;
-  vCrustType = aCrustType;
   vIslandFlat = aIsland;
   vSeam = aSeam;
   // The mesh is always a sphere, so the outward normal is just the position.
@@ -75,6 +74,18 @@ uniform sampler2D uMap;
 uniform sampler2D uFabric;
 uniform sampler2D uZones;
 uniform float uZonesOn;
+/**
+ * ECM1's own cells: the crustal class in red, the thickness in green.
+ *
+ * Both used to arrive as vertex attributes, which cannot say either thing. A
+ * class is per triangle and a shared-vertex mesh has no per-triangle channel,
+ * so it was carried per point and painted as vertex stars -- hexagons that are
+ * in no dataset. Sampled here instead, by the rock's present-day direction, so
+ * it moves with the crust exactly as the surface map does. See sampleCrust in
+ * tools/build-data.ts.
+ */
+uniform sampler2D uCrust;
+uniform vec2 uCrustSize;
 /**
  * Which fracture zones the reader has picked, as ids, and how many.
  *
@@ -118,9 +129,7 @@ in float vAge;
 in float vStrain;
 in float vRigidity;
 /** Crustal thickness in km, from ECM1; see thicknessRamp. */
-in float vThickness;
 /** Identities, never interpolated; see the vertex shader. */
-flat in float vCrustType;
 flat in float vIslandFlat;
 /**
  * How far this fragment's triangle reaches across crust that is gone, 0 to 1.
@@ -267,6 +276,30 @@ vec3 rigidityRamp(float r) {
  * and seeing whether Tibet comes out red and the Pacific blue, and a ramp that
  * cannot be compared to them would not do that job.
  */
+/**
+ * Crustal thickness off the same raster, smoothed between cells by hand.
+ *
+ * The class in the red channel is a name and must not be blended -- a class
+ * averaged with its neighbour is a third class, or none -- so the texture is
+ * sampled nearest. Thickness is a magnitude and does vary continuously across
+ * a boundary, so it gets the interpolation the sampler is not allowed to do:
+ * four texels and two mixes. One file, two kinds of data, each read the way it
+ * deserves.
+ */
+float crustThicknessKm(vec3 dir) {
+  vec2 uv = dirToUv(dir) * uCrustSize - 0.5;
+  vec2 cell = floor(uv);
+  vec2 f = uv - cell;
+  vec2 base = (cell + 0.5) / uCrustSize;
+  vec2 step = 1.0 / uCrustSize;
+  float g00 = texture(uCrust, base).g;
+  float g10 = texture(uCrust, base + vec2(step.x, 0.0)).g;
+  float g01 = texture(uCrust, base + vec2(0.0, step.y)).g;
+  float g11 = texture(uCrust, base + step).g;
+  // Half-kilometres, as written; see sampleCrust in tools/build-data.ts.
+  return mix(mix(g00, g10, f.x), mix(g01, g11, f.x), f.y) * 255.0 / 2.0;
+}
+
 vec3 thicknessRamp(float km) {
   float t = clamp((km - 5.0) / 70.0, 0.0, 1.0);
   vec3 c;
@@ -302,9 +335,9 @@ void main() {
   } else if (uMode == 3) {
     base = rigidityRamp(vRigidity);
   } else if (uMode == 6) {
-    base = thicknessRamp(vThickness);
+    base = thicknessRamp(crustThicknessKm(vDir));
   } else if (uMode == 7) {
-    int kind = int(vCrustType + 0.5);
+    int kind = int(texture(uCrust, dirToUv(vDir)).r * 255.0 + 0.5);
     base = srgbToLinear(CRUST_COLOURS[clamp(kind, 0, ${CRUST_TYPES.length - 1})]);
   } else if (uMode == 5) {
     base = fabricRamp(vDir);

@@ -8,6 +8,7 @@ dist
 /public/data/*.bin
 /public/data/*.json
 /public/data/*.jpg
+/public/data/*.png
 /public/data/*.sha
 
 # TypeScript incremental build state

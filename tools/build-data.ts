@@ -20,6 +20,9 @@ import { fileURLToPath } from 'node:url'
 import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
 import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
+import {
+  AGE_SAMPLES, encodeAge, momentOf, olderShare,
+} from '../shared/age-samples.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
@@ -37,7 +40,6 @@ import { writeTracks } from '../shared/tracks.js'
 import {
   PERMANENT_MA,
   R0_KM,
-  crustScale,
   type CrustModel,
   type CrustModelId,
   type Meta,
@@ -309,15 +311,14 @@ function main() {
     crust.type,
   )
 
-  const crustModels: CrustModel[] = (Object.keys(ageFields) as CrustModelId[]).map((id) => {
-    const faceAges = sampleFaceAges(mesh, ageFields[id], age)
-    return {
-      id,
-      label: id,
-      assumption: assumptions[id],
-      radiusKm: radiusCurve(faceAges, faceArea, thinning),
-    }
-  })
+  const crustModels: CrustModel[] = (Object.keys(ageFields) as CrustModelId[]).map((id) => ({
+    id,
+    label: id,
+    assumption: assumptions[id],
+    radiusKm: radiusCurve(
+      sampleCrustAge(mesh, ageFields[id], age, true).faces, faceArea, thinning,
+    ),
+  }))
   // The solved variant goes first so the app can treat it as the default.
   crustModels.sort((a, b) =>
     a.id === CONFIG.solvedModel ? -1 : b.id === CONFIG.solvedModel ? 1 : 0,
@@ -325,6 +326,7 @@ function main() {
 
   const solvedFaceAges = sampleFaceAges(mesh, ageFields[CONFIG.solvedModel], age)
   const solvedVertexAges = sampleVertexAges(mesh, ageFields[CONFIG.solvedModel], age)
+  const crustAge = sampleCrustAge(mesh, ageFields[CONFIG.solvedModel], age)
 
   for (const model of crustModels) {
     const last = model.radiusKm[model.radiusKm.length - 1]
@@ -334,15 +336,26 @@ function main() {
     )
   }
 
-  // Independent cross-check: the mesh-derived area budget against the same
-  // measurement taken at full 8192x4096 raster resolution. A large gap here
-  // would mean the triangulation is too coarse to hold the area budget.
+  // The mesh-derived area budget against the same measurement taken at full
+  // 8192x4096 raster resolution, which catches a triangulation too coarse to
+  // hold the budget -- but is not a score, and was read as one.
+  //
+  // The two are not measuring the same thing. The mesh curve counts a stretched
+  // margin at the size it had before it was stretched, because that is what the
+  // radius has to be sized for; the reference counts today's ground as it
+  // stands. That correction ramps in over each margin's own rifting, so the gap
+  // between the curves grows with time whether the mesh is fine enough or not,
+  // and most of what this number reports at 200 Ma is that correction rather
+  // than the triangulation. Watch it for a jump, not for its value.
   const meshCurve = crustModels.find((m) => m.id === 'permanent')!.radiusKm
   let worst = 0
   for (let t = 0; t < meshCurve.length; t++) {
     worst = Math.max(worst, Math.abs(meshCurve[t] - referenceRadiusKm[t]) / referenceRadiusKm[t])
   }
-  console.log(`  mesh vs full-resolution radius curve: max deviation ${(100 * worst).toFixed(2)}%`)
+  console.log(
+    `  mesh vs full-resolution radius curve: max deviation ${(100 * worst).toFixed(2)}% `
+      + '(mostly the un-stretching, which the reference does not model)',
+  )
 
   // The mesh is no longer cut into plates. It closes up instead: when the crust
   // under a triangle has not been made yet the triangle goes, and what moves
@@ -575,6 +588,19 @@ function main() {
   )
 
   writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, solvedVertexAges, crust, structure)
+  writeFileSync(
+    resolve(OUT, 'crust-age.bin'),
+    Buffer.concat([
+      Buffer.from(new Uint32Array([faceCount, AGE_SAMPLES]).buffer),
+      Buffer.from(crustAge.edges.buffer),
+      Buffer.from(crustAge.faces.buffer),
+    ]),
+  )
+  console.log(
+    `[build-data] wrote public/data/crust-age.bin, ${AGE_SAMPLES} age samples along every edge `
+      + `and over every triangle (${
+        ((8 + crustAge.edges.byteLength + crustAge.faces.byteLength) / 1e6).toFixed(1)} MB)`,
+  )
 
   const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'> = {
     version: 1,
@@ -759,6 +785,131 @@ function* neighbours(x: number, y: number, width: number, height: number) {
 }
 
 /**
+ * How much of every edge and every triangle is crust that still exists, read
+ * off the age grid rather than guessed from the corners.
+ *
+ * **The problem.** The solver takes one-million-year steps. At a half spreading
+ * rate of 33 km/Myr a step un-makes a strip about 33 km wide either side of
+ * every ridge, against a mesh 129 km across -- a quarter of an edge. So almost
+ * no edge is wholly younger than the moment and almost no triangle is, and a
+ * fold that can only take what is wholly gone takes nearly nothing: everything
+ * it cannot take has to be absorbed as deformation instead. That is the model
+ * spending twelve to twenty-six percent of the shell on squeezing against a
+ * budget of about one.
+ *
+ * Reading the age at the corners does not fix it, and the reason is worth
+ * stating. Age is distance from a spreading axis times rate -- that is what an
+ * axis *is* -- so walking across one the age falls to zero and rises again: a
+ * **V**, with its minimum in the middle of the edge. An edge that straddles a
+ * ridge has both ends old while the crust between them is new, and a straight
+ * line between two old corners never dips. Per corner or per face, the strip is
+ * invisible.
+ *
+ * **What this does instead.** It walks. Sixteen points along every edge and
+ * sixteen over every triangle, each one a lookup in the age grid, kept sorted.
+ * The solver's question -- how much of this edge exists at 30 Ma? -- becomes
+ * counting how many of the sixteen are older than 30, which assumes nothing at
+ * all about the shape of the age field and resolves 8 km on a 129 km edge
+ * instead of the whole of it. The quantisation moves off the triangulation and
+ * onto the data, where it belongs.
+ *
+ * **Where it goes.** Its own file, not mesh.bin: the viewer has no use for it
+ * and it must not go on the wire. Ten megabytes on disk, nothing downloaded.
+ */
+/**
+ * The sixteen equal-area pieces of a triangle, as barycentric weights.
+ *
+ * A 4 x 4 subdivision: ten sub-triangles pointing the same way as the parent
+ * and six pointing the other, each a sixteenth of it, and the sample sits at
+ * each one's centroid. Equal area matters -- an uneven lattice would weight
+ * part of the triangle twice and the count would stop meaning a share of it.
+ */
+const FACE_WEIGHTS: [number, number, number][] = (() => {
+  const n = 4
+  const out: [number, number, number][] = []
+  for (let i = 0; i < n; i++) {
+    for (let j = 0; i + j < n; j++) {
+      const u = (i + 1 / 3) / n
+      const v = (j + 1 / 3) / n
+      out.push([u, v, 1 - u - v])
+    }
+  }
+  for (let i = 0; i < n - 1; i++) {
+    for (let j = 0; i + j < n - 1; j++) {
+      const u = (i + 2 / 3) / n
+      const v = (j + 2 / 3) / n
+      out.push([u, v, 1 - u - v])
+    }
+  }
+  return out
+})()
+
+function sampleCrustAge(
+  mesh: { positions: Float64Array; indices: Uint32Array },
+  field: Float32Array,
+  grid: Raster,
+  /** Skip the edges, which only the solver wants; see `radiusCurve`. */
+  facesOnly = false,
+): { edges: Uint16Array; faces: Uint16Array } {
+  const faceCount = mesh.indices.length / 3
+  const edges = new Uint16Array(facesOnly ? 0 : faceCount * 3 * AGE_SAMPLES)
+  const faces = new Uint16Array(faceCount * AGE_SAMPLES)
+  const lookup = (x: number, y: number, z: number) => {
+    const length = Math.hypot(x, y, z)
+    const [column, row] = directionToPixel(
+      x / length, y / length, z / length, grid.width, grid.height,
+    )
+    return field[row * grid.width + column]
+  }
+  const encode = (age: number) => encodeAge(age, PERMANENT_MA)
+  const scratch = new Uint16Array(AGE_SAMPLES)
+  const put = (into: Uint16Array, at: number) => {
+    // Insertion sort: sixteen values, already nearly monotone along an edge
+    // because the age field is smooth, so this touches almost nothing.
+    for (let k = 1; k < AGE_SAMPLES; k++) {
+      const value = scratch[k]
+      let m = k - 1
+      while (m >= 0 && scratch[m] > value) { scratch[m + 1] = scratch[m]; m-- }
+      scratch[m + 1] = value
+    }
+    into.set(scratch, at)
+  }
+
+  const p = mesh.positions
+  for (let f = 0; f < faceCount; f++) {
+    const a = mesh.indices[f * 3] * 3
+    const b = mesh.indices[f * 3 + 1] * 3
+    const c = mesh.indices[f * 3 + 2] * 3
+    const corner = [a, b, c]
+    for (let k = 0; facesOnly ? false : k < 3; k++) {
+      const from = corner[k]
+      const to = corner[(k + 1) % 3]
+      for (let i = 0; i < AGE_SAMPLES; i++) {
+        // Mid-cell rather than end to end: the ends are shared with the
+        // neighbouring edges and would be counted twice over the shell.
+        const w = (i + 0.5) / AGE_SAMPLES
+        scratch[i] = encode(lookup(
+          p[from] + (p[to] - p[from]) * w,
+          p[from + 1] + (p[to + 1] - p[from + 1]) * w,
+          p[from + 2] + (p[to + 2] - p[from + 2]) * w,
+        ))
+      }
+      put(edges, (f * 3 + k) * AGE_SAMPLES)
+    }
+    for (let i = 0; i < AGE_SAMPLES; i++) {
+      const [u, v, w] = FACE_WEIGHTS[i]
+      scratch[i] = encode(lookup(
+        p[a] * u + p[b] * v + p[c] * w,
+        p[a + 1] * u + p[b + 1] * v + p[c + 1] * w,
+        p[a + 2] * u + p[b + 2] * v + p[c + 2] * w,
+      ))
+    }
+    put(faces, f * AGE_SAMPLES)
+  }
+  return { edges, faces }
+}
+
+/**
  * The age of the crust at each vertex, taken where the vertex is.
  *
  * The fold needs this and never had it. A triangle sinks because part of it has
@@ -920,6 +1071,44 @@ function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
         `rigidity ${CRUST_RIGIDITY[name as keyof typeof CRUST_RIGIDITY].toFixed(2)}`,
     )
   }
+  /**
+   * The same grid as a picture, for the viewer to read per pixel.
+   *
+   * The crustal-class view used to come off a vertex attribute, and a reader
+   * spotted what that does: the classes arrived as hexagons rather than as
+   * anything in the data. Two faults, both in the same place. A triangle's
+   * class is a vote of its corners and is per *triangle*, but a shared-vertex
+   * mesh can only carry one value per *point*, so `src/data.ts` gave each point
+   * the class of the weakest triangle around it and the shader's `flat` then
+   * handed that to every triangle in its star -- so the picture was a vertex
+   * star, and weak crust bled outwards by one everywhere it touched strong.
+   *
+   * Read as a raster it is the data's own cells and nothing else, and it rides
+   * along with the crust like the surface map does, because both are sampled by
+   * the rock's present-day direction. What it cannot do is be smoother than
+   * ECM1: at one degree the cells are 111 km and the mesh is 129, so this
+   * sharpens the boundaries onto the data and stops there. There is no finer
+   * truth available to draw.
+   *
+   * Red is the class index, green the thickness in half-kilometres. The
+   * thickness is a magnitude and the class is a name, which is why the shader
+   * filters them differently.
+   */
+  const pixels = new Uint8Array(width * height * 4)
+  for (let i = 0; i < width * height; i++) {
+    pixels[i * 4] = typeGrid[i]
+    pixels[i * 4 + 1] = Math.max(0, Math.min(255, Math.round(thicknessGrid[i] * 2)))
+    pixels[i * 4 + 3] = 255
+  }
+  const png = new PNG({ width, height, colorType: 2 })
+  png.data.set(pixels)
+  const encoded = PNG.sync.write(png)
+  writeFileSync(resolve(OUT, 'crust.png'), encoded)
+  console.log(
+    `[build-data] wrote public/data/crust.png, ${width}x${height} -- ECM1's own cells, `
+      + `class and thickness (${(encoded.length / 1e3).toFixed(0)} kB)`,
+  )
+
   return { rigidity, type, thickness }
 }
 
@@ -1173,16 +1362,38 @@ function computeFaceAreas(positions: Float64Array, indices: Uint32Array): Float6
  * constraints is what lets the reconstruction close: the shell is asked to
  * cover exactly as much sphere as there is crust to cover it with.
  */
+/**
+ * How big the Earth was, from how much crust there still is.
+ *
+ * `shares` is the sampled surviving fraction of each triangle -- sixteen
+ * lookups in the age grid, counted -- and it replaces what used to be here: one
+ * median age per triangle, faded over a fixed time constant with a floor under
+ * it, which is `crustScale`. That was an approximation of this, and a biased
+ * one: a triangle a ridge runs through has a median age of its own that says
+ * nothing about the strip in the middle of it, and the fade meant crust the
+ * grid says is gone was still counted for tens of millions of years.
+ *
+ * It cost about one and a half percent of the radius, and the way that showed
+ * up is worth recording, because it did not look like a radius problem. The
+ * solver asks each triangle for its sampled surviving area; the sphere it has
+ * to tile came from this function. The two disagreed by 7.5 of 494 million
+ * km2, so the crust could not reach round the Earth it was given and had to be
+ * stretched to cover it -- and the stretch was read as the model demanding
+ * deformation, which is the one number the whole reconstruction is judged on.
+ * The bias was in the ruler.
+ */
 function radiusCurve(
-  faceAges: Float32Array,
+  shares: Uint16Array,
   faceArea: Float64Array,
   thinning: { stretch: Float32Array; riftMa: Float32Array },
 ): number[] {
+  const faceCount = faceArea.length
   const curve: number[] = []
   for (let t = 0; t <= CONFIG.endTimeMa; t += CONFIG.radiusStepMa) {
+    const moment = momentOf(t)
     let solidAngle = 0
-    for (let f = 0; f < faceAges.length; f++) {
-      const scale = crustScale(faceAges[f], t)
+    for (let f = 0; f < faceCount; f++) {
+      const share = olderShare(shares, f * AGE_SAMPLES, moment)
       // A margin that has been pulled out to half its thickness covered half
       // the ground before it was, so at the time it had not yet been stretched
       // the area budget must count it small. Leaving this out was asking the
@@ -1197,7 +1408,7 @@ function radiusCurve(
       // model that is not up for discussion.
       const rift = thinning.riftMa[f]
       const pulled = 1 + (thinning.stretch[f] - 1) * (rift > 0 ? Math.min(1, t / rift) : 0)
-      solidAngle += (faceArea[f] * scale * scale) / pulled
+      solidAngle += (faceArea[f] * share) / pulled
     }
     curve.push(R0_KM * Math.sqrt(solidAngle / (4 * Math.PI)))
   }

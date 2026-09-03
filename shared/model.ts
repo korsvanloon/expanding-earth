@@ -303,28 +303,6 @@ export interface Meta {
   fixedRadiusDiagnostics: FrameDiagnostics[]
 }
 
-/**
- * Window, in Myr, over which crust is un-created as we integrate backwards.
- *
- * Crust does not blink out of existence at a hard cutoff: over TAU_MA its rest
- * length is faded to almost nothing, so a mid-ocean ridge closes as a smooth
- * zip rather than as a row of triangles vanishing. The area budget uses the
- * same fade, which keeps the radius curve and the constraint system consistent
- * with each other.
- */
-export const TAU_MA = 5
-/** Crust never shrinks below this fraction of its size, to avoid degeneracy. */
-export const MIN_SCALE = 0.04
-
-/**
- * How much of its present-day size a piece of crust of age `ageMa` still has at
- * time `t`. 1 while the crust exists, fading to MIN_SCALE once it does not.
- */
-export function crustScale(ageMa: number, t: number): number {
-  if (t <= ageMa) return 1
-  return Math.max(MIN_SCALE, 1 - (t - ageMa) / TAU_MA)
-}
-
 /** Surface gravity in m/s^2 for a given radius, holding mass constant. */
 export const surfaceGravity = (radiusKm: number) =>
   (GRAVITATIONAL_CONSTANT * EARTH_MASS_KG) / (radiusKm * 1000) ** 2

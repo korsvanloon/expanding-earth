@@ -73,6 +73,15 @@ export function Globe({ data }: { data: Dataset }) {
    */
   const [fabric, setFabric] = useState<THREE.Texture | null>(null)
   const [zones, setZones] = useState<THREE.Texture | null>(null)
+  /**
+   * ECM1's crustal class and thickness, as the grid rather than as attributes.
+   *
+   * Both were carried per vertex, which a class cannot be: it belongs to a
+   * triangle, a shared-vertex mesh has nowhere to put one, and what came out
+   * was hexagons. Fetched on first use like the others -- it is 30 kB, but the
+   * two views that want it are two clicks in.
+   */
+  const [crust, setCrust] = useState<THREE.Texture | null>(null)
   /** Fetch one of the measurement rasters, once, when something first wants it. */
   const raster = (
     file: string, wanted: boolean, held: THREE.Texture | null,
@@ -89,7 +98,7 @@ export function Globe({ data }: { data: Dataset }) {
       // sRGB decode would bend the scale they were written on.
       texture.colorSpace = THREE.NoColorSpace
       texture.wrapS = THREE.RepeatWrapping
-      if (file.endsWith('zones.png')) {
+      if (file.endsWith('zones.png') || file.endsWith('crust.png')) {
         // Nearest, and no mipmaps. Two of this image's channels are a curve's
         // identity number, and an identity averaged with its neighbour's is a
         // different curve or none: smoothing it would leave every line fringed
@@ -106,6 +115,7 @@ export function Globe({ data }: { data: Dataset }) {
   }, [wanted, held, file])
   raster('data/fabric.jpg', mode === 'fabric', fabric, setFabric)
   raster('data/zones.png', showZones, zones, setZones)
+  raster('data/crust.png', mode === 'crust' || mode === 'thickness', crust, setCrust)
 
   /**
    * The per-frame byte maps, fetched when something first wants them.
@@ -164,6 +174,7 @@ export function Globe({ data }: { data: Dataset }) {
   }, [showZones, zoneIds])
   useEffect(() => () => fabric?.dispose(), [fabric])
   useEffect(() => () => zones?.dispose(), [zones])
+  useEffect(() => () => crust?.dispose(), [crust])
   const referenceFrame = useStore((s) => s.referenceFrame)
   // Fitting the rotations walks every frame once; cache them per continent.
   const rotations = useMemo(
@@ -416,8 +427,6 @@ export function Globe({ data }: { data: Dataset }) {
     g.setAttribute('aDir', new THREE.BufferAttribute(data.dirs, 3))
     g.setAttribute('aAge', new THREE.BufferAttribute(data.vertexAge, 1))
     g.setAttribute('aRigidity', new THREE.BufferAttribute(data.rigidity, 1))
-    g.setAttribute('aThickness', new THREE.BufferAttribute(data.thickness, 1))
-    g.setAttribute('aCrustType', new THREE.BufferAttribute(Float32Array.from(data.crustType), 1))
     g.setAttribute('aSeam', dynamic(buffers.seam, 1))
     g.setIndex(
       new THREE.BufferAttribute(buffers.index, 1).setUsage(THREE.DynamicDrawUsage),
@@ -438,6 +447,8 @@ export function Globe({ data }: { data: Dataset }) {
       uFabric: { value: BLANK },
       uZones: { value: BLANK },
       uZonesOn: { value: 0 },
+      uCrust: { value: BLANK },
+      uCrustSize: { value: new THREE.Vector2(1, 1) },
       uPickedZones: { value: new Float32Array(ZONE_LIMIT) },
       uPickedCount: { value: 0 },
       uTimeMa: { value: 0 },
@@ -699,6 +710,10 @@ export function Globe({ data }: { data: Dataset }) {
       material.current.uniforms.uFabric.value = fabric ?? BLANK
       material.current.uniforms.uZones.value = zones ?? BLANK
       material.current.uniforms.uZonesOn.value = showZones && zones ? 1 : 0
+      material.current.uniforms.uCrust.value = crust ?? BLANK
+      const grid = material.current.uniforms.uCrustSize.value as THREE.Vector2
+      const image = crust?.image as { width?: number; height?: number } | undefined
+      grid.set(image?.width ?? 1, image?.height ?? 1)
       const held = material.current.uniforms.uPickedZones.value as Float32Array
       for (let i = 0; i < ZONE_LIMIT; i++) held[i] = pickedZones[i] ?? 0
       material.current.uniforms.uPickedCount.value = Math.min(ZONE_LIMIT, pickedZones.length)

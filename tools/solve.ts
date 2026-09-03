@@ -52,6 +52,7 @@ import {
   type FrameDiagnostics,
   type Meta,
 } from '../shared/model.js'
+import { AGE_SAMPLES, momentOf, olderShare } from '../shared/age-samples.js'
 import { CRATON_RIGIDITY, CRUST_TYPES, WEAK_RIGIDITY } from '../shared/crust.js'
 import { type TopologyDelta, topologyDelta, writeTopology } from '../shared/topology.js'
 import { writeChannel, writeFrames } from '../shared/frames.js'
@@ -539,7 +540,38 @@ function main() {
   if (buffer.byteLength < offset - buffer.byteOffset + vertexCount * 4) {
     throw new Error('mesh.bin has no per-vertex ages; re-run build-data')
   }
-  const pointAge = new Float32Array(buffer.buffer, offset, vertexCount)
+  // Read by the viewer, which used to take each point's age from the oldest
+  // triangle around it and so painted every coastal point as permanent crust.
+  // The solver's own use of it is gone: it asked what age a *point* was and got
+  // an answer, and the answer turned out not to be the question -- see
+  // crust-age.bin below.
+  void new Float32Array(buffer.buffer, offset, vertexCount)
+
+  /**
+   * How much of every edge and every triangle is crust that exists yet, read
+   * off the age grid along the edge rather than interpolated between its ends.
+   *
+   * Sixteen sorted samples each; see `sampleCrustAge` in tools/build-data.ts
+   * for why the corners cannot answer this. Comparisons happen in the stored
+   * units, so nothing is decoded in the loop and the permanent sentinel is
+   * simply larger than any moment.
+   */
+  const ageFile = readFileSync(resolve(OUT, 'crust-age.bin'))
+  const [ageFaces, ageSamples] = new Uint32Array(ageFile.buffer, ageFile.byteOffset, 2)
+  if (ageFaces !== faceCount || ageSamples !== AGE_SAMPLES) {
+    throw new Error(
+      `crust-age.bin holds ${ageSamples} samples over ${ageFaces} faces; `
+      + `this build wants ${AGE_SAMPLES} over ${faceCount}`,
+    )
+  }
+  const edgeAges = new Uint16Array(
+    ageFile.buffer, ageFile.byteOffset + 8, faceCount * 3 * AGE_SAMPLES,
+  )
+  const faceAgeSamples = new Uint16Array(
+    ageFile.buffer,
+    ageFile.byteOffset + 8 + faceCount * 3 * AGE_SAMPLES * 2,
+    faceCount * AGE_SAMPLES,
+  )
   console.log(`[solve] ${vertexCount} vertices, ${faceCount} faces`)
   if (cutPairCount) throw new Error('this solver closes the mesh up; it wants an uncut one')
 
@@ -1589,6 +1621,8 @@ function main() {
     // been let out change while the sweeps run, so forty sweeps were asking the
     // same question forty times: a million square roots a step, and four
     // million divisions, for a hundred thousand distinct answers.
+    // The moment, in the units the age samples are stored in.
+    const moment = momentOf(t)
     for (let f = 0; f < faceCount; f++) {
       const stretched = stretchAt(f, t)
       const pull = Math.sqrt(stretched)
@@ -1601,14 +1635,10 @@ function main() {
       }
       // How much of each edge is still there; see CONFIG.edgeAge.
       for (let k = 0; k < 3; k++) {
-        const a2 = pointAge[indices[f * 3 + k]]
-        const b2 = pointAge[indices[f * 3 + ((k + 1) % 3)]]
-        const older = Math.max(a2, b2)
-        const younger = Math.min(a2, b2)
-        const share = t <= younger ? 1 : t >= older ? 0 : (older - t) / (older - younger)
+        const share = olderShare(edgeAges, (f * 3 + k) * AGE_SAMPLES, moment)
         edgeTarget[f * 3 + k] = (restEdge[f * 3 + k] * share) / pull
       }
-      // And how much of its area, exactly rather than from the edges.
+      // And how much of its area, which is a different question.
       //
       // Scaling the three sides and squaring the mean was the first attempt and
       // it removes far too much: a triangle with one edge half gone loses a
@@ -1617,16 +1647,12 @@ function main() {
       // jumping from 4.0 to 11.8 million km2 at the first step -- the model
       // being told to lose three times the crust the age grid says it should.
       //
-      // Age over a triangle is a plane through its three corner ages, so the
-      // crust older than the moment is a polygon cut by one straight line, and
-      // its area is exact. One corner surviving leaves a triangle; two leave a
-      // quadrilateral, which is the whole face less the corner triangle at the
-      // third.
-      restAreaNow[f] = (restArea[f] * survivingShare(
-        pointAge[indices[f * 3]] - t,
-        pointAge[indices[f * 3 + 1]] - t,
-        pointAge[indices[f * 3 + 2]] - t,
-      )) / stretched
+      // Nor is it a plane through three corner ages, which was the second
+      // attempt: the age over a triangle that a ridge runs through is a roof,
+      // not a plane, and a plane through the corners misses the whole ridge.
+      // So the area is sampled in its own right, over sixteen equal pieces.
+      restAreaNow[f] = (restArea[f]
+        * olderShare(faceAgeSamples, f * AGE_SAMPLES, moment)) / stretched
     }
 
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
@@ -2922,32 +2948,6 @@ function unfold(
   return caught
 }
 
-/**
- * What fraction of a triangle is older than the moment, from its three corners.
- *
- * The corner values are age minus the moment, so surviving crust is where they
- * are positive. Age over a face is taken as a plane through the three, which is
- * what a spreading axis makes of it, so the boundary is a straight line and the
- * areas are exact rather than sampled.
- */
-function survivingShare(a: number, b: number, c: number): number {
-  const above = (a >= 0 ? 1 : 0) + (b >= 0 ? 1 : 0) + (c >= 0 ? 1 : 0)
-  if (above === 3) return 1
-  if (above === 0) return 0
-  // Where the line cuts the edge from `from` to `to`, as a fraction from `from`.
-  const cut = (from: number, to: number) => {
-    const span = to - from
-    return Math.abs(span) < 1e-12 ? 0 : Math.min(1, Math.max(0, -from / span))
-  }
-  if (above === 1) {
-    // The surviving corner and its two legs to the cut.
-    const [p, q, r] = a >= 0 ? [a, b, c] : b >= 0 ? [b, c, a] : [c, a, b]
-    return cut(p, q) * cut(p, r)
-  }
-  // Two survive: everything but the corner triangle at the one that does not.
-  const [p, q, r] = a < 0 ? [a, b, c] : b < 0 ? [b, c, a] : [c, a, b]
-  return 1 - cut(p, q) * cut(p, r)
-}
 
 /**
  * Hold every triangle to the area of the crust it is made of.
