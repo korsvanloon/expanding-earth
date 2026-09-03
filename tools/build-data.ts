@@ -25,8 +25,8 @@ import {
 import { loadAgeGrid } from './lib/agegrid.js'
 import { obliquityDeg, overDisc, spreadingDirection } from './lib/age-gradient.js'
 import {
-  axisOf, grainReference, grooveField, grooveRaster, linkGrooves, trimEither, walkGrooves,
-  type Groove,
+  axisOf, grainReference, grooveField, grooveLineaments, grooveRaster, linkGrooves,
+  trimEither, walkGrooves, type Groove,
 } from './lib/grooves.js'
 import {
   AGE_SAMPLES, encodeAge, momentOf, olderShare,
@@ -275,6 +275,11 @@ export const CONFIG = {
    * real measurement. Higher is faster and finds fewer grooves.
    */
   grooveScoutQuantile: Number(process.env.GROOVE_SCOUT ?? 0.4),
+  /**
+   * Whether the grooves, rather than the old lineaments, anchor the
+   * travelled-direction field -- and so decide which way the mesh moves.
+   */
+  grooveFlow: Number(process.env.GROOVE_FLOW ?? 1) > 0,
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: 60,
   /**
@@ -560,8 +565,25 @@ async function main() {
   // The direction field the walk follows, fitted through every detected
   // fracture zone at once and to the age grid everywhere else. See
   // tools/lib/flowfield.ts for why this replaces steering step by step.
-  const field = CONFIG.useFlowField && zones && vgg
-    ? flowField(zones, ageMa, ageFull.width, ageFull.height, vgg, R0_KM,
+  /**
+   * The anchors the travelled-direction field is fitted through.
+   *
+   * This is the one seam where a detector reaches the model rather than the
+   * picture: the field says which way the crust went everywhere, following it
+   * gives the flow lines, the flow lines give the conjugate pairs, and half of
+   * those pull the solver. So whichever detector feeds this decides which way
+   * the mesh moves.
+   *
+   * The grooves feed it now. GROOVE_FLOW=0 puts the old lineaments back, which
+   * is how the two are compared: one number decides it, the median distance
+   * between the held-back pairs, and it is measured on pairs the solver never
+   * saw either way.
+   */
+  const anchors = CONFIG.grooveFlow
+    ? grooveLineaments(grooves, structure.gravity.width, structure.gravity.height)
+    : zones
+  const field = CONFIG.useFlowField && anchors && vgg
+    ? flowField(anchors, ageMa, ageFull.width, ageFull.height, vgg, R0_KM,
         { passes: CONFIG.flowPasses, anchorWeight: CONFIG.flowAnchorWeight })
     : undefined
   if (field) {

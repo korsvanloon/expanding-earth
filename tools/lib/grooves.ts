@@ -1050,3 +1050,78 @@ export function grooveRaster(
   }
   return { strength, curve }
 }
+
+/**
+ * The grooves as a direction field, in the shape the flow-field fit wants.
+ *
+ * This is the seam where the grooves reach the model rather than the picture.
+ * The fit takes sparse anchors -- somewhere a line was actually seen, and which
+ * way it ran -- and carries a direction across the gaps by its own smoothness;
+ * following that field gives the family of curves the crust travelled along,
+ * and those give the conjugate pairs, half of which pull the solver. So what
+ * the grooves change here is which way the mesh moves.
+ *
+ * Only the stretches where the trough was read become anchors. Carrying a line
+ * through a fade is the right thing to draw and the wrong thing to fit: the
+ * fit's whole job is to cross gaps, it does it better than a straight line
+ * does, and feeding it a straight-line guess would have it agree with the guess
+ * instead of with the evidence either side.
+ *
+ * `axis` is the along-line direction as a bearing east of north over 0 to 255,
+ * which is the encoding the field reads. `ridgeness` carries the score, so a
+ * clearer groove counts for more.
+ */
+export function grooveLineaments(
+  grooves: Groove[], width: number, height: number, dilateCells = 1,
+): {
+  width: number
+  height: number
+  axis: Uint8Array
+  coherence: Uint8Array
+  ridgeness: Float32Array
+  known: Uint8Array
+} {
+  const axis = new Uint8Array(width * height)
+  const coherence = new Uint8Array(width * height)
+  const ridgeness = new Float32Array(width * height)
+  const known = new Uint8Array(width * height)
+
+  for (const groove of grooves) {
+    const strength = Math.max(0, groove.score)
+    for (let i = 1; i < groove.points.length; i++) {
+      const from = groove.points[i - 1]
+      const to = groove.points[i]
+      if (!from.measured || !to.measured) continue
+      const eastward = ((to.lon - from.lon) + 540) % 360 - 180
+      const middleLat = ((from.lat + to.lat) / 2) * RAD
+      const bearing = (((Math.atan2(eastward * Math.cos(middleLat), to.lat - from.lat)
+        * 180) / Math.PI % 180) + 180) % 180
+      const encoded = Math.min(255, Math.round((bearing / 180) * 256))
+      const steps = Math.max(1, Math.ceil(Math.max(
+        Math.abs(eastward / 360) * width,
+        Math.abs((to.lat - from.lat) / 180) * height,
+      )))
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps
+        const lon = from.lon + eastward * t
+        const lat = from.lat + (to.lat - from.lat) * t
+        const column = Math.floor((((lon + 180) / 360) % 1 + 1) % 1 * width)
+        const row = Math.floor(((90 - lat) / 180) * height)
+        for (let dr = -dilateCells; dr <= dilateCells; dr++) {
+          const r = row + dr
+          if (r < 0 || r >= height) continue
+          for (let dc = -dilateCells; dc <= dilateCells; dc++) {
+            const c = ((column + dc) % width + width) % width
+            const cell = r * width + c
+            if (ridgeness[cell] >= strength) continue
+            ridgeness[cell] = strength
+            axis[cell] = encoded
+            coherence[cell] = 255
+            known[cell] = 1
+          }
+        }
+      }
+    }
+  }
+  return { width, height, axis, coherence, ridgeness, known }
+}
