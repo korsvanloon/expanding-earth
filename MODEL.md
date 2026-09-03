@@ -455,10 +455,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 31 | 80 km | 100% | 0% |
-| 5 Ma | 74 | 47 km | 97% | 0% |
-| 30 Ma | 63 | 166 km | 56% | 0% |
-| 60 Ma | 53 | 276 km | 32% | 0% |
-| 120 Ma | 25 | 761 km | 8% | 0% |
+| 5 Ma | 74 | 70 km | 96% | 0% |
+| 30 Ma | 63 | 154 km | 56% | 0% |
+| 60 Ma | 53 | 251 km | 38% | 0% |
+| 120 Ma | 25 | 736 km | 8% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 174 blocks at its most divided and 6 at 200 Ma.
+The run finds 162 blocks at its most divided and 5 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 22 km/Myr to 5.6, the block count from as many as 174 to 6, and the biggest block grows to 60% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 23 km/Myr to 3.6, the block count from as many as 162 to 5, and the biggest block grows to 61% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 9.7 km/Myr | 94 | 5% | 0.5% |
-| 30 Ma | 0.644%/Myr | 21.3 km/Myr | 166 | 1% | 1.0% |
-| 60 Ma | 0.448%/Myr | 18.1 km/Myr | 144 | 10% | 1.8% |
-| 120 Ma | 0.256%/Myr | 16.6 km/Myr | 91 | 14% | 2.6% |
-| 200 Ma | 0.000%/Myr | 5.6 km/Myr | 6 | 60% | 3.5% |
+| 5 Ma | 0.620%/Myr | 11.3 km/Myr | 106 | 4% | 0.3% |
+| 30 Ma | 0.644%/Myr | 22.7 km/Myr | 162 | 3% | 1.0% |
+| 60 Ma | 0.448%/Myr | 15.9 km/Myr | 117 | 9% | 1.9% |
+| 120 Ma | 0.256%/Myr | 15.0 km/Myr | 81 | 8% | 2.5% |
+| 200 Ma | 0.000%/Myr | 3.6 km/Myr | 5 | 61% | 3.0% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -757,11 +757,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.29% | 0.02% | 0.000% | 0.00% | 0.04% | 1.6% |
-| 30 Ma | 5728 km | 1.99% | 0.03% | 0.000% | 0.07% | 0.18% | 5.6% |
-| 60 Ma | 5197 km | 4.52% | 0.14% | 0.000% | 0.74% | 0.31% | 9.4% |
-| 120 Ma | 4373 km | 9.93% | 1.44% | 0.579% | 2.24% | 0.56% | 14.0% |
-| 200 Ma | 3905 km | 12.79% | 3.13% | 1.447% | 2.48% | 0.91% | 21.6% |
+| 5 Ma | 6272 km | 0.62% | 0.05% | 0.000% | 0.00% | 0.05% | 0.9% |
+| 30 Ma | 5728 km | 2.26% | 0.11% | 0.000% | 0.00% | 0.19% | 2.4% |
+| 60 Ma | 5197 km | 4.38% | 0.37% | 0.000% | 0.03% | 0.30% | 4.0% |
+| 120 Ma | 4373 km | 9.82% | 1.76% | 0.298% | 0.39% | 0.57% | 5.8% |
+| 200 Ma | 3905 km | 13.08% | 3.80% | 1.473% | 0.91% | 0.91% | 10.2% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -775,14 +775,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 28 km | 7 km at 195 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 12% | +12 | 7 km | 2 km at 190 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 853 km | 745 km at 110 Ma |
-| Greenland &ndash; North America | 60 Ma | 38% | 41% | +3 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1012 km | 688 km at 170 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 10 km | 2 km at 185 Ma |
-| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 9 km | 2 km at 175 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2260 km | 2260 km at 200 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 22 km | 5 km at 135 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 27% | +27 | 17 km | 6 km at 195 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 867 km | 862 km at 115 Ma |
+| Greenland &ndash; North America | 60 Ma | 38% | 40% | +2 | 0 km | 0 km at 5 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1127 km | 877 km at 170 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 19 km | 4 km at 135 Ma |
+| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 13 km | 1 km at 100 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2234 km | 2234 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -1659,6 +1659,66 @@ triangle back to keeping nothing. Early on the fix is nearly complete; late on
 it is a third of one. What is left is not a bad barrier but too much convergence
 asked of too few triangles &mdash; the same 129 km quantisation that holds the
 gaps open.
+
+## Asking for the area, which nobody had
+
+A reader set out how they wanted the model to work, and it turned out the model
+had never been asked for the central part of it: *alles zo veel mogelijk stijf
+... maar de volume van een driehoek moet zo veel mogelijk gelijk blijven over de
+hele bol.* Everything as stiff as it can be, and a triangle's area kept the same
+everywhere on the crust.
+
+That statement was not in the solver. There were edge springs, which ask for
+lengths and let a triangle shear its area away for nothing, and a one-sided
+barrier that only stops a triangle turning inside out. **"The area of this
+triangle should stay the same" was never said.** It is now, as the same Newton
+step the fold guard uses, run in both directions and towards the crust's own
+area rather than towards a floor beneath it.
+
+It is the largest single improvement in a while, and it improves the two things
+that had been trading against each other:
+
+| Ma | pairs before | pairs after | strain on weak crust |
+|---|---|---|---|
+| 20 | 119 km, 69% | 139 km, 70% | 4.3% &rarr; **2.0%** |
+| 40 | 183 km, 54% | **151 km, 59%** | 6.9% &rarr; **2.7%** |
+| 60 | 276 km, 32% | **251 km, 38%** | 9.4% &rarr; **4.0%** |
+| 80 | 386 km, 12% | **375 km, 18%** | 11.7% &rarr; **4.8%** |
+| 120 | 761 km, 8% | **736 km, 8%** | 14.0% &rarr; **5.8%** |
+
+Against the budget the data allows, the overspend roughly halves: ten times over
+at 20 Ma becomes five, fifteen at 40 becomes nine, sixteen at 60 becomes nine.
+Bare sky does not move at all (2.75% to 2.78% at 40 Ma). Australia against
+Antarctica goes from 9% of its margin in contact to 27%. The Atlantic pairs give
+a little ground, as they have to every time the crust is made less willing to
+deform.
+
+### What the first step says
+
+The same reader asked for the first million years to be got exactly right before
+going on to the second, which is the right way round and had never been possible
+&mdash; frames are five million years apart, so a one-step run reported nothing
+at all. It reports now, and two things fall out of it.
+
+**It is not an iteration problem.** From 80 sweeps to 1200, the deformation at
+step one goes from 9.79 to 10.33 million km&sup2; &mdash; slightly *worse*. The
+solver is already at equilibrium; there is no answer sitting just out of reach.
+
+**And the fold can barely act at all.** After one million years, **73 points of
+40,962** hang inside the shell. That is 0.18% of the mesh, against about 3.2
+million km&sup2; of crust &mdash; 0.6% of the sphere &mdash; that has to go
+somewhere. The reason is exact: a triangle folds only once it is *entirely*
+younger than the moment, and after a single step almost none is. Everything the
+fold cannot take becomes deformation, and at step one the fold can take a
+fifth of it.
+
+Which names the next thing to build, and it is not a finer mesh. `build-data`
+already takes four samples of the age grid inside every triangle and keeps one
+number. Keeping the spread as well &mdash; the youngest and the oldest crust in
+the face &mdash; would let a triangle fold *partly*: a face a third covered by
+crust younger than the moment sinks a third of the way, instead of not at all.
+That moves the quantisation from the 129 km mesh to the age grid's own tenth of
+a degree, and it does not touch the triangulation.
 
 ## Known weaknesses
 

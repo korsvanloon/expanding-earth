@@ -355,6 +355,33 @@ const CONFIG = {
   // point 0 km -> 3 km. So the dilution it was built to fix was real and was
   // not what is holding the gaps open.
   /**
+   * How hard every triangle is held to its own area, 0 to 1.
+   *
+   * The model has never actually asked for this. It has edge springs, which
+   * ask for lengths and let a triangle shear away its area at no cost, and it
+   * has a one-sided barrier that only stops a triangle turning inside out.
+   * "The area of a triangle should stay the same" is a different statement and
+   * it was not being made.
+   *
+   * It is also the one a reader wants made: compression should be a last
+   * resort, the fold should be doing the work, and what is left over is what
+   * moves. So this is the same Newton step the fold guard uses, run in both
+   * directions and towards the crust's own area rather than towards a floor
+   * under it.
+   */
+  areaHold: Number(process.env.AREA_K ?? 1),
+  /**
+   * Report every step rather than every recorded frame.
+   *
+   * Frames are five million years apart, so a run of one step reported
+   * nothing at all -- and a reader who wants to get the first step exactly
+   * right before going on to the second needs to see the first step. This
+   * prints what that step did to the crust: how much of the sphere it left
+   * bare, how much area each triangle kept, and how much was squeezed against
+   * what the data allows.
+   */
+  stepReport: process.env.STEP_TRACE === '1',
+  /**
    * How strongly neighbouring crust is made to move together, 0 to 1.
    *
    * The measured failure this attacks: against a deformation budget the data
@@ -1602,6 +1629,11 @@ function main() {
       if (contacts.deepestKm > deepestContactKm) deepestContactKm = contacts.deepestKm
       contactTests += contacts.tests
       contactBucketed += contacts.bucketed
+      if (CONFIG.areaHold > 0) {
+        holdArea(
+          pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.areaHold,
+        )
+      }
       unfold(
         pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin, faceMargin,
@@ -1669,6 +1701,41 @@ function main() {
     removeNetRotation(pos, previous, vertexCount, shrink)
     settleCollapsed()
     followRegions(rNext)
+
+    if (CONFIG.stepReport) {
+      for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
+      markIslands()
+      const seen = coverage(pos, shell, faceCount, probes, cells, buckets)
+      let squeezed = 0
+      let stretchedNow = 0
+      let demanded = 0
+      const kept: number[] = []
+      for (let f = 0; f < faceCount; f++) {
+        if (!crustAlive[f]) continue
+        const rest = restAreaNow[f]
+        demanded += rest
+        const now = solidAngle(
+          pos, mesh.faceVerts[f * 3] * 3, mesh.faceVerts[f * 3 + 1] * 3,
+          mesh.faceVerts[f * 3 + 2] * 3,
+        ) * rNext * rNext
+        if (now < rest) squeezed += rest - now
+        else stretchedNow += now - rest
+        kept.push(rest > 0 ? now / rest : 1)
+      }
+      kept.sort((x, y) => x - y)
+      const q = (p: number) => kept[Math.min(kept.length - 1, Math.floor(p * kept.length))]
+      const sphere = 4 * Math.PI * rNext * rNext
+      const budget = Math.abs(demanded - sphere)
+      const deformed = squeezed + stretchedNow
+      console.log(
+        `[step] ${String(t).padStart(3)} Ma  bare ${(100 * seen.gapFraction).toFixed(3)}%  `
+        + `doubled ${(100 * seen.overlapFraction).toFixed(3)}%  `
+        + `area kept p1 ${q(0.01).toFixed(3)} p10 ${q(0.1).toFixed(3)} `
+        + `median ${q(0.5).toFixed(3)} p90 ${q(0.9).toFixed(3)} worst ${q(0).toFixed(3)}  `
+        + `deformed ${(deformed / 1e6).toFixed(2)} Mkm2 vs budget `
+        + `${(budget / 1e6).toFixed(2)} (x${(deformed / (budget || 1)).toFixed(1)})`,
+      )
+    }
 
     contactsTotal += contactsNow
     if (tracing) {
@@ -2751,6 +2818,56 @@ function unfold(
     caught++
   }
   return caught
+}
+
+/**
+ * Hold every triangle to the area of the crust it is made of.
+ *
+ * The same determinant and the same gradients as `unfold`, which is no
+ * accident: six times the volume of the tetrahedron on a triangle and the
+ * centre is twice its area times the radius, so one Newton step on the
+ * determinant is one step on the area. What differs is that the fold guard is
+ * a barrier -- it only pushes when a triangle has fallen below a fraction of
+ * its size, and never pulls one back that has grown -- and this is a
+ * constraint, pushing and pulling towards the size itself.
+ *
+ * It says nothing about shape. A triangle may be sheared into a needle by this
+ * and the edge springs will still object; between them they ask for the crust
+ * to keep both its lengths and its area, which is as close to rigid as a mesh
+ * of springs gets.
+ */
+function holdArea(
+  pos: Float64Array,
+  faceVerts: Int32Array,
+  alive: Uint8Array,
+  restAreaNow: Float64Array,
+  faceCount: number,
+  r: number,
+  stiffness: number,
+) {
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const a = faceVerts[f * 3] * 3
+    const b = faceVerts[f * 3 + 1] * 3
+    const c = faceVerts[f * 3 + 2] * 3
+    const ax = pos[a], ay = pos[a + 1], az = pos[a + 2]
+    const bx = pos[b], by = pos[b + 1], bz = pos[b + 2]
+    const cx = pos[c], cy = pos[c + 1], cz = pos[c + 2]
+    const gax = by * cz - bz * cy, gay = bz * cx - bx * cz, gaz = bx * cy - by * cx
+    const det = ax * gax + ay * gay + az * gaz
+    const want = 2 * restAreaNow[f] * r
+    const gbx = cy * az - cz * ay, gby = cz * ax - cx * az, gbz = cx * ay - cy * ax
+    const gcx = ay * bz - az * by, gcy = az * bx - ax * bz, gcz = ax * by - ay * bx
+    const norm =
+      gax * gax + gay * gay + gaz * gaz +
+      gbx * gbx + gby * gby + gbz * gbz +
+      gcx * gcx + gcy * gcy + gcz * gcz
+    if (norm < 1e-12) continue
+    const l = (stiffness * (want - det)) / norm
+    pos[a] += l * gax; pos[a + 1] += l * gay; pos[a + 2] += l * gaz
+    pos[b] += l * gbx; pos[b + 1] += l * gby; pos[b + 2] += l * gbz
+    pos[c] += l * gcx; pos[c + 1] += l * gcy; pos[c + 2] += l * gcz
+  }
 }
 
 function relaxToSphere(
