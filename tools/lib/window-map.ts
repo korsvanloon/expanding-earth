@@ -61,8 +61,12 @@ export function fabricColour(encoded: number): [number, number, number] {
 export function ageColour(age: number, oldestMa = 180): [number, number, number] {
   if (Number.isNaN(age)) return [58, 58, 64]
   const t = Math.min(1, Math.max(0, age / oldestMa))
-  const young = [186, 214, 235]
-  const old = [16, 30, 58]
+  // Both ends darker than they want to be as a map in their own right. This
+  // one exists to be drawn over, and at the light end the white lines were
+  // vanishing into the young crust along every ridge -- which is exactly where
+  // the most interesting lines are.
+  const young = [116, 146, 178]
+  const old = [12, 22, 44]
   return [
     Math.round(young[0] + (old[0] - young[0]) * t),
     Math.round(young[1] + (old[1] - young[1]) * t),
