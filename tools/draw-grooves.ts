@@ -354,6 +354,30 @@ async function main() {
       `[grooves] ${anchors.length} of ${grooves.length} would anchor the flow field, `
         + `${anchors.reduce((sum: number, g: Groove) => sum + readKm(g), 0).toFixed(0)} km of read line`,
     )
+    // What the two conditions each cost, so a density can be aimed at rather
+    // than guessed. The old detector anchored 0.6% to 1% of cells, and that is
+    // the configuration known to work: the point is to match its cleanliness
+    // with more of it, not to go sparser still.
+    const reads = grooves.map(readKm).sort((a: number, b: number) => b - a)
+    const offs = grooves
+      .map((groove) => {
+        const mine = axisOf(groove)
+        const should = spreading(mine.at)
+        return should === null ? NaN : axisDiff(mine.axis, should)
+      })
+      .filter((v: number) => !Number.isNaN(v))
+      .sort((a: number, b: number) => a - b)
+    const at = (list: number[], share: number) =>
+      list[Math.min(list.length - 1, Math.floor(share * list.length))].toFixed(0)
+    console.log(
+      `[grooves] read length: longest ${reads[0].toFixed(0)} km, `
+        + `top 1% over ${at(reads, 0.01)}, top 5% over ${at(reads, 0.05)}, `
+        + `top 20% over ${at(reads, 0.2)}, median ${at(reads, 0.5)}`,
+    )
+    console.log(
+      `[grooves] off the spreading direction: a quarter within ${at(offs, 0.25)} deg, `
+        + `half within ${at(offs, 0.5)}, three quarters within ${at(offs, 0.75)}`,
+    )
   }
   if (loose.length) {
     console.log(
