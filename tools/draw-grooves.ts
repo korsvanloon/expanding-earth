@@ -95,8 +95,9 @@ const OUT = resolve(ROOT, process.env.OUT ?? '.stage/maps')
  * axis, that is, where the age turns round and the direction is undefined
  * rather than uncertain.
  */
-async function spreadingReference(): Promise<(at: GroovePoint) => number | null> {
-  const grid = await loadAgeGrid(resolve(ROOT, 'data-src/agegrid.nc'))
+async function spreadingReference(
+  grid: Awaited<ReturnType<typeof loadAgeGrid>>,
+): Promise<(at: GroovePoint) => number | null> {
   const raw = (x: number, y: number, z: number) => {
     const [column, row] = directionToPixel(x, y, z, grid.width, grid.height)
     return grid.at(column, row)
@@ -157,6 +158,7 @@ async function main() {
   const budget = Number(process.env.PAIRS ?? 0)
 
   const onLand = ashore()
+  const ages = await loadAgeGrid(resolve(ROOT, 'data-src/agegrid.nc'))
   const decoded = jpeg.decode(readFileSync(resolve(DATA, 'fabric.jpg')), { useTArray: true })
   const fabric: Fabric = {
     width: decoded.width,
@@ -204,7 +206,7 @@ async function main() {
    */
   const against = (process.env.AGAINST ?? 'both').split(',')
   const references: ((at: GroovePoint) => number | null)[] = []
-  const spreading = await spreadingReference()
+  const spreading = await spreadingReference(ages)
   if (against.includes('spreading') || against.includes('both')) {
     references.push(spreading)
   }
@@ -312,7 +314,29 @@ async function main() {
    * noise the lines disappear into, and what a reader needs there is where the
    * lines are, which wants a quiet base and a coastline to place them by.
    */
-  const canvas = process.env.BASE === 'plain'
+  /**
+   * BASE=age paints the sea floor's age, which is the base to judge a groove's
+   * *direction* against: crust leaves its axis along the spreading direction,
+   * so a groove should run square to the bands and not along them. The fabric
+   * shows whether a line is there; the age shows whether it points the right
+   * way. Whatever has no age -- land, and the sea floor the survey never dated
+   * -- comes back as the ramp's flat undated grey rather than as its young end,
+   * which is the one confusion that would matter here. The two are not told
+   * apart from each other: neither has an age, which is the only thing this
+   * base claims to show.
+   */
+  const canvas = process.env.BASE === 'age'
+    ? fabricWindow(window, {
+      width: ages.width,
+      height: ages.height,
+      at: (column, row) => {
+        const age = ages.at(column, row)
+        if (Number.isNaN(age)) return 0
+        // Youngest bright, oldest dark, over the encoded ramp the drawing uses.
+        return 1 + Math.round(254 * (1 - Math.min(1, age / 180)))
+      },
+    })
+    : process.env.BASE === 'plain'
     ? fabricWindow(window, {
       width: fabric.width,
       height: fabric.height,
