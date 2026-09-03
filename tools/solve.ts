@@ -395,7 +395,7 @@ const CONFIG = {
    * younger goes to nothing; one straddling shortens by exactly the strip that
    * has not erupted -- kilometres a step, not whole triangles.
    */
-  edgeAge: Number(process.env.EDGE_AGE ?? 0) > 0,
+  edgeAge: Number(process.env.EDGE_AGE ?? 1) > 0,
   /**
    * Report every step rather than every recorded frame.
    *

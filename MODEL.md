@@ -455,10 +455,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 31 | 80 km | 100% | 0% |
-| 5 Ma | 74 | 70 km | 96% | 0% |
-| 30 Ma | 63 | 154 km | 56% | 0% |
-| 60 Ma | 53 | 251 km | 38% | 0% |
-| 120 Ma | 25 | 736 km | 8% | 0% |
+| 5 Ma | 74 | 49 km | 96% | 0% |
+| 30 Ma | 63 | 169 km | 54% | 0% |
+| 60 Ma | 53 | 273 km | 32% | 0% |
+| 120 Ma | 25 | 776 km | 8% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 162 blocks at its most divided and 5 at 200 Ma.
+The run finds 160 blocks at its most divided and 3 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 23 km/Myr to 3.6, the block count from as many as 162 to 5, and the biggest block grows to 61% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 23 km/Myr to 3.5, the block count from as many as 160 to 3, and the biggest block grows to 63% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 11.3 km/Myr | 106 | 4% | 0.3% |
-| 30 Ma | 0.644%/Myr | 22.7 km/Myr | 162 | 3% | 1.0% |
-| 60 Ma | 0.448%/Myr | 15.9 km/Myr | 117 | 9% | 1.9% |
-| 120 Ma | 0.256%/Myr | 15.0 km/Myr | 81 | 8% | 2.5% |
-| 200 Ma | 0.000%/Myr | 3.6 km/Myr | 5 | 61% | 3.0% |
+| 5 Ma | 0.620%/Myr | 14.3 km/Myr | 120 | 3% | 0.4% |
+| 30 Ma | 0.644%/Myr | 22.5 km/Myr | 156 | 2% | 1.1% |
+| 60 Ma | 0.448%/Myr | 16.0 km/Myr | 125 | 10% | 2.0% |
+| 120 Ma | 0.256%/Myr | 14.8 km/Myr | 82 | 12% | 2.5% |
+| 200 Ma | 0.000%/Myr | 3.5 km/Myr | 3 | 63% | 3.1% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -757,11 +757,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.62% | 0.05% | 0.000% | 0.00% | 0.05% | 0.9% |
-| 30 Ma | 5728 km | 2.26% | 0.11% | 0.000% | 0.00% | 0.19% | 2.4% |
-| 60 Ma | 5197 km | 4.38% | 0.37% | 0.000% | 0.03% | 0.30% | 4.0% |
-| 120 Ma | 4373 km | 9.82% | 1.76% | 0.298% | 0.39% | 0.57% | 5.8% |
-| 200 Ma | 3905 km | 13.08% | 3.80% | 1.473% | 0.91% | 0.91% | 10.2% |
+| 5 Ma | 6272 km | 0.39% | 0.01% | 0.000% | 0.08% | 0.05% | 1.6% |
+| 30 Ma | 5728 km | 2.43% | 0.03% | 0.000% | 0.22% | 0.19% | 2.7% |
+| 60 Ma | 5197 km | 4.97% | 0.17% | 0.000% | 0.46% | 0.32% | 4.6% |
+| 120 Ma | 4373 km | 10.78% | 1.47% | 0.301% | 1.03% | 0.58% | 6.4% |
+| 200 Ma | 3905 km | 13.80% | 3.54% | 1.397% | 1.48% | 0.92% | 10.8% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -775,14 +775,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 22 km | 5 km at 135 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 27% | +27 | 17 km | 6 km at 195 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 867 km | 862 km at 115 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 8% | +8 | 10 km | 2 km at 120 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 25% | +25 | 34 km | 0 km at 185 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 904 km | 867 km at 110 Ma |
 | Greenland &ndash; North America | 60 Ma | 38% | 40% | +2 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1127 km | 877 km at 170 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 19 km | 4 km at 135 Ma |
-| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 13 km | 1 km at 100 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2234 km | 2234 km at 200 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1161 km | 868 km at 170 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 17 km | 4 km at 150 Ma |
+| Antarctica &ndash; South America | watched | 0% | 14% | +14 | 8 km | 3 km at 155 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2286 km | 2286 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -1719,6 +1719,61 @@ the face &mdash; would let a triangle fold *partly*: a face a third covered by
 crust younger than the moment sinks a third of the way, instead of not at all.
 That moves the quantisation from the 129 km mesh to the age grid's own tenth of
 a degree, and it does not touch the triangulation.
+
+### A triangle tips because one corner has to go
+
+The reader drew the answer before the measurement asked for it, twice, and the
+second time said it plainly: *als een driehoek gedeeltelijk weg zou moeten
+(minstens 1 punt jonger) dat hij dan schuin naar binnen kan.* If part of a
+triangle has to go &mdash; if even one of its corners is younger than the moment
+&mdash; then it tips inward at an angle. Not the whole face at once, and not
+per-face at all: **per corner**, which is why it tips rather than drops.
+
+Expressed as edges it becomes a statement the data already supports. **The rest
+length of an edge is the length of crust along it that still exists.** Age rises
+linearly with distance from a spreading axis &mdash; that is what an axis is
+&mdash; so along an edge the age is a straight line, and the surviving part is
+the stretch of it older than the moment. An edge wholly older keeps its length,
+one wholly younger goes to nothing, and one straddling shortens by exactly the
+strip that has not erupted yet: kilometres a step, instead of whole triangles at
+a threshold. The area follows exactly, because the age over a triangle is a
+plane through its three corner ages, so the surviving crust is a polygon cut by
+one straight line.
+
+On the first step alone it does what it was meant to do. Bare sky 0.391% becomes
+0.249%, the worst hundredth of triangles keeps 0.840 of its area instead of
+0.780, and the overspend against the budget the radius curve allows falls from
+2.4 times to 1.5.
+
+Over the whole run it is **a trade again, and a sharper one than the fold's**:
+
+| | 5 Ma | 30 Ma | 60 Ma | 120 Ma |
+|---|---|---|---|---|
+| whole faces | 70 km | **154 km** | **251 km** | **736 km** |
+| per corner | **49 km** | 169 km | 273 km | 776 km |
+
+Thirty percent better on the first frames, five to ten percent worse everywhere
+after. The same split runs through the rest of the diagnostics. Crust covered
+twice improves at every epoch (3.80% to 3.54% at 200 Ma, and 0.37% to 0.17% at
+60), and South America against Africa closes from 22 km to 10 &mdash; 2 km at
+its closest. But bare sky rises after 30 Ma (4.38% to 4.97% at 60 Ma), strain on
+weak crust rises by about a tenth, and **triangles turning inside out rise from
+almost nothing to 1.48% at 200 Ma**, which is the one number here that is not a
+trade but a defect.
+
+The cause is named and it is not the idea. There is no per-vertex age in the
+data: the solver uses the youngest face touching each point as a stand-in, which
+counts any point beside young crust as young. That removes about twice the crust
+the radius curve allows &mdash; the budget at step one rises from 4.03 to 7.64
+million km&sup2; &mdash; and removing too much, too early, is exactly what would
+buy the first frames and cost the later ones.
+
+`build-data` already samples the age grid at all three corners of every triangle
+&mdash; three of the four samples it takes &mdash; and keeps none of them.
+Keeping them is what makes this exact, and like the fold itself it does not
+touch the mesh. It is shipped as it stands, because the reader asked to see it
+rather than to read about it, and because the shape of the trade is the argument
+for finishing it rather than for reverting it.
 
 ## Known weaknesses
 
