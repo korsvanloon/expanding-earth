@@ -21,6 +21,8 @@ import { readChannel, readFrames, writeChannel, writeFrames } from '../shared/fr
 import { markCrust, measureFold, newFoldScratch, pullInward } from '../tools/lib/fold'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { flowAt, flowField } from '../tools/lib/flowfield'
+import { grooveField, walkGrooves } from '../tools/lib/grooves'
+import { axisDiff, bearingDeg } from '../tools/lib/bearing'
 import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
 import {
@@ -1206,6 +1208,84 @@ describe('finding the line a path should be on', () => {
     let nx = -y * x, ny = 1 - y * y, nz = -y * z
     const nl = Math.hypot(nx, ny, nz)
     expect(crestOffsetKm(field, x, y, z, nx / nl, ny / nl, nz / nl, 300, R0_KM)).toBe(null)
+  })
+})
+
+describe("finding a groove the way a reader finds one", () => {
+  /**
+   * A synthetic fabric with the three things that look alike in a real one.
+   *
+   * The reader's rule is that a groove is a light band with a dark centre
+   * line. Two other features satisfy that locally and must not be reported: a
+   * seamount, whose bright ring has a dark middle, and which is the strongest
+   * bright-dark-bright profile in the real South Atlantic; and a scarp, which
+   * is bright on one side of a dark line and quiet on the other. Only the line
+   * that keeps its shape along its whole length is a groove.
+   */
+  const W = 3600
+  const H = 1800
+  const cell = (lon: number, lat: number) =>
+    [Math.round(((lon + 180) / 360) * W), Math.round(((90 - lat) / 180) * H)] as const
+  const fabric = () => {
+    const data = new Uint8Array(W * H).fill(90)
+    const put = (c: number, r: number, v: number) => {
+      if (r < 0 || r >= H) return
+      data[r * W + ((c % W) + W) % W] = v
+    }
+    // A groove along latitude -20, running the full width of the window: two
+    // bright walls two cells out, a dark floor between them.
+    const [, grooveRow] = cell(0, -20)
+    for (let c = 0; c < W; c++) {
+      put(c, grooveRow, 20)
+      for (const d of [-2, -3, 2, 3]) put(c, grooveRow + d, 220)
+    }
+    // A scarp along latitude -25: dark line, bright on its north side only.
+    const [, scarpRow] = cell(0, -25)
+    for (let c = 0; c < W; c++) {
+      put(c, scarpRow, 20)
+      for (const d of [-2, -3]) put(c, scarpRow + d, 220)
+    }
+    // A seamount at 10 west, 30 south: a bright ring with a dark middle.
+    const [mountColumn, mountRow] = cell(-10, -30)
+    for (let r = -6; r <= 6; r++) {
+      for (let c = -6; c <= 6; c++) {
+        const away = Math.hypot(c, r)
+        if (away < 2) put(mountColumn + c, mountRow + r, 20)
+        else if (away < 5) put(mountColumn + c, mountRow + r, 220)
+      }
+    }
+    return { width: W, height: H, at: (c: number, r: number) => data[r * W + c] }
+  }
+  const found = () => {
+    const at = fabric()
+    const window = { lonFrom: -20, lonTo: 0, latFrom: -35, latTo: -15 }
+    return walkGrooves(at, grooveField(at, window), {})
+  }
+  /** How much detected line runs within a degree of a latitude. */
+  const alongLat = (grooves: ReturnType<typeof walkGrooves>, lat: number) => {
+    let steps = 0
+    for (const groove of grooves) {
+      for (const point of groove.points) if (Math.abs(point.lat - lat) < 1) steps++
+    }
+    return steps
+  }
+
+  it('finds the groove, and not the scarp or the seamount', () => {
+    const grooves = found()
+    expect(alongLat(grooves, -20)).toBeGreaterThan(10)
+    expect(alongLat(grooves, -25)).toBe(0)
+    expect(alongLat(grooves, -30)).toBe(0)
+  })
+
+  it('reports the groove running the way it runs', () => {
+    const grooves = found()
+    const along = grooves.filter((g) => Math.abs(g.points[0].lat - -20) < 1)
+    expect(along.length).toBeGreaterThan(0)
+    for (const groove of along) {
+      const a = groove.points[0]
+      const b = groove.points[groove.points.length - 1]
+      expect(axisDiff(bearingDeg(a, b), 90)).toBeLessThan(5)
+    }
   })
 })
 

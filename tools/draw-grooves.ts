@@ -1,0 +1,194 @@
+/**
+ * The grooves this can find, on the fabric window a reader can check them in.
+ *
+ * Nothing here touches the pairing yet, on purpose. The reader's diagnosis was
+ * that the pairs are bad because the fracture zones are badly found, and their
+ * rule for finding one -- a light band with a dark centre line -- is now a
+ * measurement. The one thing worth doing with it before it is wired into
+ * anything is to draw what it finds over the picture they read, so they can say
+ * whether these are the lines they were following.
+ *
+ *     LON=-40,5 LAT=-45,-5 SCALE=3 tsx tools/draw-grooves.ts
+ *
+ * PAIRS=n also puts the pairs of that window on it, spread over their ages and
+ * numbered as draw-fabric numbers them, so a verdict already given about pair
+ * four can be looked at beside the grooves near it.
+ */
+import { readFileSync } from 'node:fs'
+import { dirname, resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import jpeg from 'jpeg-js'
+import { directionToUv } from '../shared/sphere.js'
+import { pairHue, readTracks } from '../shared/tracks.js'
+import { apartKm, axisDiff, bearingDeg, type Place } from './lib/bearing.js'
+import { grooveField, walkGrooves, type Fabric, type Groove } from './lib/grooves.js'
+import { fabricWindow, windowFromEnv } from './lib/window-map.js'
+
+/**
+ * How well a pair's join follows the grooves along its whole length.
+ *
+ * The join is walked at intervals and each step compared with the nearest
+ * detected groove to it, because the join is thousands of kilometres long and a
+ * groove near one end says nothing about the crust at the other. What comes
+ * back is the median disagreement over the steps that had a groove near them at
+ * all, and how many of them did: a pair with two steps covered is not judged,
+ * it is unjudged, and saying so is the point.
+ */
+function againstGrooves(
+  grooves: Groove[], a: Place, b: Place, reachKm: number, stepKm = 100,
+): { off: number; covered: number; steps: number } {
+  const total = apartKm(a, b)
+  const steps = Math.max(2, Math.round(total / stepKm))
+  const offs: number[] = []
+  for (let s = 0; s <= steps; s++) {
+    const t = s / steps
+    // Along the join in longitude and latitude, which is not the great circle
+    // but is within a few kilometres of it over these distances.
+    const at = { lon: a.lon + (b.lon - a.lon) * t, lat: a.lat + (b.lat - a.lat) * t }
+    const ahead = {
+      lon: a.lon + (b.lon - a.lon) * Math.min(1, t + 0.01),
+      lat: a.lat + (b.lat - a.lat) * Math.min(1, t + 0.01),
+    }
+    const behind = {
+      lon: a.lon + (b.lon - a.lon) * Math.max(0, t - 0.01),
+      lat: a.lat + (b.lat - a.lat) * Math.max(0, t - 0.01),
+    }
+    let nearest: { axis: number; awayKm: number } | null = null
+    for (const groove of grooves) {
+      for (let i = 0; i < groove.points.length; i++) {
+        const awayKm = apartKm(at, groove.points[i])
+        if (awayKm > reachKm || (nearest && awayKm >= nearest.awayKm)) continue
+        const from = groove.points[Math.max(0, i - 1)]
+        const to = groove.points[Math.min(groove.points.length - 1, i + 1)]
+        if (from === to) continue
+        nearest = { axis: bearingDeg(from, to), awayKm }
+      }
+    }
+    if (nearest) offs.push(axisDiff(bearingDeg(behind, ahead), nearest.axis))
+  }
+  offs.sort((p, q) => p - q)
+  return {
+    off: offs.length ? offs[Math.floor(offs.length / 2)] : NaN,
+    covered: offs.length,
+    steps: steps + 1,
+  }
+}
+
+const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+const DATA = resolve(ROOT, 'public/data')
+const OUT = resolve(ROOT, process.env.OUT ?? '.stage/maps')
+
+function main() {
+  const window = windowFromEnv()
+  const budget = Number(process.env.PAIRS ?? 0)
+
+  const decoded = jpeg.decode(readFileSync(resolve(DATA, 'fabric.jpg')), { useTArray: true })
+  const fabric: Fabric = {
+    width: decoded.width,
+    height: decoded.height,
+    at: (column, row) => decoded.data[(row * decoded.width + column) * 4],
+  }
+
+  const started = Date.now()
+  const field = grooveField(fabric, window)
+  const grooves = walkGrooves(fabric, field)
+  console.log(
+    `[grooves] ${field.width}x${field.height} cells in `
+      + `${((Date.now() - started) / 1000).toFixed(1)}s; `
+      + `${grooves.length} grooves, `
+      + `${grooves.reduce((s, g) => s + g.lengthKm, 0).toFixed(0)} km of line`,
+  )
+
+  const canvas = fabricWindow(window, fabric)
+  // The lines first, in one colour, so what is being asked about is not
+  // confused with the pairs' own colours.
+  grooves.forEach((groove) => {
+    for (let i = 1; i < groove.points.length; i++) {
+      const from = canvas.at(groove.points[i - 1].lon, groove.points[i - 1].lat)
+      const to = canvas.at(groove.points[i].lon, groove.points[i].lat)
+      // Three pixels of white, so a detected line is never confused with a
+      // pair's own colour in the picture that compares the two.
+      for (const lift of [-1, 0, 1]) {
+        canvas.line(
+          { px: from.px, py: from.py + lift }, { px: to.px, py: to.py + lift }, [255, 255, 255],
+        )
+      }
+    }
+  })
+
+  console.log(`[grooves] ${canvas.write(resolve(OUT, 'grooves.png'))}`)
+
+  if (budget > 0) {
+    const mesh = readFileSync(resolve(DATA, 'mesh.bin'))
+    const [vertexCount] = new Uint32Array(mesh.buffer, mesh.byteOffset, 4)
+    const dirs = new Float32Array(mesh.buffer, mesh.byteOffset + 16, vertexCount * 3)
+    const file = readFileSync(resolve(DATA, 'tracks.bin'))
+    const tracks = readTracks(
+      file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer,
+    )
+    const place = (verts: Uint32Array, weights: Float32Array, i: number) => {
+      let x = 0
+      let y = 0
+      let z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = verts[i * 3 + k] * 3
+        const w = weights[i * 3 + k]
+        x += dirs[v] * w
+        y += dirs[v + 1] * w
+        z += dirs[v + 2] * w
+      }
+      const l = Math.hypot(x, y, z) || 1
+      const [u, v] = directionToUv(x / l, y / l, z / l)
+      return { lon: (u - 0.5) * 360, lat: (v - 0.5) * 180 }
+    }
+    const here: { i: number; age: number }[] = []
+    for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+      const a = place(tracks.pairAVerts, tracks.pairAWeights, i)
+      const b = place(tracks.pairBVerts, tracks.pairBWeights, i)
+      if (canvas.inside(a) && canvas.inside(b)) here.push({ i, age: tracks.pairAgeMa[i] })
+    }
+    here.sort((p, q) => p.age - q.age)
+    const stride = Math.max(1, Math.round(here.length / budget))
+    console.log('  no   age    join    off   steps with a groove within reach')
+    here.filter((_, n) => n % stride === 0).slice(0, budget).forEach(({ i, age }, n) => {
+      const a = place(tracks.pairAVerts, tracks.pairAWeights, i)
+      const b = place(tracks.pairBVerts, tracks.pairBWeights, i)
+      const colour = pairHue(i).map((c) => Math.round(255 * c)) as unknown as
+        readonly [number, number, number]
+      const from = canvas.at(a.lon, a.lat)
+      const to = canvas.at(b.lon, b.lat)
+      canvas.line(from, to, colour)
+      canvas.ring(from, colour)
+      canvas.ring(to, colour)
+      canvas.label(String(n + 1), from.px + 12, from.py - 18, colour)
+      const near = againstGrooves(grooves, a, b, Number(process.env.REACH ?? 250))
+      console.log(
+        `  ${String(n + 1).padStart(2)}  ${age.toFixed(0).padStart(4)} Ma  `
+          + `${bearingDeg(a, b).toFixed(0).padStart(4)}  `
+          + `${(Number.isNaN(near.off) ? '--' : near.off.toFixed(0)).padStart(5)}  `
+          + `${String(near.covered).padStart(3)} of ${near.steps}`,
+      )
+    })
+    console.log(`[grooves] ${canvas.write(resolve(OUT, 'grooves-pairs.png'))}`)
+  }
+
+  console.log(
+    '   len   score  from (lon, lat)     to (lon, lat)       axis',
+  )
+  grooves.slice(0, 20).forEach((groove) => {
+    const a = groove.points[0]
+    const b = groove.points[groove.points.length - 1]
+    const bearing = (Math.atan2(
+      (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180), b.lat - a.lat,
+    ) * 180) / Math.PI
+    console.log(
+      `  ${groove.lengthKm.toFixed(0).padStart(4)} km  ${groove.score.toFixed(1).padStart(4)}  `
+        + `${a.lon.toFixed(1).padStart(6)}, ${a.lat.toFixed(1).padStart(5)}   `
+        + `${b.lon.toFixed(1).padStart(6)}, ${b.lat.toFixed(1).padStart(5)}   `
+        + `${(((bearing % 180) + 180) % 180).toFixed(0).padStart(4)}`,
+    )
+  })
+
+}
+
+main()
