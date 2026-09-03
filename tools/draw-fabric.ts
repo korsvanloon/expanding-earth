@@ -25,6 +25,7 @@ import { PNG } from 'pngjs'
 import jpeg from 'jpeg-js'
 import { directionToUv } from '../shared/sphere.js'
 import { pairHue, pairPulls, readTracks } from '../shared/tracks.js'
+import { apartKm, bearingDeg, localBearings } from './lib/bearing.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
@@ -182,7 +183,25 @@ function main() {
     `[fabric] ${lonFrom}..${lonTo} lon, ${latFrom}..${latTo} lat  `
       + `${here.length} pairs have both ends in the window; drawing ${chosen.length}`,
   )
-  console.log('  no   age    A (lon, lat)        B (lon, lat)       apart   pulls?')
+  /**
+   * What the neighbours think the bearing should be, over every pair on Earth.
+   *
+   * Not only the ones in the window: a pair on its edge has half its
+   * neighbourhood outside, and cutting that off would give it a lopsided
+   * opinion of the local bearing. See tools/lib/bearing.ts for what this is
+   * worth and what it rests on.
+   */
+  const bearings = localBearings(
+    Array.from({ length: tracks.pairAgeMa.length }, (_, i) => {
+      const a = place(tracks.pairAVerts, tracks.pairAWeights, i)
+      const b = place(tracks.pairBVerts, tracks.pairBWeights, i)
+      return { at: a, bearing: bearingDeg(a, b) }
+    }),
+  )
+
+  console.log(
+    '  no   age    A (lon, lat)        B (lon, lat)       apart  bearing  local  off  role',
+  )
   /** Where a number has already been put, so the next one can dodge it. */
   const placed: { x: number; y: number }[] = []
   chosen.forEach(({ i, age }, n) => {
@@ -209,15 +228,16 @@ function main() {
       for (let bx = -4; bx < wide - 4; bx++) put(mx + bx, my + by, 14, 16, 20)
     }
     label(name, mx, my, r, g, blue)
-    const apart = Math.acos(Math.max(-1, Math.min(1,
-      Math.sin((a.lat * Math.PI) / 180) * Math.sin((b.lat * Math.PI) / 180)
-      + Math.cos((a.lat * Math.PI) / 180) * Math.cos((b.lat * Math.PI) / 180)
-        * Math.cos(((a.lon - b.lon) * Math.PI) / 180)))) * 6371
+    const { local, off } = bearings[i]
     console.log(
       `  ${String(n + 1).padStart(2)}  ${age.toFixed(0).padStart(4)} Ma  `
         + `${a.lon.toFixed(1).padStart(6)}, ${a.lat.toFixed(1).padStart(5)}   `
         + `${b.lon.toFixed(1).padStart(6)}, ${b.lat.toFixed(1).padStart(5)}   `
-        + `${apart.toFixed(0).padStart(5)} km  ${pairPulls(tracks, i) ? 'pulls' : 'scores'}`,
+        + `${apartKm(a, b).toFixed(0).padStart(5)} km  `
+        + `${bearingDeg(a, b).toFixed(0).padStart(4)}   `
+        + `${(Number.isNaN(local) ? '--' : local.toFixed(0)).padStart(4)}  `
+        + `${(Number.isNaN(off) ? '--' : off.toFixed(0)).padStart(3)}  `
+        + `${pairPulls(tracks, i) ? 'pulls' : 'scores'}`,
     )
   })
 
