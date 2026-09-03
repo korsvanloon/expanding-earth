@@ -25,8 +25,8 @@ import { loadAgeGrid } from './lib/agegrid.js'
 import { overDisc, spreadingDirection } from './lib/age-gradient.js'
 import { loadRaster } from './lib/raster.js'
 import {
-  axisOf, grainReference, grooveField, linkGrooves, trimEither, walkGrooves,
-  type Fabric, type Groove, type GroovePoint,
+  axisOf, grainReference, grooveField, linkGrooves, readKm, trimAgainst, trimEither,
+  walkGrooves, type Fabric, type Groove, type GroovePoint,
 } from './lib/grooves.js'
 import { fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
 
@@ -156,6 +156,7 @@ async function main() {
   const window = windowFromEnv()
   const budget = Number(process.env.PAIRS ?? 0)
 
+  const onLand = ashore()
   const decoded = jpeg.decode(readFileSync(resolve(DATA, 'fabric.jpg')), { useTArray: true })
   const fabric: Fabric = {
     width: decoded.width,
@@ -176,7 +177,17 @@ async function main() {
   /** LINK=0 shows the segments as found, before anything is carried through. */
   const link = Number(process.env.LINK ?? 1) > 0
   const started = Date.now()
-  const field = grooveField(fabric, window, knobs)
+  // Continental cells are not measured at all rather than measured and then
+  // dropped, which over a whole-world window halves the time and costs nothing
+  // real: a groove there was never going to be kept.
+  const field = grooveField(fabric, window, {
+    ...knobs,
+    skip: (column: number, row: number) => onLand({
+      lon: ((column + 0.5) / fabric.width) * 360 - 180,
+      lat: 90 - ((row + 0.5) / fabric.height) * 180,
+      measured: false,
+    }),
+  })
   const found = walkGrooves(fabric, field, knobs)
   /**
    * Which reference the segments are judged against, and TRIM=0 for none.
@@ -193,8 +204,9 @@ async function main() {
    */
   const against = (process.env.AGAINST ?? 'both').split(',')
   const references: ((at: GroovePoint) => number | null)[] = []
+  const spreading = await spreadingReference()
   if (against.includes('spreading') || against.includes('both')) {
-    references.push(await spreadingReference())
+    references.push(spreading)
   }
   if (against.includes('grain') || against.includes('both')) {
     references.push(grainReference(found, Number(process.env.GRAIN ?? 800)))
@@ -210,7 +222,6 @@ async function main() {
    * case and worth keeping separately: the survey is incomplete, and a groove
    * there is a groove nobody has dated yet.
    */
-  const onLand = ashore()
   const ashoreSegments = Number(process.env.LAND ?? 0) > 0
     ? []
     : found.filter((g) => onLand(axisOf(g).at))
@@ -325,6 +336,25 @@ async function main() {
   draw(trimmed.dropped, [220, 60, 60])
   draw(loose, [90, 220, 255])
   draw(grooves, [255, 255, 255])
+  /**
+   * The grooves that get a vote in the model, over the ones that only get drawn.
+   *
+   * Every groove is drawn; only the long, well-read, well-aligned ones anchor
+   * the travelled-direction field, because a fit takes a vote and dense wrong
+   * anchors outvote sparse right ones. Highlighting them is the only way to see
+   * what the model is actually being told, as against what was found.
+   */
+  if (Number(process.env.ANCHORS ?? 1) > 0) {
+    const long = grooves.filter(
+      (groove) => readKm(groove) >= Number(process.env.ANCHOR_KM ?? 400),
+    )
+    const anchors = trimAgainst(long, spreading, Number(process.env.ANCHOR_OFF ?? 20)).kept
+    draw(anchors, [255, 210, 60])
+    console.log(
+      `[grooves] ${anchors.length} of ${grooves.length} would anchor the flow field, `
+        + `${anchors.reduce((sum: number, g: Groove) => sum + readKm(g), 0).toFixed(0)} km of read line`,
+    )
+  }
   if (loose.length) {
     console.log(
       `[grooves] and ${loose.length} at a bar of ${process.env.SEED2}, `

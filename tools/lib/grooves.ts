@@ -811,6 +811,17 @@ export function linkGrooves(
  * be taken over a few hundred kilometres, where a swing survives it. The
  * primitives are shared with that module; the claim is not.
  */
+/**
+ * How much of a groove was actually read, in km.
+ *
+ * Not its length: a linked groove can be mostly bridge, and for anything that
+ * treats a groove as evidence the bridges do not count. `stepKm` is the walk's
+ * own spacing, which is what the points are.
+ */
+export function readKm(groove: Groove, stepKm = 20): number {
+  return groove.points.filter((point) => point.measured).length * stepKm
+}
+
 /** A segment's own axis, folded to 0..180, and where its middle is. */
 export function axisOf(groove: Groove): { at: GroovePoint; axis: number } {
   const a = groove.points[0]

@@ -25,8 +25,8 @@ import {
 import { loadAgeGrid } from './lib/agegrid.js'
 import { obliquityDeg, overDisc, spreadingDirection } from './lib/age-gradient.js'
 import {
-  axisOf, grainReference, grooveField, grooveLineaments, grooveRaster, linkGrooves,
-  trimEither, walkGrooves, type Groove,
+  axisOf, grainReference, grooveField, grooveLineaments, grooveRaster, linkGrooves, readKm,
+  trimAgainst, trimEither, walkGrooves, type Groove,
 } from './lib/grooves.js'
 import {
   AGE_SAMPLES, encodeAge, momentOf, olderShare,
@@ -280,6 +280,28 @@ export const CONFIG = {
    * travelled-direction field -- and so decide which way the mesh moves.
    */
   grooveFlow: Number(process.env.GROOVE_FLOW ?? 1) > 0,
+  /**
+   * What a groove has to be to anchor the travelled-direction field.
+   *
+   * Every groove is drawn; only some of them get a vote. The first attempt gave
+   * all ten thousand of them one, at thirty degrees of licence against either
+   * reference, and the model came out worse on every measure -- 175 to 222 km
+   * at 30 Ma, 184 to 268 at 60. The reason is that a fit takes a vote: twenty
+   * times as many anchors outvote the clean ones, so a dense wrong anchor beats
+   * a sparse right one. What was the cheaper mistake for a picture -- letting
+   * rubbish through, since a reader can see a wrong line and cannot see a right
+   * line never drawn -- is the dearer one here.
+   *
+   * So these are the two conditions the old detector imposed, which had 1,500
+   * anchors and beat ten thousand: four hundred kilometres of line, and within
+   * twenty degrees of the way the crust travelled. Read length, not length: a
+   * linked groove can be mostly bridge, and a bridge is a claim rather than
+   * evidence. And measured against the spreading direction alone, not against
+   * the neighbours' grain as well, because the grain is a vote among the very
+   * segments being judged and cannot referee itself.
+   */
+  anchorMinReadKm: Number(process.env.ANCHOR_KM ?? 400),
+  anchorMaxOffDeg: Number(process.env.ANCHOR_OFF ?? 20),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: 60,
   /**
@@ -533,7 +555,9 @@ async function main() {
     ageMa, ageFull.width, ageFull.height, height, shelfBreak,
   )
   {
-    const raster = grooveRaster(grooves, structure.gravity.width, structure.gravity.height)
+    const raster = grooveRaster(
+      grooves.grooves, structure.gravity.width, structure.gravity.height,
+    )
     // Three channels: how strong the line is, and which groove it belongs to
     // split over the other two. A reader points at a fracture zone and the
     // viewer has to know which one they meant, so the identity travels in the
@@ -580,7 +604,24 @@ async function main() {
    * saw either way.
    */
   const anchors = CONFIG.grooveFlow
-    ? grooveLineaments(grooves, structure.gravity.width, structure.gravity.height)
+    ? (() => {
+      const long = grooves.grooves.filter(
+        (groove) => readKm(groove) >= CONFIG.anchorMinReadKm,
+      )
+      const { kept } = trimAgainst(long, grooves.spreading, CONFIG.anchorMaxOffDeg)
+      const field = grooveLineaments(
+        kept, structure.gravity.width, structure.gravity.height,
+      )
+      let lit = 0
+      for (const value of field.ridgeness) if (value > 0) lit++
+      console.log(
+        `[build-data] ${kept.length} of ${grooves.grooves.length} grooves anchor the flow `
+          + `field -- ${CONFIG.anchorMinReadKm} km of read line and within `
+          + `${CONFIG.anchorMaxOffDeg} degrees of the spreading direction -- `
+          + `on ${((100 * lit) / field.ridgeness.length).toFixed(2)}% of the grid's cells`,
+      )
+      return field
+    })()
     : zones
   const field = CONFIG.useFlowField && anchors && vgg
     ? flowField(anchors, ageMa, ageFull.width, ageFull.height, vgg, R0_KM,
@@ -789,7 +830,7 @@ async function main() {
     // In the raster's own order, because the raster carries each groove's index
     // and a reader clicking a line in the viewer is answered from this list.
     fractureZones: vgg
-      ? grooveSummaries(grooves, vgg, ageMa, ageFull.width, ageFull.height)
+      ? grooveSummaries(grooves.grooves, vgg, ageMa, ageFull.width, ageFull.height)
       : [],
     radiusStepMa: CONFIG.radiusStepMa,
     referenceRadiusKm,
@@ -1456,17 +1497,17 @@ function traceGrooves(
     found, [spreading, grainReference(found)], CONFIG.grooveSwingDeg,
   )
   const grooves = linkGrooves(kept, {}, dropped)
-  const readKm = grooves.reduce(
-    (sum, g) => sum + g.points.filter((p) => p.measured).length, 0,
-  ) * 20
+  const readTotalKm = grooves.reduce((sum, g) => sum + readKm(g), 0)
   console.log(
     `[build-data] ${found.length} groove segments off the fabric, ${kept.length} kept, `
       + `linked into ${grooves.length} lines of `
       + `${grooves.reduce((sum, g) => sum + g.lengthKm, 0).toFixed(0)} km `
-      + `(${readKm.toFixed(0)} km of it read, the rest carried through) `
+      + `(${readTotalKm.toFixed(0)} km of it read, the rest carried through) `
       + `in ${((Date.now() - started) / 1000).toFixed(0)}s`,
   )
-  return grooves
+  // The spreading reference travels with them: whatever decides which grooves
+  // may anchor the flow field has to measure the same direction this did.
+  return { grooves, spreading }
 }
 
 /**
