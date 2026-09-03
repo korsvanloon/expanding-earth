@@ -45,13 +45,46 @@ jobs:
       # anything under src/ -- which is most days -- now deploys without
       # solving. A change to the solver misses, and pays the four minutes,
       # which is correct: the run really is different.
+      # Two caches, because the pipeline is two stages with different inputs and
+      # wildly different costs: two minutes to read the grids and cut the mesh,
+      # eleven to run two hundred steps over it. Under one key, editing the
+      # solver -- which is most changes -- threw the mesh away too and paid for
+      # both.
+      #
+      # The mesh, whose inputs are everything except the solver.
       - uses: actions/cache@v4
         with:
           path: |
-            public/data
             .stage
+            public/data/mesh.bin
+            public/data/tracks.bin
+            public/data/crust-age.bin
+            public/data/fabric.jpg
+            public/data/zones.png
           key: >-
-            data-${{ hashFiles('tools/**/*.ts', 'shared/**/*.ts',
+            stage-${{ hashFiles('tools/**/*.ts', '!tools/solve.ts',
+            'shared/**/*.ts', 'public/textures/age-map.png',
+            'public/textures/height-map.jpg', 'data-src/**') }}
+
+      # And the reconstruction, whose inputs are all of them.
+      #
+      # Neither key has to be exactly right. `tools/run.ts` hashes the inputs
+      # itself and re-runs the stage whose hash does not match what it finds on
+      # disk, so a key that is too loose -- if the negation above turns out not
+      # to hold, say -- restores a stale mesh and then rebuilds it. The keys buy
+      # time; the stamps are what keep the output honest.
+      - uses: actions/cache@v4
+        with:
+          path: |
+            public/data/frames.bin
+            public/data/strain.bin
+            public/data/plates.bin
+            public/data/sink.bin
+            public/data/topology.bin
+            public/data/meta.json
+            public/data/inputs.sha
+          key: >-
+            solve-${{ hashFiles('tools/**/*.ts', 'shared/**/*.ts',
             'public/textures/age-map.png', 'public/textures/height-map.jpg',
             'data-src/**') }}
 

@@ -714,7 +714,34 @@ lets rigid blocks meet at an angle instead, the way the gores of a globe do.
 
 ## What it reports about itself
 
-Four numbers per frame, none of them tuned:
+There are a lot of these now, so before the detail: what each one is, and what
+it is for. **Only the first row is the score.** The scorecard is the independent
+check. Everything else is diagnosis &mdash; it can say *where* a bad score comes
+from, and it can never say the model is good.
+
+| | what it measures | good is |
+|---|---|---|
+| **pairs** | the conjugate pairs held back from the solver: how far apart the median one still is, and what share are back within 200 km | low, high |
+| **scorecard** | the named continental joins, against dates from the geology rather than from this model's own tracing | closed at the right moment |
+| **bare sphere** | share of the sphere no surviving crust covers &mdash; the gaps | 0 |
+| **covered twice** | share where two pieces of crust lie on top of each other | 0 |
+| **inside out** | triangles that have turned over. A defect, never a trade | 0 |
+| **strain** | how far the crust has been deformed, counted separately over the shields and over the weak crust | low; shields ~0 |
+| **budget** | how much deformation the radius curve leaves room for, against how much the run actually spends | x1 |
+| **fold, pit** | the angle the fold turns through at the surface, and how deep the dents beside it get | 90&deg;, 0 km |
+| **plates** | how many rigid blocks the motion falls into, and how big the largest are | few, large |
+
+A **conjugate pair** is two points that were once one point. Crust erupts on a
+spreading axis and goes both ways, so a point off Africa and a point off South
+America were the same piece of sea floor eighty million years ago; 2,470 such
+pairs are traced through the flow field. Half of them are handed to the solver
+as a force and pull the crust together. Scoring with those would measure whether
+the solver had done its own homework, so **the other half is never shown to it
+and is the only half counted** &mdash; the pairs held back. Split by track
+rather than by pair, because two pairs five million years apart on the same walk
+are nearly the same claim.
+
+Then the detail. Four numbers per frame, none of them tuned:
 
 - **bare sphere** — how much of the sphere no surviving crust covers. It should
   be zero; whatever is left is surface the reconstruction has failed to account

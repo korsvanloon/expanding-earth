@@ -28,7 +28,7 @@ import {
   zoneRaster,
 } from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
-import { resolve } from 'node:path'
+import { dirname, resolve } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 
 describe('icosphere', () => {
@@ -667,8 +667,24 @@ describe('the built dataset', () => {
   // been true of some earlier solver. Prose gets updated when the model
   // changes; tables of measurements do not, so they are generated -- and this
   // fails until they have been.
+  //
+  // It only asks that of a run that claims to be the model. A sweep with one
+  // knob moved, or a ten-step draft, is not the shipped model and its numbers
+  // are not supposed to be in the documents -- but this used to fail on it all
+  // the same, so the failure had to be explained away by hand every time, and
+  // that is exactly how a real one gets explained away too. A run records
+  // which environment variables were set; if any were, this stands down and
+  // says so.
   it.runIf(present)('quotes the run it ships with, in every document', () => {
     const meta = JSON.parse(readFileSync(resolve(data, 'meta.json'), 'utf8')) as Meta
+    const overrides = meta.overrides ?? []
+    if (overrides.length > 0) {
+      console.log(
+        `[test] public/data is an experiment (${overrides.join(', ')} set), ` +
+          'not the shipped model; not checking the documents against it',
+      )
+      return
+    }
     const blocks = runBlocks(meta)
     for (const name of ['README.md', 'MODEL.md']) {
       const text = readFileSync(resolve(import.meta.dirname, '..', name), 'utf8')
@@ -707,6 +723,48 @@ describe('the built dataset', () => {
     for (let band = 100; band < 1700; band += 200) {
       expect(unsurveyed(band, band + 200), `rows ${band}-${band + 200}`).toBeLessThan(0.25)
     }
+  })
+
+  // The freshness check holds `tools/solve.ts` out of the mesh's input hash, so
+  // that editing the solver does not rebuild the mesh. That is only sound while
+  // the dependency runs one way. If the builder ever imported the solver, a
+  // solver change would leave a stale mesh behind and look like a change with
+  // no effect -- the exact failure tools/run.ts was written to stop.
+  it('builds the mesh without reference to the solver', () => {
+    const seen = new Set<string>()
+    const walk = (file: string) => {
+      if (seen.has(file)) return
+      seen.add(file)
+      const source = readFileSync(resolve(import.meta.dirname, '..', file), 'utf8')
+      for (const match of source.matchAll(/from '(\.[^']+)'/g)) {
+        const target = resolve(dirname(file), match[1]).replace(/\.js$/, '.ts')
+        walk(target.slice(resolve(import.meta.dirname, '..').length + 1))
+      }
+    }
+    walk('tools/build-data.ts')
+    expect([...seen].filter((file) => file.endsWith('solve.ts'))).toEqual([])
+    expect(seen.size).toBeGreaterThan(5)
+  })
+
+  // The list the run reports its overrides from is written by hand next to
+  // CONFIG, so it can fall behind the knobs themselves -- and a knob missing
+  // from it is silent in the worst way: the run calls itself the model, the
+  // documents get checked against an experiment, and the numbers that get
+  // committed are from a sweep. Read out of the source rather than imported,
+  // because importing the solver runs it.
+  it('lists every knob the solver reads', () => {
+    const source = readFileSync(resolve(import.meta.dirname, '../tools/solve.ts'), 'utf8')
+    const listed = new Set(
+      (source.match(/export const KNOBS = \[([^\]]*)\]/)?.[1] ?? '')
+        .match(/'([A-Z_0-9]+)'/g)
+        ?.map((q) => q.slice(1, -1)) ?? [],
+    )
+    const read = new Set(
+      (source.match(/process\.env\.[A-Z_0-9]+/g) ?? []).map((m) => m.slice('process.env.'.length)),
+    )
+    expect(listed.size).toBeGreaterThan(0)
+    expect([...read].filter((name) => !listed.has(name))).toEqual([])
+    expect([...listed].filter((name) => !read.has(name))).toEqual([])
   })
 
   it.runIf(present)('has a generated block for every figure worth drifting', () => {

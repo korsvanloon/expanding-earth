@@ -101,6 +101,32 @@ const CONTACT_KM = Number(process.env.CONTACT_KM ?? 200)
  */
 const FOLDING = Number(process.env.FOLD_IN ?? 1) > 0
 
+/**
+ * Every environment variable the solver reads, listed so a run can say whether
+ * it was the model or an experiment.
+ *
+ * The documents quote the run on disk and a test fails when they disagree,
+ * which is the only thing keeping the numbers in them honest. But it also fired
+ * on every local sweep: a run with `END_MA=40` or one knob moved is not the
+ * shipped model, so of course the tables did not match it, and the failure had
+ * to be explained away each time -- which is how a real one gets explained
+ * away too. A run now records which of these were set, and the check skips
+ * itself, out loud, when any of them were.
+ *
+ * `test/model.test.ts` fails if this list and the file disagree.
+ */
+export const KNOBS = [
+  'AREA_K', 'AREA_TRACE', 'BREAKS_BELOW', 'CLOSE_K', 'CLOSE_TANGENT', 'COHERE',
+  'COHERE_ROUNDS', 'COMPRESS_K', 'CONTACT_K', 'CONTACT_KM', 'CURTAIN_K', 'DRAG',
+  'EDGE_AGE', 'END_MA', 'FLAT_K', 'FLIP_PASSES', 'FLIP_TRUTH', 'FLOW_SMOOTH',
+  'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'ISLAND_HOLD',
+  'LAND_MARGIN', 'LIP_KM', 'MAX_RATE', 'OCEAN_K', 'PLATE_TOL', 'POLE_MEMORY',
+  'PROBES', 'RADIAL_K', 'SHORE_SHARE', 'SMALLEST_PLATE', 'STEP_TRACE',
+  'STRENGTH', 'STRETCH_TRACE', 'SWEEPS', 'TRACK_K',
+] as const
+
+const OVERRIDES = KNOBS.filter((name) => process.env[name] !== undefined)
+
 const CONFIG = {
   /** Integration step, Myr. Small enough that each step is a small nudge. */
   stepMa: 1,
@@ -1909,6 +1935,7 @@ function main() {
       ...meta,
       folded: CONFIG.foldInward,
       builtAt: new Date().toISOString(),
+      overrides: [...OVERRIDES],
       frameCount: frames.length,
       diagnostics,
       fixedRadiusDiagnostics,

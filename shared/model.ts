@@ -247,6 +247,14 @@ export interface Meta {
    * which run it is.
    */
   builtAt?: string
+  /**
+   * The environment variables that were set for this run, if any.
+   *
+   * Empty means the run is the model as it is written down: the documents are
+   * checked against it. Anything in it means the run is an experiment, and the
+   * check says so and stands down rather than failing.
+   */
+  overrides?: string[]
 
   /**
    * How near a frame's age a piece of crust has to be to be paired at it, Ma.
