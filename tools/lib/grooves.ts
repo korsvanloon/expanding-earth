@@ -91,6 +91,8 @@ export interface GrooveOptions {
   linkDeg?: number
   /** How long a gap may be, as a multiple of the shorter segment it joins. */
   gapReach?: number
+  /** How near an across-grain line a bridge may pass, km. */
+  clearKm?: number
 }
 
 export interface GrooveField {
@@ -547,7 +549,21 @@ export function walkGrooves(
  * whichever is considered first. The carried-through part is interpolated and
  * marked unmeasured, because it is a claim about crust nothing was read on.
  */
-export function linkGrooves(grooves: Groove[], options: GrooveOptions = {}): Groove[] {
+export function linkGrooves(
+  grooves: Groove[],
+  options: GrooveOptions = {},
+  /**
+   * Lines running across the grain, which a bridge may not cross.
+   *
+   * The reader: *you do not need to show the yellow dashes between the red
+   * ones.* Which is a statement about the crust, not about the drawing. Where
+   * the fabric between two segments carries structure running the other way,
+   * the groove is not merely faint there -- something else is going on in that
+   * crust -- and carrying a line straight through it is the one kind of
+   * extrapolation with positive evidence against it.
+   */
+  crossGrain: Groove[] = [],
+): Groove[] {
   const maxGapKm = options.maxGapKm ?? 600
   const linkDeg = options.linkDeg ?? 10
   /**
@@ -661,6 +677,40 @@ export function linkGrooves(grooves: Groove[], options: GrooveOptions = {}): Gro
   }
   joins.sort((a, b) => a.gap - b.gap)
 
+  /** Points of the across-grain lines, in two-degree buckets to look up by. */
+  const clearKm = options.clearKm ?? 60
+  const bucketOf = (p: GroovePoint) => `${Math.floor(p.lon / 2)},${Math.floor(p.lat / 2)}`
+  const obstacles = new Map<string, GroovePoint[]>()
+  for (const line of crossGrain) {
+    for (const point of line.points) {
+      const key = bucketOf(point)
+      const at = obstacles.get(key)
+      if (at) at.push(point)
+      else obstacles.set(key, [point])
+    }
+  }
+  /** Whether the straight line from `from` to `to` passes one of them. */
+  const blocked = (from: GroovePoint, to: GroovePoint) => {
+    if (!obstacles.size) return false
+    const steps = Math.max(1, Math.round(away(from, to) / 30))
+    for (let s = 0; s <= steps; s++) {
+      const t = s / steps
+      const at = {
+        lon: from.lon + (to.lon - from.lon) * t,
+        lat: from.lat + (to.lat - from.lat) * t,
+        measured: false,
+      }
+      for (let dLon = -2; dLon <= 2; dLon += 2) {
+        for (let dLat = -2; dLat <= 2; dLat += 2) {
+          const near = obstacles.get(bucketOf({ ...at, lon: at.lon + dLon, lat: at.lat + dLat }))
+          if (!near) continue
+          for (const point of near) if (away(at, point) < clearKm) return true
+        }
+      }
+    }
+    return false
+  }
+
   const open: (Groove | null)[] = grooves.map((g) => ({ ...g, points: [...g.points] }))
   /** Which chain a segment has ended up in, and whether its ends are spoken for. */
   const chain = grooves.map((_, i) => i)
@@ -677,6 +727,10 @@ export function linkGrooves(grooves: Groove[], options: GrooveOptions = {}): Gro
     const a = open[left]
     const b = open[right]
     if (!a || !b) continue
+    if (blocked(
+      join.atTailOfI ? ends[join.i].tail : ends[join.i].head,
+      join.atHeadOfJ ? ends[join.j].head : ends[join.j].tail,
+    )) continue
     // Put the two chains the right way round for each other: the end of the
     // one being joined has to finish at the join, and the other start there.
     const aPoints = a.points[a.points.length - 1] === (join.atTailOfI ? ends[join.i].tail : ends[join.i].head)
@@ -717,8 +771,43 @@ export function linkGrooves(grooves: Groove[], options: GrooveOptions = {}): Gro
  * be taken over a few hundred kilometres, where a swing survives it. The
  * primitives are shared with that module; the claim is not.
  */
+/** A segment's own axis, folded to 0..180, and where its middle is. */
+export function axisOf(groove: Groove): { at: GroovePoint; axis: number } {
+  const a = groove.points[0]
+  const b = groove.points[groove.points.length - 1]
+  const dLat = b.lat - a.lat
+  const dLon = (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * RAD)
+  return {
+    at: groove.points[Math.floor(groove.points.length / 2)],
+    axis: (((Math.atan2(dLon, dLat) * 180) / Math.PI % 180) + 180) % 180,
+  }
+}
+
+/**
+ * Keep the segments that run along a reference direction, drop the rest.
+ *
+ * `reference` returns the direction the crust here should have a groove in, or
+ * null where it has no opinion, in which case the segment is kept: a segment
+ * nothing can judge is not thereby condemned.
+ */
+export function trimAgainst(
+  grooves: Groove[],
+  reference: (at: GroovePoint) => number | null,
+  toleranceDeg = 30,
+): { kept: Groove[]; dropped: Groove[] } {
+  const kept: Groove[] = []
+  const dropped: Groove[] = []
+  for (const groove of grooves) {
+    const mine = axisOf(groove)
+    const should = reference(mine.at)
+    if (should === null || axisDiff(mine.axis, should) <= toleranceDeg) kept.push(groove)
+    else dropped.push(groove)
+  }
+  return { kept, dropped }
+}
+
 export function trimAcross(
-  grooves: Groove[], radiusKm = 800, toleranceDeg = 30,
+  grooves: Groove[], radiusKm = 800, toleranceDeg = 30, least = 8, capKm = 2500,
 ): { kept: Groove[]; dropped: Groove[] } {
   const of = (groove: Groove) => {
     const a = groove.points[0]
@@ -735,14 +824,36 @@ export function trimAcross(
   const kept: Groove[] = []
   const dropped: Groove[] = []
   grooves.forEach((groove, i) => {
-    const near: number[] = []
-    for (let q = 0; q < each.length; q++) {
-      if (q === i) continue
-      if (apartKm(each[i].at, each[q].at) < radiusKm) near.push(each[q].axis)
-    }
+    // Everything inside the radius, and if that is not enough of a sample, out
+    // to the nearest `least` however far they are. Both halves earned their
+    // place. Taking only the nearest few looks more local and is worse: eight
+    // neighbours in the middle of the South Atlantic span two hundred
+    // kilometres, and a clump of eight mutually parallel spurious segments
+    // then certifies itself -- measured, that swap took the segments' spread
+    // from half within 13 degrees of the median to half within 22. Only in the
+    // sparse places, which is where the reader found it dropping good segments
+    // and keeping bad ones, does the sample need widening.
+    const away = each
+      .map((q, j) => ({ axis: q.axis, awayKm: j === i ? Infinity : apartKm(each[i].at, q.at) }))
+      .sort((a, b) => a.awayKm - b.awayKm)
+    const inside = away.filter((q) => q.awayKm < radiusKm)
+    const near = inside.length >= least
+      ? inside
+      : away.filter((q) => q.awayKm < capKm).slice(0, least)
+    // Unweighted, and that is not for want of trying the alternatives. Both
+    // ways of making the grain more local -- the nearest eight at any
+    // distance, and a distance-weighted median over the same sample -- make
+    // the test more *permissive* rather than more discerning, because a clump
+    // of mutually parallel spurious segments then certifies itself. Measured
+    // on the South Atlantic window, the segments' spread went from half within
+    // 13 degrees of the median to 22 and 16, and in the southern band, which
+    // is the band the reader says is worst and which was the reason for
+    // trying, from 24 to 30. Locality is not the fix for that band; see
+    // MODEL.md on what is likely to be.
     // Too few neighbours to have a grain: kept, because there is nothing to
     // have run across. A lone groove is not evidence against itself.
-    if (near.length < 4 || axisDiff(each[i].axis, axisMedian(near)) <= toleranceDeg) {
+    if (near.length < 4
+      || axisDiff(each[i].axis, axisMedian(near.map((q) => q.axis))) <= toleranceDeg) {
       kept.push(groove)
     } else {
       dropped.push(groove)

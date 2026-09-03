@@ -18,11 +18,14 @@ import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import jpeg from 'jpeg-js'
-import { directionToUv } from '../shared/sphere.js'
+import { directionToPixel, directionToUv, lonLatToDirection } from '../shared/sphere.js'
 import { pairHue, readTracks } from '../shared/tracks.js'
 import { apartKm, axisDiff, bearingDeg, type Place } from './lib/bearing.js'
+import { loadAgeGrid } from './lib/agegrid.js'
+import { spreadingDirection } from './lib/age-gradient.js'
 import {
-  grooveField, linkGrooves, trimAcross, walkGrooves, type Fabric, type Groove,
+  grooveField, linkGrooves, trimAcross, trimAgainst, walkGrooves,
+  type Fabric, type Groove, type GroovePoint,
 } from './lib/grooves.js'
 import { fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
 
@@ -83,7 +86,48 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
 const OUT = resolve(ROOT, process.env.OUT ?? '.stage/maps')
 
-function main() {
+/**
+ * The bearing a groove should run in at a place, off the age grid.
+ *
+ * Null over land, where the grid does not date the crust, and on the floor of
+ * a valley in the age field, where there is no slope to read -- at a spreading
+ * axis, that is, where the age turns round and the direction is undefined
+ * rather than uncertain.
+ */
+async function spreadingReference(): Promise<(at: GroovePoint) => number | null> {
+  const grid = await loadAgeGrid(resolve(ROOT, 'data-src/agegrid.nc'))
+  const age = (x: number, y: number, z: number) => {
+    const [column, row] = directionToPixel(x, y, z, grid.width, grid.height)
+    return grid.at(column, row)
+  }
+  const RADIANS = Math.PI / 180
+  return (at: GroovePoint) => {
+    const [x, y, z] = lonLatToDirection(at.lon * RADIANS, at.lat * RADIANS)
+    const direction = spreadingDirection(age, x, y, z)
+    if (!direction) return null
+    // The tangent as a bearing: north and east here, then the angle between.
+    const l = Math.hypot(x, y, z) || 1
+    const ux = x / l
+    const uy = y / l
+    const uz = z / l
+    let nx = -uy * ux
+    let ny = 1 - uy * uy
+    let nz = -uy * uz
+    const nl = Math.hypot(nx, ny, nz)
+    if (nl < 1e-6) return null
+    nx /= nl
+    ny /= nl
+    nz /= nl
+    const ex = ny * uz - nz * uy
+    const ey = nz * ux - nx * uz
+    const ez = nx * uy - ny * ux
+    const north = direction[0] * nx + direction[1] * ny + direction[2] * nz
+    const east = direction[0] * ex + direction[1] * ey + direction[2] * ez
+    return (((Math.atan2(east, north) / RADIANS) % 180) + 180) % 180
+  }
+}
+
+async function main() {
   const window = windowFromEnv()
   const budget = Number(process.env.PAIRS ?? 0)
 
@@ -109,12 +153,28 @@ function main() {
   const started = Date.now()
   const field = grooveField(fabric, window, knobs)
   const found = walkGrooves(fabric, field, knobs)
-  /** TRIM=0 keeps the segments that run across their neighbours' grain. */
+  /**
+   * Which reference the segments are judged against, and TRIM=0 for none.
+   *
+   * The neighbours' own grain was the first answer and it has one assumption
+   * in it that does not hold everywhere: that most of what is detected in a
+   * neighbourhood is a groove. In the Pacific west of California most of it is
+   * abyssal-hill fabric, which runs square to the fracture zones, so the
+   * majority vote inverts and the test drops the very lines that are clearest
+   * in the picture. The age grid does not have to guess: sea floor leaves its
+   * axis along the spreading direction and a fracture zone runs the same way,
+   * so the direction the age climbs fastest is what a groove here should run
+   * in -- and it is measured from data the fabric had no part in.
+   */
+  const against = process.env.AGAINST ?? 'spreading'
+  const reference = against === 'spreading' ? await spreadingReference() : null
   const trimmed = Number(process.env.TRIM ?? 1) > 0
-    ? trimAcross(found, Number(process.env.GRAIN ?? 800), Number(process.env.SWING ?? 30))
+    ? (reference
+      ? trimAgainst(found, reference, Number(process.env.SWING ?? 30))
+      : trimAcross(found, Number(process.env.GRAIN ?? 800), Number(process.env.SWING ?? 30)))
     : { kept: found, dropped: [] }
   const segments = trimmed.kept
-  const grooves = link ? linkGrooves(segments, knobs) : segments
+  const grooves = link ? linkGrooves(segments, knobs, trimmed.dropped) : segments
   /**
    * The same window at a lower bar, drawn underneath in another colour.
    *
@@ -153,13 +213,35 @@ function main() {
       (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180), b.lat - a.lat,
     ) * 180) / Math.PI % 180 + 180) % 180
   })
-  if (axes.length) {
-    const middle = axes.slice().sort((p, q) => p - q)[Math.floor(axes.length / 2)]
-    const spread = axes.map((a) => axisDiff(a, middle)).sort((p, q) => p - q)
+  /**
+   * How nearly parallel a set of segments is, as the reader's own test.
+   *
+   * Reported by band across the window as well as over the whole of it,
+   * because the reader's complaint was about one band: the southernmost eighth
+   * of the South Atlantic window, where the grain swings and the grain test
+   * both dropped good segments and kept bad ones. A number per band is what
+   * says whether that is fixed.
+   */
+  const parallelism = (list: number[]) => {
+    if (list.length < 4) return `${list.length} segments, too few to say`
+    const middle = list.slice().sort((p, q) => p - q)[Math.floor(list.length / 2)]
+    const spread = list.map((a) => axisDiff(a, middle)).sort((p, q) => p - q)
+    return `${String(list.length).padStart(3)} segments, median ${middle.toFixed(0)}deg, `
+      + `half within ${spread[Math.floor(spread.length / 2)].toFixed(0)}, `
+      + `nine in ten within ${spread[Math.floor(0.9 * spread.length)].toFixed(0)}`
+  }
+  console.log(`[grooves] bearings, all: ${parallelism(axes)}`)
+  const bands = 4
+  for (let b = 0; b < bands; b++) {
+    const from = window.latTo - ((b + 1) / bands) * (window.latTo - window.latFrom)
+    const to = window.latTo - (b / bands) * (window.latTo - window.latFrom)
+    const inBand = axes.filter((_, n) => {
+      const at = segments[n].points[Math.floor(segments[n].points.length / 2)].lat
+      return at >= from && at < to
+    })
     console.log(
-      `[grooves] segment bearings: median ${middle.toFixed(0)}deg, `
-        + `half within ${spread[Math.floor(spread.length / 2)].toFixed(0)}deg of it, `
-        + `nine in ten within ${spread[Math.floor(0.9 * spread.length)].toFixed(0)}deg`,
+      `[grooves]   lat ${from.toFixed(0).padStart(4)}..${to.toFixed(0).padStart(4)}: `
+        + parallelism(inBand),
     )
   }
 
@@ -276,4 +358,4 @@ function main() {
 
 }
 
-main()
+await main()
