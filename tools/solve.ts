@@ -123,7 +123,7 @@ export const KNOBS = [
   'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'ISLAND_HOLD',
   'LAND_MARGIN', 'LIP_KM', 'MAX_RATE', 'OCEAN_K', 'PLATE_TOL', 'POLE_MEMORY',
   'PROBES', 'RADIAL_K', 'SHORE_SHARE', 'SMALLEST_PLATE', 'STEP_TRACE',
-  'STRENGTH', 'STRETCH_TRACE', 'SWEEPS', 'TRACK_K',
+  'FRAME_STEP', 'STRENGTH', 'STRETCH_TRACE', 'SWEEPS', 'TRACK_K',
 ] as const
 
 const OVERRIDES = KNOBS.filter((name) => process.env[name] !== undefined)
@@ -424,6 +424,17 @@ const CONFIG = {
    */
   edgeAge: Number(process.env.EDGE_AGE ?? 1) > 0,
   /**
+   * How often to record a frame, overriding what build-data settled on.
+   *
+   * Five million years is right for a timeline somebody scrubs; it is useless
+   * for getting the first step right, because the first recorded frame after
+   * the present day is the fifth step and everything before it is gone by the
+   * time anything can look at it. `FRAME_STEP=1 END_MA=1` keeps the step
+   * itself. The value goes into meta.json, so the viewer and the drawing tools
+   * read the run they were given rather than the one that was expected.
+   */
+  frameStepMa: Number(process.env.FRAME_STEP ?? 0) || undefined,
+  /**
    * Report every step rather than every recorded frame.
    *
    * Frames are five million years apart, so a run of one step reported
@@ -574,6 +585,8 @@ function main() {
   )
   console.log(`[solve] ${vertexCount} vertices, ${faceCount} faces`)
   if (cutPairCount) throw new Error('this solver closes the mesh up; it wants an uncut one')
+
+  if (CONFIG.frameStepMa) meta.frameStepMa = CONFIG.frameStepMa
 
   const radius = meta.crustModels.find((m) => m.id === meta.solvedModel)!.radiusKm
   const radiusAt = (t: number) => sampleCurve(radius, t, meta.radiusStepMa)
