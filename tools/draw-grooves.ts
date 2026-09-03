@@ -304,7 +304,25 @@ async function main() {
     )
   }
 
-  const canvas = fabricWindow(window, fabric)
+  /**
+   * BASE=plain paints land against sea instead of the fabric underneath.
+   *
+   * At the scale of one ocean the fabric is the point -- a line has to be
+   * judged against the thing it was read from. At the scale of the world it is
+   * noise the lines disappear into, and what a reader needs there is where the
+   * lines are, which wants a quiet base and a coastline to place them by.
+   */
+  const canvas = process.env.BASE === 'plain'
+    ? fabricWindow(window, {
+      width: fabric.width,
+      height: fabric.height,
+      at: (column, row) => (onLand({
+        lon: ((column + 0.5) / fabric.width) * 360 - 180,
+        lat: 90 - ((row + 0.5) / fabric.height) * 180,
+        measured: false,
+      }) ? 0 : 40),
+    })
+    : fabricWindow(window, fabric)
   // The lines first, so what is being asked about is not confused with the
   // pairs' own colours. The looser set underneath, the confident set over it.
   const draw = (list: Groove[], colour: Colour) => list.forEach((groove) => {
@@ -358,7 +376,11 @@ async function main() {
     // than guessed. The old detector anchored 0.6% to 1% of cells, and that is
     // the configuration known to work: the point is to match its cleanliness
     // with more of it, not to go sparser still.
-    const reads = grooves.map(readKm).sort((a: number, b: number) => b - a)
+    // Not grooves.map(readKm): map hands the callback an index as its second
+    // argument, which readKm takes as the walk's step, so groove two thousand
+    // was measured in two-thousand-kilometre strides and claimed 55,000 km of
+    // read line on a planet 40,000 km round.
+    const reads = grooves.map((groove) => readKm(groove)).sort((a, b) => b - a)
     const offs = grooves
       .map((groove) => {
         const mine = axisOf(groove)
