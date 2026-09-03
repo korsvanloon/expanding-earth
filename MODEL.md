@@ -35,7 +35,7 @@ So 94.8% of the map is internally consistent and the real hole is 2.8%. What
 that hole does to the answer is what matters:
 
 <!-- from-the-run: bounds -->
-Counting it as continent gives R(200 Ma) = 4042 km, counting it as ocean gives 3905 km &mdash; the entire ambiguity is worth 3.5% of the radius.
+Counting it as continent gives R(200 Ma) = 4030 km, counting it as ocean gives 3895 km &mdash; the entire ambiguity is worth 3.4% of the radius.
 <!-- /from-the-run -->
 
 Three classification variants are carried through the pipeline and shown as the
@@ -455,10 +455,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 31 | 80 km | 100% | 0% |
-| 5 Ma | 74 | 63 km | 96% | 0% |
-| 30 Ma | 63 | 148 km | 57% | 0% |
-| 60 Ma | 53 | 248 km | 40% | 0% |
-| 120 Ma | 25 | 743 km | 8% | 0% |
+| 5 Ma | 74 | 61 km | 96% | 0% |
+| 30 Ma | 63 | 145 km | 56% | 0% |
+| 60 Ma | 53 | 244 km | 38% | 0% |
+| 120 Ma | 25 | 752 km | 8% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 152 blocks at its most divided and 4 at 200 Ma.
+The run finds 153 blocks at its most divided and 5 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 23 km/Myr to 3.4, the block count from as many as 152 to 4, and the biggest block grows to 65% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.001% per Myr, against a peak of 0.88%. The median surface speed falls from a peak of 23 km/Myr to 3.4, the block count from as many as 153 to 5, and the biggest block grows to 64% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 11.6 km/Myr | 108 | 4% | 0.3% |
-| 30 Ma | 0.644%/Myr | 22.6 km/Myr | 149 | 3% | 1.0% |
-| 60 Ma | 0.448%/Myr | 15.8 km/Myr | 129 | 10% | 1.9% |
-| 120 Ma | 0.256%/Myr | 14.9 km/Myr | 78 | 14% | 2.5% |
-| 200 Ma | 0.000%/Myr | 3.4 km/Myr | 4 | 65% | 3.1% |
+| 5 Ma | 0.881%/Myr | 14.0 km/Myr | 139 | 3% | 0.4% |
+| 30 Ma | 0.687%/Myr | 22.6 km/Myr | 153 | 2% | 1.0% |
+| 60 Ma | 0.387%/Myr | 15.4 km/Myr | 119 | 10% | 1.9% |
+| 120 Ma | 0.278%/Myr | 15.0 km/Myr | 77 | 14% | 2.5% |
+| 200 Ma | 0.000%/Myr | 3.4 km/Myr | 5 | 64% | 3.1% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -784,11 +784,11 @@ Then the detail. Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.59% | 0.05% | 0.000% | 0.00% | 0.05% | 1.0% |
-| 30 Ma | 5728 km | 2.27% | 0.09% | 0.000% | 0.00% | 0.19% | 2.4% |
-| 60 Ma | 5197 km | 4.45% | 0.33% | 0.000% | 0.05% | 0.30% | 4.0% |
-| 120 Ma | 4373 km | 9.93% | 1.75% | 0.297% | 0.47% | 0.57% | 5.8% |
-| 200 Ma | 3905 km | 13.17% | 3.81% | 1.487% | 0.86% | 0.91% | 10.2% |
+| 5 Ma | 6229 km | 0.51% | 0.05% | 0.000% | 0.00% | 0.07% | 1.0% |
+| 30 Ma | 5685 km | 2.13% | 0.09% | 0.000% | 0.00% | 0.20% | 2.6% |
+| 60 Ma | 5168 km | 4.34% | 0.34% | 0.000% | 0.03% | 0.30% | 4.0% |
+| 120 Ma | 4345 km | 9.85% | 1.77% | 0.319% | 0.45% | 0.59% | 5.9% |
+| 200 Ma | 3895 km | 13.39% | 3.67% | 1.496% | 0.90% | 0.92% | 10.9% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -802,14 +802,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 24 km | 4 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 27% | +27 | 40 km | 1 km at 120 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 871 km | 862 km at 115 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 34 km | 5 km at 105 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 28% | +28 | 23 km | 2 km at 140 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 860 km | 838 km at 110 Ma |
 | Greenland &ndash; North America | 60 Ma | 38% | 40% | +2 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1128 km | 878 km at 170 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 22 km | 2 km at 190 Ma |
-| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 1 km | 1 km at 190 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2241 km | 2241 km at 200 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1137 km | 848 km at 170 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 3 km | 3 km at 170 Ma |
+| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 5 km | 2 km at 165 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2251 km | 2251 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -850,7 +850,7 @@ Hold the radius at today's value and the same crust budget cannot cover the
 sphere.
 
 <!-- from-the-run: shortfall -->
-At 200 Ma it falls short by 62%.
+At 200 Ma it falls short by 63%.
 <!-- /from-the-run -->
 
 On a non-expanding Earth that shortfall

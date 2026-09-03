@@ -63,7 +63,7 @@ R(t) = sqrt( A(t) / 4pi )
 which gives
 
 <!-- from-the-run: radius -->
-R(200 Ma) = 3905 km, 61.3% of today.
+R(200 Ma) = 3895 km, 61.1% of today.
 <!-- /from-the-run -->
 
 Nothing tells the model what a plate is. Take away the crust younger than *t*
