@@ -11,7 +11,7 @@ pnpm dev         # generates the reconstruction on first run, then serves it
 ```
 
 The first `pnpm dev` spends two to four minutes building the data from
-`public/textures/age-map.png`, then caches it. `pnpm data` rebuilds it, and
+`data-src/agegrid.nc`, then caches it. `pnpm data` rebuilds it, and
 notices when any file under `tools/` or `shared/` has changed. The spread in
 that figure is the machine, not the run: the same two hundred steps measured
 155 s and 213 s on two containers of the same shape on the same day, so treat

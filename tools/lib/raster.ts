@@ -6,12 +6,19 @@ import { directionToPixel } from '../../shared/sphere.js'
 /**
  * A single-channel equirectangular raster: x spans longitude -180..180,
  * y spans latitude +90..-90.
+ *
+ * Bytes or floats. The height and gravity grids are bytes because that is what
+ * their sources are; the age grid is floats, because it arrives as floats and
+ * squeezing it into 255 levels is a million years and a bit per level -- which
+ * is 36 km of ridge-perpendicular distance at a typical spreading rate, and so
+ * coarser than anything the fold now measures. Missing data is `nodata` in a
+ * byte raster and NaN in a float one, which is what NaN is for.
  */
 export class Raster {
   constructor(
     readonly width: number,
     readonly height: number,
-    readonly data: Uint8Array,
+    readonly data: Uint8Array | Float32Array,
   ) {}
 
   at(x: number, y: number): number {
@@ -96,6 +103,43 @@ export function downsample(src: Raster, width: number, height: number, nodata: n
  * (29.2% of the globe is land, ~41% is continental crust) without needing to
  * know how the image was scaled.
  */
+/**
+ * Box-downsample a float raster in which NaN marks absent values.
+ *
+ * The same rule as the byte version above and for the same reason: a median of
+ * the cells that have data, and NaN as soon as half of them do not, so a
+ * coastline stays a coastline instead of bleeding a band of invented ages
+ * around every continent.
+ */
+export function downsampleField(src: Raster, width: number, height: number): Raster {
+  const out = new Float32Array(width * height)
+  const sx = src.width / width
+  const sy = src.height / height
+  const bucket: number[] = []
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      bucket.length = 0
+      let missing = 0
+      let total = 0
+      for (let j = Math.floor(y * sy); j < Math.floor((y + 1) * sy); j++) {
+        for (let i = Math.floor(x * sx); i < Math.floor((x + 1) * sx); i++) {
+          const v = src.at(i, j)
+          total++
+          if (Number.isNaN(v)) missing++
+          else bucket.push(v)
+        }
+      }
+      if (total === 0 || missing * 2 >= total) {
+        out[y * width + x] = NaN
+      } else {
+        bucket.sort((a, b) => a - b)
+        out[y * width + x] = bucket[bucket.length >> 1]
+      }
+    }
+  }
+  return new Raster(width, height, out)
+}
+
 export function areaQuantile(raster: Raster, fraction: number): number {
   const area = new Float64Array(256)
   let total = 0

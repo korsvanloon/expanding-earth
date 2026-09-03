@@ -19,7 +19,10 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
-import { Raster, areaQuantile, downsample, loadRaster } from './lib/raster.js'
+import {
+  Raster, areaQuantile, downsample, downsampleField, loadRaster,
+} from './lib/raster.js'
+import { loadAgeGrid } from './lib/agegrid.js'
 import {
   AGE_SAMPLES, encodeAge, momentOf, olderShare,
 } from '../shared/age-samples.js'
@@ -80,11 +83,18 @@ export const CONFIG = {
   gridWidth: 2048,
   gridHeight: 1024,
   /**
-   * Grey 254 of age-map.png sits in the Herodotus Basin of the eastern
-   * Mediterranean, which is the oldest oceanic crust on Earth at ~280 Ma. That
-   * single identifiable landmark calibrates the whole grey ramp.
+   * The oldest age is not set here any more; it is read off the grid.
+   *
+   * It used to be, because the source was a picture: 255 grey levels needed a
+   * span to be stretched over, and the span was calibrated on one identifiable
+   * landmark -- grey 254 sits in the Herodotus Basin of the eastern
+   * Mediterranean, the oldest oceanic crust on Earth at about 280 Ma. That was
+   * a reasonable thing to do to a picture and it is not needed now: the netCDF
+   * carries the ages themselves and says 338.81 Ma, which is the Herodotus
+   * Basin again with the number the survey actually assigns it rather than the
+   * one the ramp had room for.
    */
-  maxAgeMa: 280,
+
   /** Fraction of the globe that is dry land — calibrates the height map. */
   landFraction: 0.292,
   /** Fraction of the globe underlain by continental crust including margins. */
@@ -238,9 +248,8 @@ export const CONFIG = {
   solvedModel: 'nearest-age' as CrustModelId,
 }
 
-const NODATA = 255
 
-function main() {
+async function main() {
   // Before anything is written, not beside the first thing that writes.
   // public/data is generated and so is not in the repository, which means it is
   // absent on a fresh checkout -- and a build step that made the directory on
@@ -248,11 +257,22 @@ function main() {
   // first.
   mkdirSync(OUT, { recursive: true })
   console.log('[build-data] loading rasters')
-  const ageFull = loadRaster(resolve(TEXTURES, 'age-map.png'))
-  console.log(`  age-map.png       ${ageFull.width}x${ageFull.height}`)
-  const referenceRadiusKm = referenceCurve(ageFull)
+  const ageFull = await loadAgeGrid(resolve(ROOT, 'data-src/agegrid.nc'))
+  let oldest = 0
+  let dated = 0
+  for (const value of ageFull.data) {
+    if (Number.isNaN(value)) continue
+    dated++
+    if (value > oldest) oldest = value
+  }
+  const maxAgeMa = Math.ceil(oldest)
+  console.log(
+    `  agegrid.nc        ${ageFull.width}x${ageFull.height}, ages to `
+      + `${oldest.toFixed(2)} Ma over ${((100 * dated) / ageFull.data.length).toFixed(1)}% of cells`,
+  )
+  const referenceRadiusKm = referenceCurve(ageFull, maxAgeMa)
 
-  const age = downsample(ageFull, CONFIG.gridWidth, CONFIG.gridHeight, NODATA)
+  const age = downsampleField(ageFull, CONFIG.gridWidth, CONFIG.gridHeight)
   const height = downsample(
     loadRaster(resolve(TEXTURES, 'height-map.jpg')),
     CONFIG.gridWidth,
@@ -273,9 +293,9 @@ function main() {
 
   console.log('[build-data] classifying crust')
   const ageFields = {
-    permanent: classify(age, height, shelfBreak, 'permanent', depthAgeFit),
-    'depth-age': classify(age, height, shelfBreak, 'depth-age', depthAgeFit),
-    'nearest-age': classify(age, height, shelfBreak, 'nearest-age', depthAgeFit),
+    permanent: classify(age, height, shelfBreak, 'permanent', depthAgeFit, maxAgeMa),
+    'depth-age': classify(age, height, shelfBreak, 'depth-age', depthAgeFit, maxAgeMa),
+    'nearest-age': classify(age, height, shelfBreak, 'nearest-age', depthAgeFit, maxAgeMa),
   } satisfies Record<CrustModelId, Float32Array>
 
   console.log(`[build-data] building icosphere (subdivision ${CONFIG.subdivision})`)
@@ -401,10 +421,7 @@ function main() {
   // away before the walk started. The rest of the pipeline still reads the
   // downsampled grid -- an area budget does not care about five-kilometre
   // detail, and a walk along a lineament does.
-  const ageMa = new Float32Array(ageFull.width * ageFull.height)
-  for (let i = 0; i < ageMa.length; i++) {
-    ageMa[i] = ageFull.data[i] === NODATA ? NaN : (ageFull.data[i] / 255) * CONFIG.maxAgeMa
-  }
+  const ageMa = ageFull.data as Float32Array
   // The gravity grid's own idea of which way the lineaments run, mixed into the
   // age gradient at every step. See tools/lib/structure.ts for the instrument
   // and CONFIG.structureWeight for how far it is trusted.
@@ -606,7 +623,11 @@ function main() {
     version: 1,
     generatedAt: new Date().toISOString(),
     sources: [
-      { file: 'public/textures/age-map.png', note: 'Seafloor age grid, 8192x4096, grey 0-254 = 0-280 Ma, white = undated' },
+      {
+        file: 'data-src/agegrid.nc',
+        note: 'Sea-floor age grid (Muller et al. 2019 Tectonics v2.0, present day), '
+          + '0.1 degrees, float Ma, NaN over land',
+      },
       { file: 'public/textures/height-map.jpg', note: 'Topography/bathymetry, used to classify undated cells and to date them' },
       { file: 'data-src/ecm1.bin', note: 'ECM1 crustal model (Mooney et al. 2023), 1x1 degree crustal type and thickness' },
       { file: 'data-src/vgg.grid', note: 'Vertical gravity gradient (Sandwell et al.), 3600x1800, Eotvos, land and sea' },
@@ -622,7 +643,7 @@ function main() {
     // position at all and the shell tore open along the cuts.
     vertexCount: shell.positions.length / 3,
     faceCount,
-    maxAgeMa: CONFIG.maxAgeMa,
+    maxAgeMa,
     depthAgeFit,
     crustModels,
     solvedModel: CONFIG.solvedModel,
@@ -646,21 +667,28 @@ function main() {
  * mesh. The solver uses the mesh-derived curve so that its area budget balances
  * exactly, but this one is the honest measurement to report.
  */
-function referenceCurve(age: Raster): number[] {
-  const area = new Float64Array(256)
+function referenceCurve(age: Raster, maxAgeMa: number): number[] {
+  // Twentieths of a million years, which is finer than the grid's own spacing
+  // can distinguish and two hundred times finer than the picture this replaces.
+  const step = 0.05
+  const bins = new Float64Array(Math.ceil(maxAgeMa / step) + 2)
+  let permanent = 0
   let total = 0
   for (let y = 0; y < age.height; y++) {
     const w = age.rowWeight(y)
     for (let x = 0; x < age.width; x++) {
-      area[age.at(x, y)] += w
+      const value = age.at(x, y)
       total += w
+      // No age at all is crust that never goes, which is what the reference is
+      // for: the upper bound, every undated cell counted as permanent.
+      if (Number.isNaN(value)) permanent += w
+      else bins[Math.min(bins.length - 1, Math.round(value / step))] += w
     }
   }
   const curve: number[] = []
   for (let t = 0; t <= CONFIG.endTimeMa; t += CONFIG.radiusStepMa) {
-    const grey = (t / CONFIG.maxAgeMa) * 255
-    let older = 0
-    for (let g = 0; g < 256; g++) if (g >= grey) older += area[g]
+    let older = permanent
+    for (let b = Math.ceil(t / step); b < bins.length; b++) older += bins[b]
     curve.push(R0_KM * Math.sqrt(older / total))
   }
   return curve
@@ -687,8 +715,8 @@ function fitDepthAge(age: Raster, height: Raster, shelfBreak: number) {
     for (let x = 0; x < age.width; x++) {
       const a = age.at(x, y)
       const h = height.at(x, y)
-      if (a === NODATA || h >= shelfBreak) continue
-      const rootAge = Math.sqrt((a / 255) * CONFIG.maxAgeMa)
+      if (Number.isNaN(a) || h >= shelfBreak) continue
+      const rootAge = Math.sqrt(a)
       n++
       sx += rootAge
       sy += h
@@ -712,6 +740,7 @@ function classify(
   shelfBreak: number,
   model: CrustModelId,
   fit: Fit,
+  maxAgeMa: number,
 ): Float32Array {
   const out = new Float32Array(age.width * age.height)
   const undatedDeep: number[] = []
@@ -720,8 +749,8 @@ function classify(
     for (let x = 0; x < age.width; x++) {
       const i = y * age.width + x
       const a = age.at(x, y)
-      if (a !== NODATA) {
-        out[i] = (a / 255) * CONFIG.maxAgeMa
+      if (!Number.isNaN(a)) {
+        out[i] = a
         continue
       }
       const deep = height.at(x, y) < shelfBreak
@@ -729,7 +758,7 @@ function classify(
         out[i] = PERMANENT_MA
       } else if (model === 'depth-age') {
         const inferred = ((height.at(x, y) - fit.intercept) / fit.slope) ** 2
-        out[i] = Math.min(CONFIG.maxAgeMa, Math.max(0, inferred))
+        out[i] = Math.min(maxAgeMa, Math.max(0, inferred))
       } else {
         out[i] = -1 // filled by the nearest-dated sweep below
         undatedDeep.push(i)
@@ -1469,4 +1498,7 @@ function writeMesh(
   )
 }
 
-main()
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

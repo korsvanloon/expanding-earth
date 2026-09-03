@@ -25,9 +25,10 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadRaster } from './lib/raster.js'
+
 import { readGrid, gridValue } from './lib/grid.js'
 import { crestOffsetKm, fractureZones, lineamentAt, lineaments } from './lib/structure.js'
+import { loadAgeGrid } from './lib/agegrid.js'
 import { directionToPixel } from '../shared/sphere.js'
 import { R0_KM } from '../shared/model.js'
 
@@ -36,7 +37,6 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 // Kept in step with CONFIG in build-data.ts by hand; a mismatch shows up
 // immediately as a different curve count from the one the build printed.
 const CONFIG = {
-  maxAgeMa: 280,
   structureSmoothKm: 100,
   structureWindowKm: 200,
   crestSmoothKm: 25,
@@ -46,9 +46,8 @@ const CONFIG = {
   minZoneLengthKm: 400,
 }
 
-const NODATA = 255
 
-function main() {
+async function main() {
   // Ids are positions in a list that is rebuilt from scratch every run, so a
   // number written down yesterday points at a different curve today. Accept a
   // place as well, and answer with whatever curve passes nearest to it.
@@ -59,11 +58,8 @@ function main() {
     return { lon, lat }
   })
 
-  const ageFull = loadRaster(resolve(ROOT, 'public/textures/age-map.png'))
-  const ageMa = new Float32Array(ageFull.width * ageFull.height)
-  for (let i = 0; i < ageMa.length; i++) {
-    ageMa[i] = ageFull.data[i] === NODATA ? NaN : (ageFull.data[i] / 255) * CONFIG.maxAgeMa
-  }
+  const ageFull = await loadAgeGrid(resolve(ROOT, 'data-src/agegrid.nc'))
+  const ageMa = ageFull.data as Float32Array
   const vgg = readGrid(readFileSync(resolve(ROOT, 'data-src/vgg.grid')))
   // The bearing the walk follows. Swept with GUIDE_WINDOW/GUIDE_SMOOTH,
   // because the blurring that makes the axis followable is also what makes it
@@ -648,4 +644,7 @@ function main() {
   }
 }
 
-main()
+main().catch((error) => {
+  console.error(error)
+  process.exit(1)
+})

@@ -6,6 +6,7 @@ import {
 } from '../shared/topology'
 import { sampleCurve, PERMANENT_MA, type Meta } from '../shared/model'
 import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
+import { loadAgeGrid } from '../tools/lib/agegrid'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
 import { newContactScratch, separateIslands } from '../tools/lib/contact'
 import { distortion, shapePairs } from '../tools/lib/shape'
@@ -19,7 +20,6 @@ import { readTracks, writeTracks } from '../shared/tracks'
 import { readChannel, readFrames, writeChannel, writeFrames } from '../shared/frames'
 import { markCrust, measureFold, newFoldScratch, pullInward } from '../tools/lib/fold'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
-import { loadRaster } from '../tools/lib/raster'
 import { flowAt, flowField } from '../tools/lib/flowfield'
 import jpeg from 'jpeg-js'
 import { GRID_GAP, readGrid, writeGrid, type Grid } from '../tools/lib/grid'
@@ -123,22 +123,27 @@ describe('sphere mapping', () => {
     expect(alignment).toBeGreaterThan(0)
   })
 
-  it('finds real geography where it belongs in the age grid', () => {
+  it('finds real geography where it belongs in the age grid', async () => {
     // End-to-end against the actual dataset. The landmarks are chosen so that
     // their mirror images are the opposite kind of crust -- central Australia
     // reflects into the South Pacific, the Amazon into the Indian Ocean -- so a
     // flipped mapping fails here rather than quietly agreeing with itself.
     // (Much of the world is no good for this: reflect India and you land on
     // Cuba, reflect the Sahara and you land in Mauritania.)
-    const age = loadRaster(resolve(import.meta.dirname, '../public/textures/age-map.png'))
+    //
+    // Against the netCDF, which is where a flip would now do the damage. GMT
+    // counts rows from the south pole up and this project counts from the north
+    // pole down, so the loader turns the grid over -- and while the age grid was
+    // a PNG this test was watching a file the model had stopped reading.
+    const age = await loadAgeGrid(resolve(import.meta.dirname, '../data-src/agegrid.nc'))
     const at = (latDeg: number, lonDeg: number) =>
       age.atDirection(...lonLatToDirection((lonDeg * Math.PI) / 180, (latDeg * Math.PI) / 180))
 
-    expect(at(-25, 133)).toBe(255) // central Australia, continental
-    expect(at(-25, -133)).toBeLessThan(255) // its mirror, the South Pacific
-    expect(at(-10, -55)).toBe(255) // Amazon basin, continental
-    expect(at(-10, 55)).toBeLessThan(255) // its mirror, the Indian Ocean
-    expect(at(-80, 0)).toBe(255) // Antarctica, so north and south are not swapped
+    expect(at(-25, 133)).toBeNaN() // central Australia, continental
+    expect(at(-25, -133)).not.toBeNaN() // its mirror, the South Pacific
+    expect(at(-10, -55)).toBeNaN() // Amazon basin, continental
+    expect(at(-10, 55)).not.toBeNaN() // its mirror, the Indian Ocean
+    expect(at(-80, 0)).toBeNaN() // Antarctica, so north and south are not swapped
     expect(at(0, -25)).toBeLessThan(20) // Mid-Atlantic Ridge, young crust
   })
 })

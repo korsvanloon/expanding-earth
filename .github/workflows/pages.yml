@@ -63,8 +63,8 @@ jobs:
             public/data/zones.png
           key: >-
             stage-${{ hashFiles('tools/**/*.ts', '!tools/solve.ts',
-            'shared/**/*.ts', 'public/textures/age-map.png',
-            'public/textures/height-map.jpg', 'data-src/**') }}
+            'shared/**/*.ts', 'public/textures/height-map.jpg',
+            'data-src/**') }}
 
       # And the reconstruction, whose inputs are all of them.
       #
@@ -85,8 +85,7 @@ jobs:
             public/data/inputs.sha
           key: >-
             solve-${{ hashFiles('tools/**/*.ts', 'shared/**/*.ts',
-            'public/textures/age-map.png', 'public/textures/height-map.jpg',
-            'data-src/**') }}
+            'public/textures/height-map.jpg', 'data-src/**') }}
 
 
       - run: pnpm typecheck

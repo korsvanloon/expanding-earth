@@ -20,9 +20,10 @@ radius by only 5%. No individual pixel has to be right.
 
 ## What the data actually says
 
-`public/textures/age-map.png` is the sea-floor age grid at 8192x4096: grey 0 at
-the ridges rising with age, white where the grid does not date the crust.
-Cross-tabulating it against the bathymetry in `height-map.jpg` gives:
+`data-src/agegrid.nc` is the sea-floor age grid: Muller et al. 2019 Tectonics
+v2.0 at the present day, a tenth of a degree, ages in millions of years as
+floats with NaN over anything the survey does not date. Cross-tabulating it
+against the bathymetry in `height-map.jpg` gives:
 
 | | share of the globe |
 |---|---|

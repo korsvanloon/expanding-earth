@@ -9,7 +9,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { loadRaster } from './lib/raster.js'
+import { loadAgeGrid } from './lib/agegrid.js'
 import { directionToPixel } from '../shared/sphere.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -25,12 +25,10 @@ let off = 16 + vertexCount * 12 + faceCount * 12 + faceCount * 12
 off += vertexCount * 12 + cutPairCount * 8 + faceCount * 2
 const vertexIsland = new Uint16Array(mesh, off, vertexCount)
 
-const age = loadRaster(resolve(ROOT, 'public/textures/age-map.png'))
-const MAX = 280
+const age = await loadAgeGrid(resolve(ROOT, 'data-src/agegrid.nc'))
 const ageAt = (x: number, y: number, z: number) => {
   const [c, r] = directionToPixel(x, y, z, age.width, age.height)
-  const g = age.data[r * age.width + c]
-  return g === 255 ? NaN : (g / 255) * MAX
+  return age.data[r * age.width + c]
 }
 
 const byIsland = new Map<number, number[]>()

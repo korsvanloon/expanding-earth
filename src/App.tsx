@@ -33,8 +33,8 @@ export default function App() {
       <div className="splash">
         <h1>No data</h1>
         <p>
-          Run <code>npm run data</code> to generate the reconstruction from{' '}
-          <code>public/textures/age-map.png</code>.
+          Run <code>pnpm data</code> to generate the reconstruction from{' '}
+          <code>data-src/agegrid.nc</code>.
         </p>
         <pre>{error}</pre>
       </div>

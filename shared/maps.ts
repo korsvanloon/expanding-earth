@@ -2,7 +2,7 @@
  * Surface maps the globe can wear. Each one rides along with the crust, so
  * whichever is chosen ends up wherever the reconstruction moves the rock.
  *
- * The pipeline reads `public/textures/age-map.png` for the science; these are
+ * The pipeline reads `data-src/agegrid.nc` for the science; these are
  * only what gets painted on top. The list is shared with tools/build-artifact.ts
  * so the standalone build knows which files to carry.
  */
