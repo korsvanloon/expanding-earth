@@ -371,6 +371,32 @@ const CONFIG = {
    */
   areaHold: Number(process.env.AREA_K ?? 1),
   /**
+   * Let a triangle go down as soon as one of its corners has to, instead of
+   * waiting until all of it does.
+   *
+   * A reader drew the fold as a slot with a single point at the bottom and the
+   * crust either side hanging off it, and this is what that means: not a face
+   * that folds once it is entirely gone, but a face that tips because one
+   * corner's crust is not there yet.
+   *
+   * The reason it matters is measured. After one million years, 73 points of
+   * 40,962 hang inside the shell -- 0.18% of the mesh against 0.6% of the
+   * sphere that has to go somewhere -- because a face folds only when it is
+   * *entirely* younger than the moment, and after a single step almost none is.
+   * Everything the fold cannot take becomes deformation.
+   *
+   * The statement it replaces the binary with is about edges rather than
+   * faces, and it is the one the data actually supports: **the rest length of
+   * an edge is the length of crust along it that still exists.** Age rises
+   * linearly with distance from a spreading axis, which is what an axis is, so
+   * along an edge from crust of one age to crust of another the age is a
+   * straight line and the surviving fraction is the part of it older than the
+   * moment. An edge wholly older than the moment keeps its length; one wholly
+   * younger goes to nothing; one straddling shortens by exactly the strip that
+   * has not erupted -- kilometres a step, not whole triangles.
+   */
+  edgeAge: Number(process.env.EDGE_AGE ?? 0) > 0,
+  /**
    * Report every step rather than every recorded frame.
    *
    * Frames are five million years apart, so a run of one step reported
@@ -684,6 +710,23 @@ function main() {
       `[solve] continental crust may not be squeezed below ${(100 * CONFIG.landMargin).toFixed(0)}% `
       + `of its own area; sea floor may go to ${(100 * CONFIG.foldMargin).toFixed(0)}%`,
     )
+  }
+
+  /**
+   * The youngest crust touching each point, as against `vertexAge` below,
+   * which is the oldest.
+   *
+   * The oldest answers "does this point still exist"; the youngest answers
+   * "has all the crust at this point erupted yet", and it is the second that
+   * decides when a corner has to go down. A point on a ridge axis touches
+   * crust of nearly zero age however old its other neighbours are.
+   */
+  const vertexYoung = new Float32Array(vertexCount).fill(PERMANENT_MA)
+  for (let f = 0; f < faceCount; f++) {
+    for (let k = 0; k < 3; k++) {
+      const v = indices[f * 3 + k]
+      if (faceAges[f] < vertexYoung[v]) vertexYoung[v] = faceAges[f]
+    }
   }
 
   const vertexAge = new Float32Array(vertexCount)
@@ -1524,11 +1567,42 @@ function main() {
     // million divisions, for a hundred thousand distinct answers.
     for (let f = 0; f < faceCount; f++) {
       const stretched = stretchAt(f, t)
-      restAreaNow[f] = restArea[f] / stretched
       const pull = Math.sqrt(stretched)
-      edgeTarget[f * 3] = restEdge[f * 3] / pull
-      edgeTarget[f * 3 + 1] = restEdge[f * 3 + 1] / pull
-      edgeTarget[f * 3 + 2] = restEdge[f * 3 + 2] / pull
+      if (!CONFIG.edgeAge) {
+        restAreaNow[f] = restArea[f] / stretched
+        edgeTarget[f * 3] = restEdge[f * 3] / pull
+        edgeTarget[f * 3 + 1] = restEdge[f * 3 + 1] / pull
+        edgeTarget[f * 3 + 2] = restEdge[f * 3 + 2] / pull
+        continue
+      }
+      // How much of each edge is still there; see CONFIG.edgeAge.
+      for (let k = 0; k < 3; k++) {
+        const a2 = vertexYoung[indices[f * 3 + k]]
+        const b2 = vertexYoung[indices[f * 3 + ((k + 1) % 3)]]
+        const older = Math.max(a2, b2)
+        const younger = Math.min(a2, b2)
+        const share = t <= younger ? 1 : t >= older ? 0 : (older - t) / (older - younger)
+        edgeTarget[f * 3 + k] = (restEdge[f * 3 + k] * share) / pull
+      }
+      // And how much of its area, exactly rather than from the edges.
+      //
+      // Scaling the three sides and squaring the mean was the first attempt and
+      // it removes far too much: a triangle with one edge half gone loses a
+      // third of its area that way, when the strip that has actually not
+      // erupted is a few kilometres. It showed up as the deformation budget
+      // jumping from 4.0 to 11.8 million km2 at the first step -- the model
+      // being told to lose three times the crust the age grid says it should.
+      //
+      // Age over a triangle is a plane through its three corner ages, so the
+      // crust older than the moment is a polygon cut by one straight line, and
+      // its area is exact. One corner surviving leaves a triangle; two leave a
+      // quadrilateral, which is the whole face less the corner triangle at the
+      // third.
+      restAreaNow[f] = (restArea[f] * survivingShare(
+        vertexYoung[indices[f * 3]] - t,
+        vertexYoung[indices[f * 3 + 1]] - t,
+        vertexYoung[indices[f * 3 + 2]] - t,
+      )) / stretched
     }
 
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
@@ -1703,7 +1777,9 @@ function main() {
     followRegions(rNext)
 
     if (CONFIG.stepReport) {
-      for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
+      // Against the rest area the step itself used, not a freshly computed one:
+      // under CONFIG.edgeAge those differ, and recomputing here measured the
+      // crust against an area it was never asked to have.
       markIslands()
       const seen = coverage(pos, shell, faceCount, probes, cells, buckets)
       let squeezed = 0
@@ -1714,6 +1790,7 @@ function main() {
         if (!crustAlive[f]) continue
         const rest = restAreaNow[f]
         demanded += rest
+        if (rest <= 0) continue
         const now = solidAngle(
           pos, mesh.faceVerts[f * 3] * 3, mesh.faceVerts[f * 3 + 1] * 3,
           mesh.faceVerts[f * 3 + 2] * 3,
@@ -2818,6 +2895,33 @@ function unfold(
     caught++
   }
   return caught
+}
+
+/**
+ * What fraction of a triangle is older than the moment, from its three corners.
+ *
+ * The corner values are age minus the moment, so surviving crust is where they
+ * are positive. Age over a face is taken as a plane through the three, which is
+ * what a spreading axis makes of it, so the boundary is a straight line and the
+ * areas are exact rather than sampled.
+ */
+function survivingShare(a: number, b: number, c: number): number {
+  const above = (a >= 0 ? 1 : 0) + (b >= 0 ? 1 : 0) + (c >= 0 ? 1 : 0)
+  if (above === 3) return 1
+  if (above === 0) return 0
+  // Where the line cuts the edge from `from` to `to`, as a fraction from `from`.
+  const cut = (from: number, to: number) => {
+    const span = to - from
+    return Math.abs(span) < 1e-12 ? 0 : Math.min(1, Math.max(0, -from / span))
+  }
+  if (above === 1) {
+    // The surviving corner and its two legs to the cut.
+    const [p, q, r] = a >= 0 ? [a, b, c] : b >= 0 ? [b, c, a] : [c, a, b]
+    return cut(p, q) * cut(p, r)
+  }
+  // Two survive: everything but the corner triangle at the one that does not.
+  const [p, q, r] = a < 0 ? [a, b, c] : b < 0 ? [b, c, a] : [c, a, b]
+  return 1 - cut(p, q) * cut(p, r)
 }
 
 /**
