@@ -35,6 +35,8 @@ import { applyTopology, readTopology } from '../shared/topology.js'
 import { lonLatToDirection } from '../shared/sphere.js'
 import { AGE_SAMPLES, momentOf, olderShare } from '../shared/age-samples.js'
 import { bucketFace, cellBuckets, cellOf, inside } from './lib/coverage.js'
+import { pairPulls, readTracks } from '../shared/tracks.js'
+import { directionToUv } from '../shared/sphere.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
@@ -99,6 +101,29 @@ function main() {
 
   const radiusKm = meta.crustModels.find((m) => m.id === meta.solvedModel)!.radiusKm
   const r0 = meta.r0Km
+
+  /**
+   * The conjugate pairs due at the drawn moment, if asked for.
+   *
+   * A reader looking at the globe saw short yellow stubs where the flat map
+   * showed long lines straddling a ridge, and reasonably asked which was real.
+   * Both are: the flat map drew each pair where its two ends sit *today*, which
+   * is the whole ocean that has to close -- 794 km at 20 Ma -- and the globe
+   * draws them where the reconstruction has put them *at their own moment*,
+   * which is what is left over: 108 km. The second is the error, the first is
+   * the claim, and nothing said so.
+   *
+   * Drawn here on the reconstruction, over the gaps and the crushed crust, so
+   * the two can be read together: an unclosed pair sitting in a hole is a
+   * different problem from one sitting on crust that had to be squeezed.
+   */
+  const tracks = (() => {
+    if (!(Number(process.env.PAIRS ?? 0) > 0)) return null
+    const file = readFileSync(resolve(DATA, 'tracks.bin'))
+    return readTracks(
+      file.buffer.slice(file.byteOffset, file.byteOffset + file.byteLength) as ArrayBuffer,
+    )
+  })()
 
   // Each face's present-day area, on the unit sphere, from the mesh as built.
   const today = new Float64Array(vertexCount * 3)
@@ -245,6 +270,66 @@ function main() {
       }
     }
     const correlation = pairs && sxx && syy ? sxy / Math.sqrt(sxx * syy) : 0
+    if (tracks) {
+      const place = (verts: Uint32Array, weights: Float32Array, i: number) => {
+        let x = 0
+        let y = 0
+        let z = 0
+        for (let k = 0; k < 3; k++) {
+          const v = verts[i * 3 + k] * 3
+          const w = weights[i * 3 + k]
+          x += pos[v] * w
+          y += pos[v + 1] * w
+          z += pos[v + 2] * w
+        }
+        const l = Math.hypot(x, y, z) || 1
+        const [u, w] = directionToUv(x / l, y / l, z / l)
+        return [u * WIDTH, (1 - w) * HEIGHT] as const
+      }
+      const plot = (x: number, y: number, r: number, g: number, b: number) => {
+        if (y < 0 || y >= HEIGHT) return
+        const cx = ((Math.round(x) % WIDTH) + WIDTH) % WIDTH
+        const at = (y * WIDTH + cx) * 4
+        png.data[at] = r
+        png.data[at + 1] = g
+        png.data[at + 2] = b
+      }
+      let due = 0
+      for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+        if (Math.abs(tracks.pairAgeMa[i] - timeMa) > 0.01) continue
+        due++
+        // Held back in white, pulling in yellow: only the white ones are a
+        // score, and on a picture of the residual that is worth telling apart.
+        const scores = !pairPulls(tracks, i)
+        const [r, g, b] = scores ? [255, 255, 255] : [250, 210, 70]
+        const from = place(tracks.pairAVerts, tracks.pairAWeights, i)
+        const to = place(tracks.pairBVerts, tracks.pairBWeights, i)
+        let dx = to[0] - from[0]
+        if (dx > WIDTH / 2) dx -= WIDTH
+        if (dx < -WIDTH / 2) dx += WIDTH
+        const dy = to[1] - from[1]
+        const steps = Math.max(1, Math.ceil(Math.max(Math.abs(dx), Math.abs(dy))))
+        for (let n = 0; n <= steps; n++) {
+          const x = from[0] + (dx * n) / steps
+          const y = Math.round(from[1] + (dy * n) / steps)
+          plot(x, y, r, g, b)
+          plot(x, y - 1, r, g, b)
+        }
+        for (const end of [from, to]) {
+          for (let ey = -2; ey <= 2; ey++) {
+            for (let ex = -2; ex <= 2; ex++) {
+              if (ex * ex + ey * ey > 5) continue
+              plot(end[0] + ex, Math.round(end[1]) + ey, r, g, b)
+            }
+          }
+        }
+      }
+      console.log(
+        `[map] ${due} conjugate pairs are due at ${timeMa} Ma; white ones are held back to `
+          + 'score, yellow ones pull',
+      )
+    }
+
     const file = resolve(OUT, `step-${timeMa}Ma.png`)
     writeFileSync(file, PNG.sync.write(png))
     console.log(

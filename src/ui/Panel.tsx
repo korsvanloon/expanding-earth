@@ -209,6 +209,16 @@ export function Panel({ data }: { data: Dataset }) {
             />
             Conjugate pairs
           </label>
+          {showTracks && (
+            <p className="caption">
+              Only the pairs due at the moment on screen, drawn where the
+              reconstruction has put them. Each line is what is left of a join
+              that should be closed by now &mdash; the error, not the ocean, so
+              short is good and the direction of a nearly closed one means
+              nothing. They string out along the spreading axis because pairs
+              of one age sit the same distance either side of it.
+            </p>
+          )}
           <label className="toggle">
             <input
               type="checkbox"
