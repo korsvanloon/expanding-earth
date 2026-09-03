@@ -130,6 +130,17 @@ interface State {
    */
   showTracks: boolean
   /**
+   * Every pair, rather than only the ones due at the moment on screen.
+   *
+   * Two different pictures, and a reader comparing the globe against the flat
+   * map ran straight into it. Due-now draws the residual: these should be
+   * closed by this moment, and the leftover is what the model is scored on, so
+   * the lines are short. All of them at 0 Ma draws the claim instead -- the
+   * whole ocean each pair has to close, hundreds to thousands of kilometres
+   * wide -- which is the flat map, on the sphere.
+   */
+  allPairs: boolean
+  /**
    * Paint the fracture zones the gravity grid was searched for.
    *
    * Not the same thing as showTracks, and the pair of them is the point. Those
@@ -165,6 +176,7 @@ interface State {
   setShowMesh: (showMesh: boolean) => void
   setShowSection: (showSection: boolean) => void
   setShowTracks: (showTracks: boolean) => void
+  setAllPairs: (allPairs: boolean) => void
   setShowZones: (showZones: boolean) => void
   toggleZone: (id: number) => void
   clearZones: () => void
@@ -286,6 +298,7 @@ interface Remembered {
   showMesh: boolean
   showSection: boolean
   showTracks: boolean
+  allPairs: boolean
   showZones: boolean
   speed: number
 }
@@ -313,7 +326,9 @@ export const VIEW_MODES: ViewMode[] = [
 export function remembered(stored: unknown): Partial<Remembered> {
   if (!stored || typeof stored !== 'object') return {}
   const s = stored as Record<string, unknown>
-  const flag = (key: 'showGrid' | 'showMesh' | 'showSection' | 'showTracks' | 'showZones') =>
+  const flag = (
+    key: 'showGrid' | 'showMesh' | 'showSection' | 'showTracks' | 'showZones' | 'allPairs',
+  ) =>
     (typeof s[key] === 'boolean' ? { [key]: s[key] as boolean } : {})
   return {
     ...(VIEW_MODES.includes(s.mode as ViewMode) ? { mode: s.mode as ViewMode } : {}),
@@ -330,6 +345,7 @@ export function remembered(stored: unknown): Partial<Remembered> {
     ...flag('showMesh'),
     ...flag('showSection'),
     ...flag('showTracks'),
+    ...flag('allPairs'),
     ...flag('showZones'),
   }
 }
@@ -379,6 +395,7 @@ export const useStore = create<State>()(persist((set) => ({
   showMesh: false,
   showSection: false,
   showTracks: false,
+  allPairs: false,
   showZones: false,
   pickedZones: [],
   endTimeMa: 200,
@@ -397,6 +414,7 @@ export const useStore = create<State>()(persist((set) => ({
   setShowMesh: (showMesh) => set({ showMesh }),
   setShowSection: (showSection) => set({ showSection }),
   setShowTracks: (showTracks) => set({ showTracks }),
+  setAllPairs: (allPairs) => set({ allPairs }),
   setShowZones: (showZones) => set({ showZones }),
   // Clicking a picked zone again lets it go. The cap is ZONE_LIMIT rather
   // than a handful because judging the detector means working across a whole
@@ -424,6 +442,7 @@ export const useStore = create<State>()(persist((set) => ({
     showMesh: s.showMesh,
     showSection: s.showSection,
     showTracks: s.showTracks,
+    allPairs: s.allPairs,
     showZones: s.showZones,
     speed: s.speed,
   }),

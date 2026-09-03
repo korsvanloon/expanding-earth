@@ -250,3 +250,9 @@ code { background: rgba(255,255,255,0.08); padding: 1px 5px; border-radius: 4px;
 .ramp-labels li:nth-child(2) {
   opacity: 0.7;
 }
+
+/* A checkbox that belongs to the one above it; see the pairs toggle. */
+.toggle.nested {
+  margin-left: 1.1rem;
+  opacity: 0.85;
+}

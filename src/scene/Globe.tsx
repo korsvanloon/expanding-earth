@@ -1,9 +1,6 @@
 import { useFrame, useLoader, useThree, type ThreeEvent } from '@react-three/fiber'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
-import { LineSegments2 } from 'three/examples/jsm/lines/LineSegments2.js'
-import { LineSegmentsGeometry } from 'three/examples/jsm/lines/LineSegmentsGeometry.js'
-import { LineMaterial } from 'three/examples/jsm/lines/LineMaterial.js'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
 import { buildIndex, fetchLayer, radiusAt, sampleFrame, type Dataset } from '@/data'
@@ -15,6 +12,7 @@ import { pairPulls } from '@shared/tracks'
 import { directionToUv } from '@shared/sphere'
 import { PERMANENT_MA, R0_KM } from '@shared/model'
 import { measureSeams } from '@shared/seams'
+import { pairHue } from '@shared/tracks'
 import { fragmentShader, vertexShader } from './shaders'
 
 
@@ -52,6 +50,7 @@ export function Globe({ data }: { data: Dataset }) {
   const showMesh = useStore((s) => s.showMesh)
   const showSection = useStore((s) => s.showSection)
   const showTracks = useStore((s) => s.showTracks)
+  const allPairs = useStore((s) => s.allPairs)
   const showZones = useStore((s) => s.showZones)
   const pickedZones = useStore((s) => s.pickedZones)
   const toggleZone = useStore((s) => s.toggleZone)
@@ -238,33 +237,66 @@ export function Globe({ data }: { data: Dataset }) {
    * for the same depth and come out stitched.
    */
   const LIFT = 1.004
+  /**
+   * How many straight pieces a pair's join is drawn as.
+   *
+   * A segment is a chord in three dimensions, and a chord between two points a
+   * few thousand kilometres apart on a sphere passes *through* it. Which is
+   * what a hundred-kilometre residual never revealed: the join follows the
+   * sphere instead, in eight pieces, each short enough that its own sag is well
+   * under a kilometre on the longest pair there is.
+   */
+  const ARC = 8
+  /**
+   * A cross at each end of a pair, in pieces, so a nearly closed one can be
+   * seen at all.
+   *
+   * One-pixel lines are what plain line segments give, and a residual of a
+   * hundred kilometres is four pixels long: at the very moment a pair is being
+   * scored it is at its least visible. The ends get a small cross apiece, which
+   * reads at one pixel where a four-pixel line cannot be had.
+   */
+  const TICK = 4
+  /** How big that cross is, as a fraction of the globe's radius. */
+  const TICK_SIZE = 0.013
   const size = useThree((state) => state.size)
   const overlay = useMemo(() => {
     const t = data.tracks
     if (!t) return null
     /**
-     * Thick lines need geometry, not a line width.
+     * Hairlines, and why they are not the fat quads they were.
      *
-     * WebGL draws every GL_LINE one pixel wide and silently ignores anything
-     * else, so a hairline is all a lineBasicMaterial can ever give. LineSegments2
-     * builds each segment as a screen-facing quad instead, which is why it wants
-     * the viewport size: the width is in pixels and it has to do the projection
-     * itself.
+     * WebGL draws every GL_LINE one pixel wide whatever a material asks for, so
+     * this used LineSegments2, which builds each segment as a screen-facing quad
+     * and can be four pixels thick. That worked while it drew the sixty-odd
+     * pairs due at one frame and stopped the moment it was asked for all 2,283:
+     * with eighteen thousand instanced quads it drew a handful, and nothing
+     * could be found that said why. instanceCount, both interleaved buffers and
+     * the draw range all reported the full count; every position was on the
+     * shell; turning off the depth test changed nothing; and tripling the width
+     * made the *smaller* set brighter and the larger set dimmer.
+     *
+     * So it went back to plain line segments, which have no instancing and
+     * nothing to go wrong. A one-pixel line is the cost and it is barely one:
+     * two thousand fat joins across the oceans is a solid mat, and thin ones can
+     * be read.
      */
-    const line = (count: number, color: string, widthPx: number) => {
-      const geometry = new LineSegmentsGeometry()
-      const material = new LineMaterial({
+    const line = (count: number, color: string) => {
+      const geometry = new THREE.BufferGeometry()
+      const material = new THREE.LineBasicMaterial({
         color: new THREE.Color(color),
-        linewidth: widthPx,
         depthWrite: false,
         toneMapped: false,
+        // One hue per pair, so the two ends of one claim are findable among its
+        // neighbours -- and are the same colour here as on the flat map, which
+        // is what sharing pairHue is for. The material colour multiplies these
+        // and so stays white.
+        vertexColors: true,
       })
-      // One degenerate segment to start with. The geometry is instanced and
-      // has no attributes until it is given positions, and everything that
-      // touches it -- including three's own bookkeeping -- reads their count.
-      geometry.setPositions(new Float32Array(6))
-      geometry.instanceCount = 0
-      const object = new LineSegments2(geometry, material)
+      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3))
+      geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3))
+      geometry.setDrawRange(0, 0)
+      const object = new THREE.LineSegments(geometry, material)
       object.frustumCulled = false
       // Drawn after the globe, whatever the depth sorting decides.
       //
@@ -274,7 +306,13 @@ export function Globe({ data }: { data: Dataset }) {
       // over it. Only the parts hanging past the silhouette survived, which
       // looks exactly like a depth bug and is not one.
       object.renderOrder = 2
-      return { geometry, material, object, points: new Float32Array(count * 3) }
+      return {
+        geometry,
+        material,
+        object,
+        points: geometry.getAttribute('position').array as Float32Array,
+        colours: geometry.getAttribute('color').array as Float32Array,
+      }
     }
     // Every pair gets room; only the ones due at the drawn frame are written.
     //
@@ -284,7 +322,7 @@ export function Globe({ data }: { data: Dataset }) {
     // path at a given age. Drawing both said one thing twice, and the pink was
     // the half that cannot be checked -- a line has no partner to fail to meet.
     // The reader who asked for the pairs on the globe also spotted that.
-    return { gapLine: line(t.pairAgeMa.length * 2, '#ffd24a', 4) }
+    return { gapLine: line(t.pairAgeMa.length * 2 * (ARC + TICK), '#ffffff') }
   }, [data])
 
   useEffect(() => () => {
@@ -295,22 +333,27 @@ export function Globe({ data }: { data: Dataset }) {
   }, [overlay])
 
   /**
-   * Copy the current positions of a list of in-triangle points into a line.
+   * Draw each conjugate pair as an arc on the shell, in its own colour.
    *
-   * Each point is three corners and the weights that mix them. Mixing the
-   * corners' positions and then pushing the result back out to the shell's
-   * radius is the same interpolation the crust itself gets: a point a third of
-   * the way across a triangle stays a third of the way across it however the
-   * triangle is stretched, which is exactly the property that lets these lines
-   * be a check on the reconstruction rather than a decoration on it.
+   * Both ends are places inside a triangle, so each is mixed from that
+   * triangle's three corners by weight -- the point the residual is measured
+   * at, rather than the nearest vertex, which used to put the visible gap up to
+   * a triangle's width from the one being scored. The corners carry the shell's
+   * radius, because the globe shrinks by having its points moved inward and not
+   * by being scaled: a line put back at radius one on a planet at two thirds of
+   * it floats a thousand kilometres over its own crust.
    */
-  const drawLines = (
-    line: { geometry: LineSegmentsGeometry; points: Float32Array },
-    verts: Uint32Array,
-    weights: Float32Array,
-    count: number,
+  const drawPairs = (
+    line: { geometry: THREE.BufferGeometry; points: Float32Array; colours: Float32Array },
+    wanted: (i: number) => boolean,
   ) => {
-    for (let i = 0; i < count; i++) {
+    const t = data.tracks
+    let at = 0
+    const a: [number, number, number] = [0, 0, 0]
+    const b: [number, number, number] = [0, 0, 0]
+    const place = (
+      into: [number, number, number], verts: Uint32Array, weights: Float32Array, i: number,
+    ) => {
       let x = 0
       let y = 0
       let z = 0
@@ -321,55 +364,91 @@ export function Globe({ data }: { data: Dataset }) {
         y += buffers.positions[v + 1] * w
         z += buffers.positions[v + 2] * w
       }
-      // The corners carry the shell's radius: the globe shrinks by having its
-      // points moved inward, not by being scaled, so a position at 120 Ma is
-      // 0.69 long rather than 1. Normalising the mix to a unit vector put every
-      // line at today's radius on a planet at two thirds of it -- a thousand
-      // kilometres of empty space between the line and its own crust, which is
-      // what made them look like they were floating. Put back on the shell at
-      // the radius the corners are at instead.
       const corner = verts[i * 3] * 3
       const shell = Math.hypot(
         buffers.positions[corner], buffers.positions[corner + 1], buffers.positions[corner + 2],
       )
       const scale = (LIFT * shell) / (Math.hypot(x, y, z) || 1)
-      line.points[i * 3] = x * scale
-      line.points[i * 3 + 1] = y * scale
-      line.points[i * 3 + 2] = z * scale
+      into[0] = x * scale
+      into[1] = y * scale
+      into[2] = z * scale
     }
-    line.geometry.setPositions(count ? line.points.subarray(0, count * 3) : new Float32Array(6))
-    line.geometry.instanceCount = count / 2
+    for (let i = 0; t && i < t.pairAgeMa.length; i++) {
+      if (!wanted(i)) continue
+      place(a, t.pairAVerts, t.pairAWeights, i)
+      place(b, t.pairBVerts, t.pairBWeights, i)
+      const [red, green, blue] = pairHue(i)
+      const radius = (Math.hypot(a[0], a[1], a[2]) + Math.hypot(b[0], b[1], b[2])) / 2
+      for (let piece = 0; piece < ARC; piece++) {
+        for (const step of [piece, piece + 1]) {
+          if ((at + 1) * 3 > line.points.length) break
+          const f = step / ARC
+          const x = a[0] + (b[0] - a[0]) * f
+          const y = a[1] + (b[1] - a[1]) * f
+          const z = a[2] + (b[2] - a[2]) * f
+          // Straight in, then back out to the shell: a chord's midpoint pushed
+          // to the right radius is the arc, to well under a pixel.
+          const scale = radius / (Math.hypot(x, y, z) || 1)
+          line.points[at * 3] = x * scale
+          line.points[at * 3 + 1] = y * scale
+          line.points[at * 3 + 2] = z * scale
+          line.colours[at * 3] = red
+          line.colours[at * 3 + 1] = green
+          line.colours[at * 3 + 2] = blue
+          at++
+        }
+      }
+      // Two short strokes across each end, square to the join and to the
+      // surface, so the pair is findable when the join itself is a few pixels.
+      for (const end of [a, b]) {
+        const out = [end[0] / radius, end[1] / radius, end[2] / radius]
+        let along = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
+        const dot = along[0] * out[0] + along[1] * out[1] + along[2] * out[2]
+        along = [along[0] - dot * out[0], along[1] - dot * out[1], along[2] - dot * out[2]]
+        const l = Math.hypot(along[0], along[1], along[2]) || 1
+        along = [along[0] / l, along[1] / l, along[2] / l]
+        const across = [
+          out[1] * along[2] - out[2] * along[1],
+          out[2] * along[0] - out[0] * along[2],
+          out[0] * along[1] - out[1] * along[0],
+        ]
+        for (const axis of [along, across]) {
+          for (const side of [-1, 1]) {
+            if ((at + 1) * 3 > line.points.length) break
+            line.points[at * 3] = end[0] + axis[0] * side * TICK_SIZE * radius
+            line.points[at * 3 + 1] = end[1] + axis[1] * side * TICK_SIZE * radius
+            line.points[at * 3 + 2] = end[2] + axis[2] * side * TICK_SIZE * radius
+            line.colours[at * 3] = red
+            line.colours[at * 3 + 1] = green
+            line.colours[at * 3 + 2] = blue
+            at++
+          }
+        }
+      }
+    }
+    // Written straight into the attributes' own arrays, so all that is left is
+    // to say how much of them is live and that the GPU copy is stale.
+    line.geometry.getAttribute('position').needsUpdate = true
+    line.geometry.getAttribute('color').needsUpdate = true
+    line.geometry.setDrawRange(0, at)
   }
 
-  /** The pairs whose crust formed at the frame being drawn, and nothing else. */
-  const dueNowVerts = useMemo(
-    () => new Uint32Array((data.tracks?.pairAgeMa.length ?? 0) * 6), [data],
-  )
-  const dueNowWeights = useMemo(
-    () => new Float32Array((data.tracks?.pairAgeMa.length ?? 0) * 6), [data],
-  )
   const refreshOverlay = () => {
     if (!overlay || !data.tracks) return
-    const t = data.tracks
     const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
-    let n = 0
-    // Drawn where they are measured. These used to be drawn from the heaviest
-    // corner of each end's triangle, which put the visible gap up to a
-    // triangle's width away from the one being scored -- a yellow segment that
-    // did not quite say what the residual said.
-    const end = (verts: Uint32Array, weights: Float32Array, i: number) => {
-      for (let k = 0; k < 3; k++) {
-        dueNowVerts[n * 3 + k] = verts[i * 3 + k]
-        dueNowWeights[n * 3 + k] = weights[i * 3 + k]
-      }
-      n++
-    }
-    for (let i = 0; i < t.pairAgeMa.length; i++) {
-      if (t.pairAgeMa[i] !== frameMa) continue
-      end(t.pairAVerts, t.pairAWeights, i)
-      end(t.pairBVerts, t.pairBWeights, i)
-    }
-    drawLines(overlay.gapLine, dueNowVerts, dueNowWeights, n)
+    // Every pair, or only the ones whose crust formed at the moment on screen.
+    // Due-now is the error: these should be closed by now and what is left of
+    // each is the residual the model is scored on. All of them at 0 Ma is the
+    // other picture entirely -- the whole ocean each pair has to close, which is
+    // what tools/draw-pairs.ts draws flat.
+    // Thinned when all of them are asked for, the way tools/draw-pairs.ts
+    // thins its own subset: two thousand joins across the oceans is a mat, and
+    // the point of a colour per pair is that one can be followed.
+    const stride = allPairs ? Math.max(1, Math.round(data.tracks.pairAgeMa.length / 400)) : 1
+    drawPairs(
+      overlay.gapLine,
+      (i) => (allPairs ? i % stride === 0 : data.tracks!.pairAgeMa[i] === frameMa),
+    )
   }
 
   // Built here rather than declared in JSX so the wireframe overlay can draw
@@ -431,24 +510,19 @@ export function Globe({ data }: { data: Dataset }) {
   // scrubbed, and every control that feeds a uniform.
   const invalidate = useThree((state) => state.invalidate)
   useEffect(() => onClockMoved(invalidate), [invalidate])
-  // A screen-space line width has to be told what the screen is.
-  useEffect(() => {
-    if (!overlay) return
-    for (const l of [overlay.gapLine]) {
-      l.material.resolution.set(size.width, size.height)
-    }
-    invalidate()
-  }, [overlay, size, invalidate])
+  // A one-pixel line needs no viewport size, but a resize still has to redraw.
+  useEffect(() => invalidate(), [overlay, size, invalidate])
   useEffect(
     () => invalidate(),
-    [invalidate, mode, showGrid, showMesh, showTracks, surfaceMap, referenceFrame, data],
+    [invalidate, mode, showGrid, showMesh, showTracks, allPairs,
+      surfaceMap, referenceFrame, data],
   )
   // Turning the overlay on has to fill it: the positions are only rewritten
   // when the clock moves, and the clock has not.
   useEffect(() => {
     if (showTracks) refreshOverlay()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads live buffers
-  }, [showTracks, overlay, rotations])
+  }, [showTracks, allPairs, overlay, rotations])
 
   const drawnFrame = useRef(-1)
   /** The clock reading the vertex buffers currently hold. */

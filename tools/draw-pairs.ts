@@ -30,7 +30,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
 import { directionToUv } from '../shared/sphere.js'
-import { pairPulls, readTracks } from '../shared/tracks.js'
+import { pairHue, pairPulls, readTracks } from '../shared/tracks.js'
 import { loadAgeGrid } from './lib/agegrid.js'
 import { obliquityDeg } from './lib/age-gradient.js'
 
@@ -42,23 +42,6 @@ const WIDTH = Number(process.env.WIDTH ?? 2400)
 const HEIGHT = WIDTH >> 1
 /** Crust younger than this is drawn as the axis it erupted at, Ma. */
 const AXIS_MA = 2
-
-/** A hue per pair, spun by the golden angle so neighbours never share one. */
-function hue(i: number): [number, number, number] {
-  const h = (i * 0.61803398875) % 1
-  const s = 0.85
-  const l = 0.55
-  const c = (1 - Math.abs(2 * l - 1)) * s
-  const x = c * (1 - Math.abs(((h * 6) % 2) - 1))
-  const m = l - c / 2
-  const [r, g, b] = h < 1 / 6 ? [c, x, 0]
-    : h < 2 / 6 ? [x, c, 0]
-      : h < 3 / 6 ? [0, c, x]
-        : h < 4 / 6 ? [0, x, c]
-          : h < 5 / 6 ? [x, 0, c]
-            : [c, 0, x]
-  return [Math.round(255 * (r + m)), Math.round(255 * (g + m)), Math.round(255 * (b + m))]
-}
 
 async function main() {
   const mesh = readFileSync(resolve(DATA, 'mesh.bin'))
@@ -172,8 +155,10 @@ async function main() {
   const drawn = wanted.filter((_, n) => n % stride === 0)
 
   let spans = 0
-  for (const [n, i] of drawn.entries()) {
-    const [r, g, b] = hue(n)
+  for (const i of drawn) {
+    // By pair index, not by position in the drawn subset, so the same pair is
+    // the same colour here and on the globe however many are shown.
+    const [r, g, b] = pairHue(i).map((c) => Math.round(255 * c))
     const a = pixel(tracks.pairAVerts, tracks.pairAWeights, i)
     const c = pixel(tracks.pairBVerts, tracks.pairBWeights, i)
     line(a, c, r, g, b)

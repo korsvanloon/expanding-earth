@@ -50,7 +50,8 @@ export function Panel({ data }: { data: Dataset }) {
   const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
     showSection, setShowSection,
     surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame,
-    showTracks, setShowTracks, showZones, setShowZones } = useStore()
+    showTracks, setShowTracks, allPairs, setAllPairs,
+    showZones, setShowZones } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
   /**
@@ -210,14 +211,31 @@ export function Panel({ data }: { data: Dataset }) {
             Conjugate pairs
           </label>
           {showTracks && (
-            <p className="caption">
-              Only the pairs due at the moment on screen, drawn where the
-              reconstruction has put them. Each line is what is left of a join
-              that should be closed by now &mdash; the error, not the ocean, so
-              short is good and the direction of a nearly closed one means
-              nothing. They string out along the spreading axis because pairs
-              of one age sit the same distance either side of it.
-            </p>
+            <>
+              <label className="toggle nested">
+                <input
+                  type="checkbox"
+                  checked={allPairs}
+                  onChange={(e) => setAllPairs(e.target.checked)}
+                />
+                All of them, not just the ones due now
+              </label>
+              <p className="caption">
+                {allPairs
+                  ? 'Every pair, so at 0 Ma each line is the whole ocean it has '
+                    + 'to close — hundreds to thousands of kilometres. Wind the '
+                    + 'clock back and watch them shorten.'
+                  : 'Only the pairs whose crust formed at the moment on screen, '
+                    + 'drawn where the reconstruction has put them. Each line is '
+                    + 'what is left of a join that should be closed by now — the '
+                    + 'error, not the ocean, so short is good and the direction '
+                    + 'of a nearly closed one means nothing. They string out '
+                    + 'along the spreading axis because pairs of one age sit the '
+                    + 'same distance either side of it.'}
+                {' '}One colour per pair, the same colour it has in{' '}
+                <code>tools/draw-pairs.ts</code>.
+              </p>
+            </>
           )}
           <label className="toggle">
             <input

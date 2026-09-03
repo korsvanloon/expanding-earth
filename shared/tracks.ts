@@ -128,3 +128,29 @@ export function readTracks(buffer: ArrayBuffer): Tracks {
  * two pairs a few million years apart on one walk are nearly the same claim.
  */
 export const pairPulls = (tracks: Tracks, i: number) => tracks.pairTrack[i] % 2 === 0
+
+/**
+ * A colour per pair, so the two ends of one claim can be told from its
+ * neighbour's.
+ *
+ * Shared between the globe and the flat map on purpose: a reader comparing the
+ * two has to be able to find the same pair in both, and a hue computed twice
+ * from two different indices is two different pictures of the same data. The
+ * golden angle is what keeps neighbouring pairs -- which sit a few tens of
+ * kilometres apart along a ridge -- from coming out the same colour.
+ *
+ * Returned as three channels from 0 to 1.
+ */
+export function pairHue(i: number): [number, number, number] {
+  const h = (i * 0.61803398875) % 1
+  const c = 0.85 * (1 - Math.abs(2 * 0.55 - 1))
+  const x = c * (1 - Math.abs(((h * 6) % 2) - 1))
+  const m = 0.55 - c / 2
+  const [r, g, b] = h < 1 / 6 ? [c, x, 0]
+    : h < 2 / 6 ? [x, c, 0]
+      : h < 3 / 6 ? [0, c, x]
+        : h < 4 / 6 ? [0, x, c]
+          : h < 5 / 6 ? [x, 0, c]
+            : [c, 0, x]
+  return [r + m, g + m, b + m]
+}
