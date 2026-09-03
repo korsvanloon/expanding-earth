@@ -499,6 +499,21 @@ function main() {
   offset += faceCount * 2 // per-face fragment
   const vertexIsland = new Uint16Array(buffer.buffer, offset, vertexCount)
   const crustType = new Uint8Array(buffer.buffer, offset + vertexCount * 2, faceCount)
+  offset += vertexCount * 2 + faceCount
+  /**
+   * The age of the crust at each point, sampled where the point is.
+   *
+   * This is what decides when a corner has to go down, and for a while there
+   * was nothing to ask: the file held ages per triangle only, so the solver
+   * used the youngest face touching each point. That counts any point beside
+   * young crust as young, and it removed about twice the crust the radius curve
+   * allows -- which bought the first frames and cost every later one. See
+   * `sampleVertexAges` in tools/build-data.ts.
+   */
+  if (buffer.byteLength < offset - buffer.byteOffset + vertexCount * 4) {
+    throw new Error('mesh.bin has no per-vertex ages; re-run build-data')
+  }
+  const pointAge = new Float32Array(buffer.buffer, offset, vertexCount)
   console.log(`[solve] ${vertexCount} vertices, ${faceCount} faces`)
   if (cutPairCount) throw new Error('this solver closes the mesh up; it wants an uncut one')
 
@@ -710,23 +725,6 @@ function main() {
       `[solve] continental crust may not be squeezed below ${(100 * CONFIG.landMargin).toFixed(0)}% `
       + `of its own area; sea floor may go to ${(100 * CONFIG.foldMargin).toFixed(0)}%`,
     )
-  }
-
-  /**
-   * The youngest crust touching each point, as against `vertexAge` below,
-   * which is the oldest.
-   *
-   * The oldest answers "does this point still exist"; the youngest answers
-   * "has all the crust at this point erupted yet", and it is the second that
-   * decides when a corner has to go down. A point on a ridge axis touches
-   * crust of nearly zero age however old its other neighbours are.
-   */
-  const vertexYoung = new Float32Array(vertexCount).fill(PERMANENT_MA)
-  for (let f = 0; f < faceCount; f++) {
-    for (let k = 0; k < 3; k++) {
-      const v = indices[f * 3 + k]
-      if (faceAges[f] < vertexYoung[v]) vertexYoung[v] = faceAges[f]
-    }
   }
 
   const vertexAge = new Float32Array(vertexCount)
@@ -1577,8 +1575,8 @@ function main() {
       }
       // How much of each edge is still there; see CONFIG.edgeAge.
       for (let k = 0; k < 3; k++) {
-        const a2 = vertexYoung[indices[f * 3 + k]]
-        const b2 = vertexYoung[indices[f * 3 + ((k + 1) % 3)]]
+        const a2 = pointAge[indices[f * 3 + k]]
+        const b2 = pointAge[indices[f * 3 + ((k + 1) % 3)]]
         const older = Math.max(a2, b2)
         const younger = Math.min(a2, b2)
         const share = t <= younger ? 1 : t >= older ? 0 : (older - t) / (older - younger)
@@ -1599,9 +1597,9 @@ function main() {
       // quadrilateral, which is the whole face less the corner triangle at the
       // third.
       restAreaNow[f] = (restArea[f] * survivingShare(
-        vertexYoung[indices[f * 3]] - t,
-        vertexYoung[indices[f * 3 + 1]] - t,
-        vertexYoung[indices[f * 3 + 2]] - t,
+        pointAge[indices[f * 3]] - t,
+        pointAge[indices[f * 3 + 1]] - t,
+        pointAge[indices[f * 3 + 2]] - t,
       )) / stretched
     }
 

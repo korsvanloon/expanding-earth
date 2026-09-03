@@ -324,6 +324,7 @@ function main() {
   )
 
   const solvedFaceAges = sampleFaceAges(mesh, ageFields[CONFIG.solvedModel], age)
+  const solvedVertexAges = sampleVertexAges(mesh, ageFields[CONFIG.solvedModel], age)
 
   for (const model of crustModels) {
     const last = model.radiusKm[model.radiusKm.length - 1]
@@ -573,7 +574,7 @@ function main() {
       'for drawing, and every pair for measuring',
   )
 
-  writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, crust, structure)
+  writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, solvedVertexAges, crust, structure)
 
   const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'> = {
     version: 1,
@@ -755,6 +756,47 @@ function* neighbours(x: number, y: number, width: number, height: number) {
   if (y < height - 1) yield [x, y + 1] as const
   yield [(x + width - 1) % width, y] as const
   yield [(x + 1) % width, y] as const
+}
+
+/**
+ * The age of the crust at each vertex, taken where the vertex is.
+ *
+ * The fold needs this and never had it. A triangle sinks because part of it has
+ * not erupted yet, and which part is decided at its corners -- so what the
+ * solver has to know is the age *at a point*, not the age of the faces around
+ * it. It made do with the youngest of the adjacent faces, which counts any
+ * point next to young crust as young, and that removed about twice the crust
+ * the radius curve allows.
+ *
+ * The sample is exactly that: one lookup at the vertex's own direction, no
+ * vote. There is nothing to vote over -- a point is one point, and the vote in
+ * `sampleFaceAges` exists to stop one stray pixel deciding for a whole
+ * triangle, which cannot happen here because one pixel is all a vertex has any
+ * claim to. At subdivision 6 the mesh is 129 km across and the grid five, so a
+ * vertex takes the age of the pixel it stands on and the quantisation moves
+ * from the triangulation to the data.
+ *
+ * The permanent-crust sentinel comes straight through, and means what it says:
+ * this point never goes anywhere.
+ */
+function sampleVertexAges(
+  mesh: { positions: Float64Array },
+  field: Float32Array,
+  grid: Raster,
+): Float32Array {
+  const vertexCount = mesh.positions.length / 3
+  const out = new Float32Array(vertexCount)
+  for (let v = 0; v < vertexCount; v++) {
+    const [column, row] = directionToPixel(
+      mesh.positions[v * 3],
+      mesh.positions[v * 3 + 1],
+      mesh.positions[v * 3 + 2],
+      grid.width,
+      grid.height,
+    )
+    out[v] = field[row * grid.width + column]
+  }
+  return out
 }
 
 /**
@@ -1180,6 +1222,7 @@ function writeMesh(
   path: string,
   shell: Shell,
   faceAges: Float32Array,
+  vertexAges: Float32Array,
   crust: { rigidity: Float32Array; type: Uint8Array; thickness: Float32Array },
   structure: { value: Float32Array; roughness: Float32Array },
 ) {
@@ -1207,6 +1250,10 @@ function writeMesh(
       Buffer.from(shell.faceFragment.buffer),
       Buffer.from(shell.vertexFragment.buffer),
       Buffer.from(crust.type.buffer),
+      // The per-vertex ages go last so that every reader written against the
+      // older layout still parses: they walk the file forwards and stop, and
+      // the sections above are all four-byte multiples, so this lands aligned.
+      Buffer.from(vertexAges.buffer),
     ]),
   )
 }

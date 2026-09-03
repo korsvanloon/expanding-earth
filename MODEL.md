@@ -455,10 +455,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 31 | 80 km | 100% | 0% |
-| 5 Ma | 74 | 49 km | 96% | 0% |
-| 30 Ma | 63 | 169 km | 54% | 0% |
-| 60 Ma | 53 | 273 km | 32% | 0% |
-| 120 Ma | 25 | 776 km | 8% | 0% |
+| 5 Ma | 74 | 63 km | 96% | 0% |
+| 30 Ma | 63 | 148 km | 57% | 0% |
+| 60 Ma | 53 | 248 km | 40% | 0% |
+| 120 Ma | 25 | 743 km | 8% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -547,7 +547,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 160 blocks at its most divided and 3 at 200 Ma.
+The run finds 152 blocks at its most divided and 4 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -560,7 +560,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 23 km/Myr to 3.5, the block count from as many as 160 to 3, and the biggest block grows to 63% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.002% per Myr, against a peak of 0.66%. The median surface speed falls from a peak of 23 km/Myr to 3.4, the block count from as many as 152 to 4, and the biggest block grows to 65% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -587,11 +587,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.620%/Myr | 14.3 km/Myr | 120 | 3% | 0.4% |
-| 30 Ma | 0.644%/Myr | 22.5 km/Myr | 156 | 2% | 1.1% |
-| 60 Ma | 0.448%/Myr | 16.0 km/Myr | 125 | 10% | 2.0% |
-| 120 Ma | 0.256%/Myr | 14.8 km/Myr | 82 | 12% | 2.5% |
-| 200 Ma | 0.000%/Myr | 3.5 km/Myr | 3 | 63% | 3.1% |
+| 5 Ma | 0.620%/Myr | 11.6 km/Myr | 108 | 4% | 0.3% |
+| 30 Ma | 0.644%/Myr | 22.6 km/Myr | 149 | 3% | 1.0% |
+| 60 Ma | 0.448%/Myr | 15.8 km/Myr | 129 | 10% | 1.9% |
+| 120 Ma | 0.256%/Myr | 14.9 km/Myr | 78 | 14% | 2.5% |
+| 200 Ma | 0.000%/Myr | 3.4 km/Myr | 4 | 65% | 3.1% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -757,11 +757,11 @@ Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6272 km | 0.39% | 0.01% | 0.000% | 0.08% | 0.05% | 1.6% |
-| 30 Ma | 5728 km | 2.43% | 0.03% | 0.000% | 0.22% | 0.19% | 2.7% |
-| 60 Ma | 5197 km | 4.97% | 0.17% | 0.000% | 0.46% | 0.32% | 4.6% |
-| 120 Ma | 4373 km | 10.78% | 1.47% | 0.301% | 1.03% | 0.58% | 6.4% |
-| 200 Ma | 3905 km | 13.80% | 3.54% | 1.397% | 1.48% | 0.92% | 10.8% |
+| 5 Ma | 6272 km | 0.59% | 0.05% | 0.000% | 0.00% | 0.05% | 1.0% |
+| 30 Ma | 5728 km | 2.27% | 0.09% | 0.000% | 0.00% | 0.19% | 2.4% |
+| 60 Ma | 5197 km | 4.45% | 0.33% | 0.000% | 0.05% | 0.30% | 4.0% |
+| 120 Ma | 4373 km | 9.93% | 1.75% | 0.297% | 0.47% | 0.57% | 5.8% |
+| 200 Ma | 3905 km | 13.17% | 3.81% | 1.487% | 0.86% | 0.91% | 10.2% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -775,14 +775,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 8% | +8 | 10 km | 2 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 25% | +25 | 34 km | 0 km at 185 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 904 km | 867 km at 110 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 24 km | 4 km at 120 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 27% | +27 | 40 km | 1 km at 120 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 871 km | 862 km at 115 Ma |
 | Greenland &ndash; North America | 60 Ma | 38% | 40% | +2 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1161 km | 868 km at 170 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 17 km | 4 km at 150 Ma |
-| Antarctica &ndash; South America | watched | 0% | 14% | +14 | 8 km | 3 km at 155 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2286 km | 2286 km at 200 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1128 km | 878 km at 170 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 22 km | 2 km at 190 Ma |
+| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 1 km | 1 km at 190 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2241 km | 2241 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -1774,6 +1774,54 @@ Keeping them is what makes this exact, and like the fold itself it does not
 touch the mesh. It is shipped as it stands, because the reader asked to see it
 rather than to read about it, and because the shape of the trade is the argument
 for finishing it rather than for reverting it.
+
+### Then the data was fixed, and most of the trade went with it
+
+Keeping those samples is one lookup per vertex and it did exactly what the
+measurement said it would. The deformation budget at step one falls from 7.64
+back to 4.56 million km&sup2;, against 4.03 for the old face-wise rule &mdash;
+so the stand-in really had been asking the model to remove about twice the crust
+the radius curve allows. And the defect goes with it. Triangles turning inside
+out, 1.48% of the shell at 200 Ma and 0.46% at 60 under the stand-in, are 0.00%
+out to 40 Ma and 0.86% at 200, which is the figure the model had before any of
+this.
+
+With that fixed the whole sharp trade turns into a small, consistent gain. On
+the scored pairs, median miss:
+
+| | 5 Ma | 30 Ma | 60 Ma | 120 Ma |
+|---|---|---|---|---|
+| whole faces | 70 km | 154 km | 251 km | **736 km** |
+| per corner, stand-in age | **49 km** | 169 km | 273 km | 776 km |
+| per corner, the real age | 63 km | **148 km** | **248 km** | 743 km |
+
+Better at 5, 30 and 60 Ma and a wash at 120, where before it had been better at
+5 and worse everywhere after. Pairs reunited within 200 km go from 56% to 57% at
+30 Ma and 38% to 40% at 60. Bare sky is unchanged to a tenth of a percent at
+every epoch, and Antarctica closes on South America to 1 km against 13.
+
+Run head to head on the same build the two rules are nearly the same model
+&mdash; 131 km against 139 at 20 Ma, 152 against 151 at 40 &mdash; which is
+worth saying plainly: **the large trade written up above was not the idea
+working and then failing, it was an error in both directions at once.**
+
+**And the reason the gain is small is the next thing to fix, in the same place.**
+The age at a vertex is not the lowest age along an edge. Across a spreading axis
+age is not linear but **V-shaped**, with its minimum in the middle of the edge
+&mdash; that is what an axis is, and interpolating straight between two corner
+ages steps over it. The solver steps one million years at a time, and at a half
+rate of 33 km/Myr a step's worth of crust is a strip about 33 km wide against a
+mesh 129 km across: a quarter of an edge. So an edge that straddles a ridge has
+both its ends older than the moment while the crust between them is younger, and
+neither rule can see the strip. That is why, after one step, 73 points of 40,962
+hang inside the shell when 0.6% of the sphere has to go somewhere.
+
+Which is a sampling question and not a mesh question. `build-data` can walk each
+edge and each triangle through the age grid and store what actually survives, at
+the grid's own five kilometres, instead of assuming the age between two corners
+is a straight line. That is where the fold stops being quantised by the
+triangulation, and it is the one place left where the model is asking for
+something the data was never consulted about.
 
 ## Known weaknesses
 
