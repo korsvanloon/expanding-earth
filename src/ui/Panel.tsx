@@ -246,14 +246,18 @@ export function Panel({ data }: { data: Dataset }) {
             Fracture zones (from gravity)
           </label>
           <p className="caption">
-            In turquoise: not paths, but the scarps a fracture zone leaves in the
-            gravity field, found without ever reading the age grid. A line is
-            kept only where it is strong, narrow, keeps going for hundreds of
-            kilometres, and runs within twenty degrees of the way the crust
-            travelled &mdash; 0.6% of the sea floor survives all four. They are
-            the flow lines nature drew for us, and the ones to hang the rest of
-            the family on. Drawn about three times wider than measured, or they
-            would be invisible.
+            In turquoise: not paths, but the grooves a fracture zone leaves in the
+            gravity field. A groove is a light band with a dark line down the
+            middle of it &mdash; steep on both walls, flat along the floor, which
+            is the shape of a trough and of nothing else on the sea floor. A line
+            is kept where that shape holds along its whole length, where it runs
+            along the spreading direction or along the grain of its neighbours,
+            and never on continental crust, which did not come out of a ridge.
+            Where the trough fades the line is carried straight through, because
+            it is one groove either side of the gap. They are the flow lines
+            nature drew for us, and the ones to hang the rest of the family on.
+            Drawn about three times wider than measured, or they would be
+            invisible.
           </p>
           <p className="caption">
             The paths the crust took away from the ridges, in magenta &mdash; read off the age grid,

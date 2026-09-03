@@ -93,6 +93,15 @@ export interface GrooveOptions {
   gapReach?: number
   /** How near an across-grain line a bridge may pass, km. */
   clearKm?: number
+  /**
+   * Cells not worth measuring, by their place in the fabric's grid.
+   *
+   * For the whole globe rather than a window this is most of the saving there
+   * is, and it costs nothing real: continental crust did not come out of a
+   * ridge, so a line found on it is not a flow line and would be dropped
+   * afterwards anyway. Paying to find it first is the only waste.
+   */
+  skip?: (column: number, row: number) => boolean
 }
 
 export interface GrooveField {
@@ -264,6 +273,7 @@ export function grooveField(
       Math.min(fabric.height - 1, Math.max(0, Math.round(r))),
     )
 
+  const skip = options.skip
   const score = new Float32Array(width * height)
   const axis = new Float32Array(width * height)
   const walls = new Float32Array(width * height)
@@ -274,6 +284,7 @@ export function grooveField(
   for (let y = 0; y < height; y++) {
     const row = y0 + y
     for (let x = 0; x < width; x++) {
+      if (skip?.(x0 + x, row)) continue
       let best = -Infinity
       let bestAxis = 0
       for (let a = 0; a < 180; a += 15) {
@@ -653,8 +664,37 @@ export function linkGrooves(
   }))
   interface Join { i: number; atTailOfI: boolean; j: number; atHeadOfJ: boolean; gap: number }
   const joins: Join[] = []
+  // Only segments whose ends are within reach of each other are considered.
+  // Every pair of segments was, once, which is fine for the hundreds in one
+  // window and not for the tens of thousands over a globe.
+  const SIZE = Math.max(1, Math.ceil(maxGapKm / 100))
+  const key = (lon: number, lat: number) =>
+    `${Math.floor(lon / SIZE)},${Math.floor(lat / SIZE)}`
+  const nearby = new Map<string, number[]>()
+  ends.forEach((end, i) => {
+    for (const point of [end.head, end.tail]) {
+      const at = key(point.lon, point.lat)
+      const there = nearby.get(at)
+      if (there) {
+        if (there[there.length - 1] !== i) there.push(i)
+      } else nearby.set(at, [i])
+    }
+  })
+  const candidates = (i: number) => {
+    const out = new Set<number>()
+    for (const point of [ends[i].head, ends[i].tail]) {
+      for (let dLon = -1; dLon <= 1; dLon++) {
+        for (let dLat = -1; dLat <= 1; dLat++) {
+          for (const j of nearby.get(key(point.lon + dLon * SIZE, point.lat + dLat * SIZE)) ?? []) {
+            if (j > i) out.add(j)
+          }
+        }
+      }
+    }
+    return out
+  }
   for (let i = 0; i < grooves.length; i++) {
-    for (let j = i + 1; j < grooves.length; j++) {
+    for (const j of candidates(i)) {
       for (const atTailOfI of [true, false]) {
         for (const atHeadOfJ of [true, false]) {
           const from = atTailOfI ? ends[i].tail : ends[i].head
@@ -851,15 +891,43 @@ export function grainReference(
   grooves: Groove[], radiusKm = 800, least = 8, capKm = 2500,
 ): (at: GroovePoint) => number | null {
   const each = grooves.map(axisOf)
+  // Bucketed by whole degrees of latitude and longitude. Over one window this
+  // was a scan of every segment for every segment and cheap enough; over the
+  // globe there are tens of thousands and the scan is the whole cost.
+  const SIZE = 10
+  const key = (lon: number, lat: number) =>
+    `${Math.floor(lon / SIZE)},${Math.floor(lat / SIZE)}`
+  const buckets = new Map<string, { axis: number; at: GroovePoint }[]>()
+  for (const one of each) {
+    const at = key(one.at.lon, one.at.lat)
+    const there = buckets.get(at)
+    if (there) there.push(one)
+    else buckets.set(at, [one])
+  }
+  /** Every segment within so many degrees of a place, by bucket. */
+  const around = (at: GroovePoint, reachDeg: number) => {
+    const out: { axis: number; awayKm: number }[] = []
+    const rings = Math.ceil(reachDeg / SIZE)
+    for (let dLon = -rings; dLon <= rings; dLon++) {
+      for (let dLat = -rings; dLat <= rings; dLat++) {
+        const there = buckets.get(key(at.lon + dLon * SIZE, at.lat + dLat * SIZE))
+        if (!there) continue
+        for (const one of there) {
+          const awayKm = apartKm(at, one.at)
+          if (awayKm > 1) out.push({ axis: one.axis, awayKm })
+        }
+      }
+    }
+    return out
+  }
   return (at: GroovePoint) => {
-    const away = each
-      .map((q) => ({ axis: q.axis, awayKm: apartKm(at, q.at) }))
-      .filter((q) => q.awayKm > 1)
-      .sort((a, b) => a.awayKm - b.awayKm)
-    const inside = away.filter((q) => q.awayKm < radiusKm)
+    const inside = around(at, radiusKm / 100).filter((q) => q.awayKm < radiusKm)
     const near = inside.length >= least
       ? inside
-      : away.filter((q) => q.awayKm < capKm).slice(0, least)
+      : around(at, capKm / 100)
+        .filter((q) => q.awayKm < capKm)
+        .sort((a, b) => a.awayKm - b.awayKm)
+        .slice(0, least)
     if (near.length < 4) return null
     return axisMedian(near.map((q) => q.axis))
   }
@@ -919,4 +987,66 @@ export function trimAcross(
     }
   })
   return { kept, dropped }
+}
+
+/**
+ * Paint grooves into a raster, the way the globe's fracture-zone view reads it.
+ *
+ * Strength in one channel and which groove a cell belongs to in another,
+ * because a reader points at a line in the viewer and the viewer has to know
+ * which one they meant: the identity travels in the picture rather than beside
+ * it. Longest first, so where two widened lines overlap the longer one owns it
+ * -- arbitrary, but stable, where "whichever came last" would change the
+ * picture whenever the detector's ordering did.
+ *
+ * Carried-through stretches are painted like read ones here, and that is the
+ * reader's call: on the flat test pictures the two are told apart because the
+ * question there is how well the detector works, and on the globe the question
+ * is where the flow lines are, so a groove is drawn as the one line it is.
+ */
+export function grooveRaster(
+  grooves: Groove[], width: number, height: number, dilateCells = 1,
+): { strength: Uint8Array; curve: Uint16Array } {
+  const strength = new Uint8Array(width * height)
+  const curve = new Uint16Array(width * height)
+  const scores = grooves.map((g) => g.score).sort((a, b) => a - b)
+  const full = scores.length ? scores[Math.floor(0.9 * scores.length)] || 1 : 1
+
+  const order = grooves.map((_, i) => i).sort((a, b) => grooves[b].lengthKm - grooves[a].lengthKm)
+  for (const index of order) {
+    const groove = grooves[index]
+    const level = 1 + Math.round(254 * Math.min(1, Math.max(0, groove.score) / full))
+    for (let i = 1; i < groove.points.length; i++) {
+      const from = groove.points[i - 1]
+      const to = groove.points[i]
+      // Along the segment in raster cells, so a step never leaves a gap. The
+      // longitude difference is taken the short way round, or a groove ending
+      // just west of the date line and carrying on just east of it is painted
+      // right across the map.
+      const eastward = ((to.lon - from.lon) + 540) % 360 - 180
+      const steps = Math.max(1, Math.ceil(Math.max(
+        Math.abs(eastward / 360) * width,
+        Math.abs((to.lat - from.lat) / 180) * height,
+      )))
+      for (let s = 0; s <= steps; s++) {
+        const t = s / steps
+        const lon = from.lon + eastward * t
+        const lat = from.lat + (to.lat - from.lat) * t
+        const column = Math.floor((((lon + 180) / 360) % 1 + 1) % 1 * width)
+        const row = Math.floor(((90 - lat) / 180) * height)
+        for (let dr = -dilateCells; dr <= dilateCells; dr++) {
+          const r = row + dr
+          if (r < 0 || r >= height) continue
+          for (let dc = -dilateCells; dc <= dilateCells; dc++) {
+            const c = ((column + dc) % width + width) % width
+            const cell = r * width + c
+            if (strength[cell] >= level) continue
+            strength[cell] = level
+            curve[cell] = index + 1
+          }
+        }
+      }
+    }
+  }
+  return { strength, curve }
 }

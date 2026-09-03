@@ -455,11 +455,11 @@ construction, so the lines come out as lines.
 <!-- from-the-run: pairs -->
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
-| 0 Ma | 39 | 80 km | 100% | 0% |
-| 5 Ma | 75 | 65 km | 99% | 0% |
-| 30 Ma | 62 | 177 km | 58% | 0% |
-| 60 Ma | 45 | 183 km | 58% | 0% |
-| 120 Ma | 10 | 648 km | 20% | 0% |
+| 0 Ma | 41 | 80 km | 100% | 0% |
+| 5 Ma | 81 | 64 km | 99% | 0% |
+| 30 Ma | 65 | 175 km | 57% | 0% |
+| 60 Ma | 45 | 184 km | 56% | 0% |
+| 120 Ma | 10 | 626 km | 20% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -548,7 +548,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 166 blocks at its most divided and 3 at 200 Ma.
+The run finds 162 blocks at its most divided and 6 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -561,7 +561,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 23 km/Myr to 4.0, the block count from as many as 166 to 3, and the biggest block grows to 53% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 22 km/Myr to 4.2, the block count from as many as 162 to 6, and the biggest block grows to 51% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -588,11 +588,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 1.019%/Myr | 15.0 km/Myr | 166 | 2% | 0.5% |
-| 30 Ma | 0.617%/Myr | 22.1 km/Myr | 153 | 3% | 1.0% |
-| 60 Ma | 0.408%/Myr | 16.4 km/Myr | 118 | 7% | 1.7% |
-| 120 Ma | 0.284%/Myr | 17.1 km/Myr | 84 | 11% | 2.4% |
-| 200 Ma | 0.000%/Myr | 4.0 km/Myr | 3 | 53% | 3.0% |
+| 5 Ma | 1.019%/Myr | 15.0 km/Myr | 162 | 1% | 0.5% |
+| 30 Ma | 0.617%/Myr | 22.1 km/Myr | 151 | 3% | 1.0% |
+| 60 Ma | 0.408%/Myr | 16.4 km/Myr | 117 | 7% | 1.7% |
+| 120 Ma | 0.284%/Myr | 17.1 km/Myr | 85 | 9% | 2.4% |
+| 200 Ma | 0.000%/Myr | 4.2 km/Myr | 6 | 51% | 3.0% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -785,11 +785,11 @@ Then the detail. Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6207 km | 0.63% | 0.03% | 0.000% | 0.00% | 0.07% | 1.0% |
+| 5 Ma | 6207 km | 0.63% | 0.04% | 0.000% | 0.00% | 0.07% | 1.0% |
 | 30 Ma | 5673 km | 2.17% | 0.11% | 0.000% | 0.00% | 0.20% | 2.7% |
-| 60 Ma | 5152 km | 4.42% | 0.35% | 0.000% | 0.03% | 0.29% | 4.1% |
-| 120 Ma | 4315 km | 10.44% | 1.85% | 0.331% | 0.59% | 0.55% | 6.0% |
-| 200 Ma | 3926 km | 13.19% | 3.56% | 1.405% | 0.92% | 0.93% | 10.5% |
+| 60 Ma | 5152 km | 4.48% | 0.36% | 0.000% | 0.03% | 0.30% | 4.1% |
+| 120 Ma | 4315 km | 10.48% | 1.80% | 0.323% | 0.57% | 0.55% | 6.0% |
+| 200 Ma | 3926 km | 13.17% | 3.56% | 1.413% | 0.97% | 0.93% | 10.5% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -803,14 +803,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 37 km | 8 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 24% | +24 | 28 km | 1 km at 85 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1132 km | 1110 km at 160 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 28 km | 11 km at 120 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 24% | +24 | 35 km | 5 km at 85 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1129 km | 1099 km at 100 Ma |
 | Greenland &ndash; North America | 60 Ma | 20% | 20% | +0 | 0 km | 0 km at 0 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 920 km | 725 km at 165 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 16 km | 2 km at 175 Ma |
-| Antarctica &ndash; South America | watched | 0% | 14% | +14 | 3 km | 3 km at 170 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2207 km | 2207 km at 200 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 859 km | 714 km at 175 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 11 km | 1 km at 180 Ma |
+| Antarctica &ndash; South America | watched | 0% | 14% | +14 | 5 km | 0 km at 155 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2225 km | 2225 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and

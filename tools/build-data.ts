@@ -23,17 +23,20 @@ import {
   Raster, areaQuantile, downsample, downsampleField, loadRaster,
 } from './lib/raster.js'
 import { loadAgeGrid } from './lib/agegrid.js'
-import { obliquityDeg, overDisc } from './lib/age-gradient.js'
+import { obliquityDeg, overDisc, spreadingDirection } from './lib/age-gradient.js'
+import {
+  axisOf, grainReference, grooveField, grooveRaster, linkGrooves, trimEither, walkGrooves,
+  type Groove,
+} from './lib/grooves.js'
 import {
   AGE_SAMPLES, encodeAge, momentOf, olderShare,
 } from '../shared/age-samples.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
-import { directionToPixel } from '../shared/sphere.js'
+import { directionToPixel, lonLatToDirection } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { gridValue, readGrid, type Grid } from './lib/grid.js'
 import {
-  fabricRaster, fillGaps, fractureZones, lineamentAt, lineaments, sampleStructure, zoneRaster,
-  type Lineaments,
+  fabricRaster, fillGaps, fractureZones, lineaments, sampleStructure,
 } from './lib/structure.js'
 import { flowField } from './lib/flowfield.js'
 import { subdivision } from './lib/resolution.js'
@@ -257,6 +260,21 @@ export const CONFIG = {
    * which are the pairs whose partners are least in doubt.
    */
   spreadingDiscKm: Number(process.env.AGE_DISC ?? 200),
+  /**
+   * How far a groove may run off its reference direction before it is dropped.
+   *
+   * Thirty degrees is loose, on purpose and on a reader's evidence: they went
+   * through a window of the South Atlantic segment by segment and said the
+   * rejected ones were right to be rejected but that a third of them were
+   * good lines. Letting a little rubbish through is the cheaper mistake, since
+   * a wrong line can be seen in the viewer and a right line never drawn cannot.
+   */
+  grooveSwingDeg: Number(process.env.GROOVE_SWING ?? 30),
+  /**
+   * Which share of the globe's cells the cheap scout throws out before the
+   * real measurement. Higher is faster and finds fewer grooves.
+   */
+  grooveScoutQuantile: Number(process.env.GROOVE_SCOUT ?? 0.4),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: 60,
   /**
@@ -489,14 +507,33 @@ async function main() {
   if (zones && detected) {
     console.log(
       `[build-data] ${detected.curves.length} fracture zones linked from the gravity grid, ` +
-        `median ${curveLengthKm(detected.curves, zones)} km long`,
+        `median ${curveLengthKm(detected.curves, zones)} km long -- still what the flow lines ` +
+        `follow, though no longer what the viewer draws`,
     )
-    const raster = zoneRaster(zones, detected.curves)
-    // Three channels: how strong the line is, and which curve it belongs to
+  }
+
+  // --- the grooves --------------------------------------------------------
+  //
+  // What the viewer draws as fracture zones, and what a reader has been
+  // judging window by window: the light band with a dark centre line, kept
+  // where it runs along the spreading direction or its neighbours' grain,
+  // never on continental crust, carried through where the trough fades.
+  //
+  // It replaces the old detector in the picture and not yet in the model. The
+  // flow lines and therefore the pairs still follow `zones` above, because
+  // changing what the solver is pulled by is a separate step with its own
+  // score to answer for, and mixing the two would leave neither measurable.
+  const grooves = traceGrooves(
+    structure.fabricCells, structure.gravity,
+    ageMa, ageFull.width, ageFull.height, height, shelfBreak,
+  )
+  {
+    const raster = grooveRaster(grooves, structure.gravity.width, structure.gravity.height)
+    // Three channels: how strong the line is, and which groove it belongs to
     // split over the other two. A reader points at a fracture zone and the
     // viewer has to know which one they meant, so the identity travels in the
     // picture rather than beside it.
-    const pixels = new Uint8Array(zones.width * zones.height * 4)
+    const pixels = new Uint8Array(raster.strength.length * 4)
     let lit = 0
     for (let i = 0; i < raster.strength.length; i++) {
       pixels[i * 4] = raster.strength[i]
@@ -505,14 +542,16 @@ async function main() {
       pixels[i * 4 + 3] = 255
       if (raster.strength[i]) lit++
     }
-    const png = new PNG({ width: zones.width, height: zones.height, colorType: 2 })
+    const png = new PNG({
+      width: structure.gravity.width, height: structure.gravity.height, colorType: 2,
+    })
     png.data.set(pixels)
     const encoded = PNG.sync.write(png)
     writeFileSync(resolve(OUT, 'zones.png'), encoded)
     console.log(
-      `[build-data] wrote public/data/zones.png -- fracture zones on ` +
-        `${((100 * lit) / raster.strength.length).toFixed(1)}% of the grid's cells ` +
-        `(${(encoded.length / 1e6).toFixed(1)} MB)`,
+      `[build-data] wrote public/data/zones.png -- grooves on `
+        + `${((100 * lit) / raster.strength.length).toFixed(1)}% of the grid's cells `
+        + `(${(encoded.length / 1e6).toFixed(1)} MB)`,
     )
   }
 
@@ -725,8 +764,10 @@ async function main() {
     crustModels,
     solvedModel: CONFIG.solvedModel,
     crustalFabric: structure.fabric,
-    fractureZones: detected && vgg && lines
-      ? zoneSummaries(detected.curves, zones!, lines, vgg, ageMa, ageFull.width, ageFull.height)
+    // In the raster's own order, because the raster carries each groove's index
+    // and a reader clicking a line in the viewer is answered from this list.
+    fractureZones: vgg
+      ? grooveSummaries(grooves, vgg, ageMa, ageFull.width, ageFull.height)
       : [],
     radiusStepMa: CONFIG.radiusStepMa,
     referenceRadiusKm,
@@ -1305,23 +1346,121 @@ function sampleGravityStructure(shell: Shell, crustType: Uint8Array) {
         `[${row.low.toFixed(0)} - ${row.high.toFixed(0)}]`,
     )
   }
-  return { ...structure, fabric }
+  return { ...structure, fabric, fabricCells: raster, gravity: grid }
 }
 
 /**
- * One line per detected fracture zone, for the viewer to list.
+ * Grooves over the whole globe, found the way a reader finds one.
+ *
+ * The flat test pictures that this rule was built and argued out on live in
+ * tools/draw-grooves.ts, and this is the same pipeline over every cell: read
+ * the light-band-with-a-dark-centre profile, keep what runs along either the
+ * spreading direction or its neighbours' grain, throw away what sits on
+ * continental crust, and carry each line through the stretches where the trough
+ * fades. See tools/lib/grooves.ts for each of those and what was tried first.
+ *
+ * Continental cells are not measured at all rather than measured and dropped,
+ * which is most of what makes a whole-globe pass affordable: a groove is a
+ * record of two pieces of sea floor moving apart, and continental crust did
+ * not come out of a ridge, so a line found there was never going to be kept.
+ */
+function traceGrooves(
+  fabricCells: Uint8Array,
+  gravity: { width: number; height: number },
+  ageMa: Float32Array, ageWidth: number, ageHeight: number,
+  height: Raster, shelfBreak: number,
+) {
+  const fabric = {
+    width: gravity.width,
+    height: gravity.height,
+    at: (column: number, row: number) => fabricCells[row * gravity.width + column],
+  }
+  const placeOf = (column: number, row: number) => ({
+    lon: ((column + 0.5) / gravity.width) * 360 - 180,
+    lat: 90 - ((row + 0.5) / gravity.height) * 180,
+  })
+  const RADIANS = Math.PI / 180
+  /** The project's own line between continental and oceanic: the shelf break. */
+  const ashore = (lon: number, lat: number) => {
+    const [x, y, z] = lonLatToDirection(lon * RADIANS, lat * RADIANS)
+    const [column, row] = directionToPixel(x, y, z, height.width, height.height)
+    return height.at(column, row) > shelfBreak
+  }
+  const regional = overDisc((x: number, y: number, z: number) => {
+    const [column, row] = directionToPixel(x, y, z, ageWidth, ageHeight)
+    return ageMa[row * ageWidth + column]
+  }, CONFIG.spreadingDiscKm)
+  const spreading = (at: { lon: number; lat: number }) => {
+    const [x, y, z] = lonLatToDirection(at.lon * RADIANS, at.lat * RADIANS)
+    const direction = spreadingDirection(regional, x, y, z)
+    if (!direction) return null
+    const l = Math.hypot(x, y, z) || 1
+    const ux = x / l
+    const uy = y / l
+    const uz = z / l
+    let nx = -uy * ux
+    let ny = 1 - uy * uy
+    let nz = -uy * uz
+    const nl = Math.hypot(nx, ny, nz)
+    if (nl < 1e-6) return null
+    nx /= nl
+    ny /= nl
+    nz /= nl
+    const ex = ny * uz - nz * uy
+    const ey = nz * ux - nx * uz
+    const ez = nx * uy - ny * ux
+    const north = direction[0] * nx + direction[1] * ny + direction[2] * nz
+    const east = direction[0] * ex + direction[1] * ey + direction[2] * ez
+    return (((Math.atan2(east, north) / RADIANS) % 180) + 180) % 180
+  }
+
+  const started = Date.now()
+  const field = grooveField(
+    fabric,
+    { lonFrom: -180, lonTo: 180, latFrom: -90, latTo: 90 },
+    {
+      scoutQuantile: CONFIG.grooveScoutQuantile,
+      skip: (column: number, row: number) => {
+        const at = placeOf(column, row)
+        return ashore(at.lon, at.lat)
+      },
+    },
+  )
+  const found = walkGrooves(fabric, field, {}).filter((groove) => {
+    const at = axisOf(groove).at
+    return !ashore(at.lon, at.lat)
+  })
+  const { kept, dropped } = trimEither(
+    found, [spreading, grainReference(found)], CONFIG.grooveSwingDeg,
+  )
+  const grooves = linkGrooves(kept, {}, dropped)
+  const readKm = grooves.reduce(
+    (sum, g) => sum + g.points.filter((p) => p.measured).length, 0,
+  ) * 20
+  console.log(
+    `[build-data] ${found.length} groove segments off the fabric, ${kept.length} kept, `
+      + `linked into ${grooves.length} lines of `
+      + `${grooves.reduce((sum, g) => sum + g.lengthKm, 0).toFixed(0)} km `
+      + `(${readKm.toFixed(0)} km of it read, the rest carried through) `
+      + `in ${((Date.now() - started) / 1000).toFixed(0)}s`,
+  )
+  return grooves
+}
+
+/**
+ * One line per groove, for the viewer to list.
  *
  * Where it is and how long, so a reader can recognise what they clicked, plus
  * the two numbers that say what *kind* of line it might be. A reader who spent
- * an evening on these came back with "most of these are seamounts, some are
- * ridges", which is the detector's real problem and not one a picture can
- * settle -- three different things make a narrow line in a gravity grid:
+ * an evening on the old detector's output came back with "most of these are
+ * seamounts, some are ridges", which is the kind of thing no picture settles --
+ * three different things make a narrow line in a gravity grid:
  *
  *   a fracture zone  a step in the sea floor that runs for hundreds of
  *                    kilometres. Walk it and the gravity barely changes.
- *   a seamount chain separate volcanoes built on top of crust that was already
- *                    there. The same walk climbs and falls between every one of
- *                    them, so `swingE` is large.
+ *   a seamount chain separate volcanoes built on crust that was already there.
+ *                    The same walk climbs and falls between every one of them,
+ *                    so `swingE` is large.
  *   a ridge axis     crust is made there, so the age is at a minimum on the
  *                    line and rises on both sides: `bowlMa` is positive.
  *
@@ -1329,87 +1468,64 @@ function sampleGravityStructure(shell: Shell, crustType: Uint8Array) {
  * "that one is a seamount" -- can be checked against something measured, and a
  * cut chosen against real labels instead of against a story.
  */
-function zoneSummaries(
-  curves: number[][],
-  zones: { width: number; height: number },
-  guide: Lineaments,
+function grooveSummaries(
+  grooves: Groove[],
   vgg: Grid,
   ageMa: Float32Array, ageWidth: number, ageHeight: number,
 ): Meta['fractureZones'] {
-  const dir = (at: number) => {
-    const row = Math.floor(at / zones.width)
-    const lat = (0.5 - (row + 0.5) / zones.height) * Math.PI
-    const lon = ((at % zones.width) + 0.5) / zones.width * 2 * Math.PI - Math.PI
-    const c = Math.cos(lat)
-    return [c * Math.cos(lon), Math.sin(lat), -c * Math.sin(lon)] as const
+  const RADIANS = Math.PI / 180
+  const ageAt = (lon: number, lat: number) => {
+    const [x, y, z] = lonLatToDirection(lon * RADIANS, lat * RADIANS)
+    const [column, row] = directionToPixel(x, y, z, ageWidth, ageHeight)
+    return ageMa[row * ageWidth + column]
   }
-  /** The gravity reading at a direction, or NaN where the grid has a hole. */
-  const gravityAt = (x: number, y: number, z: number) => {
-    const [c, r] = directionToPixel(x, y, z, vgg.width, vgg.height)
-    return gridValue(vgg, c, r)
+  const gravityAt = (lon: number, lat: number) => {
+    const [x, y, z] = lonLatToDirection(lon * RADIANS, lat * RADIANS)
+    const [column, row] = directionToPixel(x, y, z, vgg.width, vgg.height)
+    return gridValue(vgg, column, row)
   }
-  const ageAt = (x: number, y: number, z: number) => {
-    const [c, r] = directionToPixel(x, y, z, ageWidth, ageHeight)
-    return ageMa[r * ageWidth + c]
-  }
-  const reachKm = 60
-  return curves.map((curve) => {
-    let km = 0
-    for (let i = 1; i < curve.length; i++) {
-      const a = dir(curve[i - 1])
-      const b = dir(curve[i])
-      km += Math.acos(Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))) * R0_KM
-    }
-    const along: number[] = []
+  return grooves.map((groove) => {
+    const on = groove.points.filter((point: { measured: boolean }) => point.measured)
+    const read = on.length ? on : groove.points
+    const middle = read[Math.floor(read.length / 2)]
+
     const ages: number[] = []
-    let bowl = 0
-    let bowlN = 0
-    for (const at of curve) {
-      const [x, y, z] = dir(at)
-      const g = gravityAt(x, y, z)
-      if (Number.isFinite(g)) along.push(g)
-      const a0 = ageAt(x, y, z)
-      if (Number.isFinite(a0)) ages.push(a0)
-      const line = lineamentAt(guide, x, y, z)
-      if (!line || !Number.isFinite(a0)) continue
-      // Across the line, both ways, staying on the sphere.
-      let nx = line.ty * z - line.tz * y
-      let ny = line.tz * x - line.tx * z
-      let nz = line.tx * y - line.ty * x
-      const nl = Math.hypot(nx, ny, nz) || 1
-      nx /= nl; ny /= nl; nz /= nl
-      const beside = (sign: number) => {
-        const angle = (sign * reachKm) / R0_KM
-        const c = Math.cos(angle), s2 = Math.sin(angle)
-        const px = x * c + nx * s2, py = y * c + ny * s2, pz = z * c + nz * s2
-        const l = Math.hypot(px, py, pz) || 1
-        return ageAt(px / l, py / l, pz / l)
+    const gravity: number[] = []
+    const bowls: number[] = []
+    for (let i = 0; i < read.length; i++) {
+      const age = ageAt(read[i].lon, read[i].lat)
+      if (!Number.isNaN(age)) ages.push(age)
+      const value = gravityAt(read[i].lon, read[i].lat)
+      if (Number.isFinite(value)) gravity.push(value)
+      // Sixty kilometres either side, square to the line, to see whether the
+      // age dips onto it -- which is what a ridge axis does and a fracture
+      // zone does not.
+      if (i && !Number.isNaN(age)) {
+        const along = Math.atan2(
+          (read[i].lon - read[i - 1].lon) * Math.cos(read[i].lat * RADIANS),
+          read[i].lat - read[i - 1].lat,
+        )
+        const acrossLat = (60 / 111.19) * Math.cos(along + Math.PI / 2)
+        const acrossLon = (60 / 111.19) * Math.sin(along + Math.PI / 2)
+          / Math.max(0.05, Math.cos(read[i].lat * RADIANS))
+        const plus = ageAt(read[i].lon + acrossLon, read[i].lat + acrossLat)
+        const minus = ageAt(read[i].lon - acrossLon, read[i].lat - acrossLat)
+        if (!Number.isNaN(plus) && !Number.isNaN(minus)) bowls.push((plus + minus) / 2 - age)
       }
-      const plus = beside(1)
-      const minus = beside(-1)
-      if (!Number.isFinite(plus) || !Number.isFinite(minus)) continue
-      bowl += (plus + minus) / 2 - a0
-      bowlN++
     }
-    along.sort((a, b) => a - b)
-    const middle = curve[curve.length >> 1]
-    const row = Math.floor(middle / zones.width)
     return {
-      lengthKm: Math.round(km),
-      lon: Math.round((((middle % zones.width) + 0.5) / zones.width - 0.5) * 3600) / 10,
-      lat: Math.round((0.5 - (row + 0.5) / zones.height) * 1800) / 10,
-      ageMa: ages.length
-        ? Math.round(ages.reduce((a, b) => a + b, 0) / ages.length)
-        : null,
-      swingE: along.length > 4
-        ? Math.round(along[Math.floor(0.9 * along.length)] - along[Math.floor(0.1 * along.length)])
+      lengthKm: Math.round(groove.lengthKm),
+      lon: Math.round(middle.lon * 10) / 10,
+      lat: Math.round(middle.lat * 10) / 10,
+      ageMa: ages.length ? Math.round(quantile(ages, 0.5) * 10) / 10 : null,
+      swingE: gravity.length > 4
+        ? Math.round((quantile(gravity, 0.9) - quantile(gravity, 0.1)) * 10) / 10
         : 0,
-      bowlMa: bowlN ? Math.round((bowl / bowlN) * 100) / 100 : 0,
+      bowlMa: bowls.length ? Math.round(quantile(bowls, 0.5) * 10) / 10 : 0,
     }
   })
 }
 
-/** The median length of a set of linked curves, km, for the build log. */
 function curveLengthKm(
   curves: number[][], zones: { width: number; height: number },
 ): string {
