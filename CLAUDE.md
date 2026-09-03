@@ -2,9 +2,11 @@
 
 ## Waiting
 
-A full solve is about four minutes and a Pages build about eight. If a task
-is going to take **longer than five minutes**, stop and re-evaluate before
-waiting it out:
+A full solve is about seven and a half minutes (437 s measured, September, at
+subdivision 6 over 200 Ma) and the whole `pnpm run data` about nine. Whole-globe
+groove detection adds roughly three more, and a Pages build about eight. So
+most of what this pipeline does now runs past five minutes, and the rule below
+is about whether a wait is *worth* it rather than about whether it is long:
 
 - Is the task set up right at all? Two measurements in this project were
   abandoned mid-run because they were written O(misses x vertices) when the
