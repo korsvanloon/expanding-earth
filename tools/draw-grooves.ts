@@ -21,7 +21,9 @@ import jpeg from 'jpeg-js'
 import { directionToUv } from '../shared/sphere.js'
 import { pairHue, readTracks } from '../shared/tracks.js'
 import { apartKm, axisDiff, bearingDeg, type Place } from './lib/bearing.js'
-import { grooveField, walkGrooves, type Fabric, type Groove } from './lib/grooves.js'
+import {
+  grooveField, linkGrooves, trimAcross, walkGrooves, type Fabric, type Groove,
+} from './lib/grooves.js'
 import { fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
 
 /**
@@ -56,6 +58,9 @@ function againstGrooves(
     let nearest: { axis: number; awayKm: number } | null = null
     for (const groove of grooves) {
       for (let i = 0; i < groove.points.length; i++) {
+        // Only where the trough was read: a carried-through stretch is a claim,
+        // not evidence, and must not be able to judge a pair.
+        if (!groove.points[i].measured) continue
         const awayKm = apartKm(at, groove.points[i])
         if (awayKm > reachKm || (nearest && awayKm >= nearest.awayKm)) continue
         const from = groove.points[Math.max(0, i - 1)]
@@ -92,14 +97,22 @@ function main() {
   // The knobs the detector is being argued about through, so a picture can be
   // asked for without editing the library it is a picture of.
   const knobs = {
-    minContrast: Number(process.env.SEED ?? 18),
+    minContrast: Number(process.env.SEED ?? 12),
     holdContrast: Number(process.env.HOLD ?? 4),
     bridgeSteps: Number(process.env.BRIDGE ?? 8),
-    minLengthKm: Number(process.env.MINLEN ?? 400),
+    minLengthKm: Number(process.env.MINLEN ?? 80),
   }
+  /** LINK=0 shows the segments as found, before anything is carried through. */
+  const link = Number(process.env.LINK ?? 1) > 0
   const started = Date.now()
   const field = grooveField(fabric, window, knobs)
-  const grooves = walkGrooves(fabric, field, knobs)
+  const found = walkGrooves(fabric, field, knobs)
+  /** TRIM=0 keeps the segments that run across their neighbours' grain. */
+  const trimmed = Number(process.env.TRIM ?? 1) > 0
+    ? trimAcross(found, Number(process.env.GRAIN ?? 800), Number(process.env.SWING ?? 30))
+    : { kept: found, dropped: [] }
+  const segments = trimmed.kept
+  const grooves = link ? linkGrooves(segments, knobs) : segments
   /**
    * The same window at a lower bar, drawn underneath in another colour.
    *
@@ -116,12 +129,37 @@ function main() {
       { ...knobs, minContrast: Number(process.env.SEED2) },
     )
     : []
+  const measured = (list: Groove[]) => list.reduce(
+    (s, g) => s + g.points.filter((p) => p.measured).length, 0,
+  ) * Number(process.env.STEP ?? 20)
   console.log(
     `[grooves] ${field.width}x${field.height} cells in `
       + `${((Date.now() - started) / 1000).toFixed(1)}s; `
-      + `${grooves.length} grooves, `
-      + `${grooves.reduce((s, g) => s + g.lengthKm, 0).toFixed(0)} km of line`,
+      + `${segments.length} segments, ${measured(segments).toFixed(0)} km read`
+      + (trimmed.dropped.length ? `, ${trimmed.dropped.length} dropped across the grain` : '')
+      + (link
+        ? `, joined into ${grooves.length} grooves of `
+          + `${grooves.reduce((s, g) => s + g.lengthKm, 0).toFixed(0)} km`
+        : ''),
   )
+  // How nearly parallel the segments are, which the reader says they should be
+  // here: all more or less one way, with a small swing here and there.
+  const axes = segments.map((g) => {
+    const a = g.points[0]
+    const b = g.points[g.points.length - 1]
+    return ((Math.atan2(
+      (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * Math.PI / 180), b.lat - a.lat,
+    ) * 180) / Math.PI % 180 + 180) % 180
+  })
+  if (axes.length) {
+    const middle = axes.slice().sort((p, q) => p - q)[Math.floor(axes.length / 2)]
+    const spread = axes.map((a) => axisDiff(a, middle)).sort((p, q) => p - q)
+    console.log(
+      `[grooves] segment bearings: median ${middle.toFixed(0)}deg, `
+        + `half within ${spread[Math.floor(spread.length / 2)].toFixed(0)}deg of it, `
+        + `nine in ten within ${spread[Math.floor(0.9 * spread.length)].toFixed(0)}deg`,
+    )
+  }
 
   const canvas = fabricWindow(window, fabric)
   // The lines first, so what is being asked about is not confused with the
@@ -130,15 +168,24 @@ function main() {
     for (let i = 1; i < groove.points.length; i++) {
       const from = canvas.at(groove.points[i - 1].lon, groove.points[i - 1].lat)
       const to = canvas.at(groove.points[i].lon, groove.points[i].lat)
-      // Three pixels of white, so a detected line is never confused with a
-      // pair's own colour in the picture that compares the two.
-      for (const lift of [-1, 0, 1]) {
-        canvas.line(
-          { px: from.px, py: from.py + lift }, { px: to.px, py: to.py + lift }, colour,
-        )
+      // A stretch the trough was actually read on is three pixels of solid
+      // line; one only carried through is a single dim pixel every other
+      // segment, so a claim about crust nothing was read on cannot be mistaken
+      // for a reading.
+      if (groove.points[i].measured && groove.points[i - 1].measured) {
+        for (const lift of [-1, 0, 1]) {
+          canvas.line(
+            { px: from.px, py: from.py + lift }, { px: to.px, py: to.py + lift }, colour,
+          )
+        }
+      } else if (i % 2) {
+        canvas.line(from, to, [colour[0] / 2, colour[1] / 2, colour[2] / 2])
       }
     }
   })
+  // What the grain test threw out, so the reader can say whether it was right
+  // to: a filter that drops two segments in five has to be shown, not trusted.
+  draw(trimmed.dropped, [220, 60, 60])
   draw(loose, [90, 220, 255])
   draw(grooves, [255, 255, 255])
   if (loose.length) {

@@ -27,6 +27,8 @@
  * build.
  */
 
+import { apartKm, axisDiff, axisMedian } from './bearing.js'
+
 const RAD = Math.PI / 180
 const EARTH_KM = 6371
 const KM_PER_DEG = (Math.PI * EARTH_KM) / 180
@@ -72,6 +74,10 @@ export interface GrooveOptions {
   turnDeg?: number
   /** Shortest curve worth reporting, km. */
   minLengthKm?: number
+  /** How long a gap between two segments may be for them to be one groove, km. */
+  maxGapKm?: number
+  /** How far two segments and the gap between them may disagree, degrees. */
+  linkDeg?: number
 }
 
 export interface GrooveField {
@@ -90,9 +96,24 @@ export interface GrooveField {
   ridge: Float32Array
 }
 
+export interface GroovePoint {
+  lon: number
+  lat: number
+  /**
+   * Whether the groove was actually read here, or only carried through.
+   *
+   * The reader: *sometimes the trough fades or you cannot see it at all, but
+   * you could extrapolate the line.* So a groove may be reported through crust
+   * where it was not measured -- and everything that treats a groove as
+   * evidence has to be able to tell the two apart, or the extrapolation
+   * becomes evidence for itself.
+   */
+  measured: boolean
+}
+
 export interface Groove {
   /** The centre line, in order, as longitude and latitude. */
-  points: { lon: number; lat: number }[]
+  points: GroovePoint[]
   lengthKm: number
   /** Mean of the walk's own weakest-stretch scores along it, in ramp steps. */
   score: number
@@ -208,7 +229,7 @@ export function grooveField(
   const scoutKm = options.scoutKm ?? 60
   const alongStepKm = options.alongStepKm ?? 10
   const wallsKm = options.wallsKm ?? [12, 20, 30]
-  const minContrast = options.minContrast ?? 18
+  const minContrast = options.minContrast ?? 12
   const minWall = options.minWall ?? 60
   const scoutQuantile = options.scoutQuantile ?? 0.4
 
@@ -331,7 +352,7 @@ export function walkGrooves(
   const stepKm = options.stepKm ?? 20
   const driftKm = options.driftKm ?? 6
   const turnDeg = options.turnDeg ?? 5
-  const minLengthKm = options.minLengthKm ?? 400
+  const minLengthKm = options.minLengthKm ?? 80
   /**
    * Where the walk lets go, as against where it starts.
    *
@@ -357,9 +378,10 @@ export function walkGrooves(
     Math.min(fabric.height - 1, Math.max(0, Math.round(r))),
   )
   /** Longitude and latitude of a point given in the fabric's cells. */
-  const place = (c: number, r: number) => ({
+  const place = (c: number, r: number, measured: boolean): GroovePoint => ({
     lon: (c / fabric.width) * 360 - 180,
     lat: 90 - (r / fabric.height) * 180,
+    measured,
   })
 
   const grooves: Groove[] = []
@@ -469,7 +491,7 @@ export function walkGrooves(
     }
     if (cells.length < 3) continue
 
-    const points = cells.map(({ c, r }) => place(c, r))
+    const points = cells.map(({ c, r, score: held }) => place(c, r, held > 0))
     let lengthKm = 0
     for (let i = 1; i < points.length; i++) {
       const dLat = (points[i].lat - points[i - 1].lat) * KM_PER_DEG
@@ -485,4 +507,172 @@ export function walkGrooves(
     })
   }
   return grooves.sort((a, b) => b.lengthKm - a.lengthKm)
+}
+
+/**
+ * Join segments that continue each other into one groove, across the gap.
+ *
+ * The reader, on the first picture: *the lines run right across the ridge and
+ * are about equally long either side of it; sometimes the trough fades or you
+ * cannot see it at all, but you could extrapolate the line.* Detection cannot
+ * do that -- a stretch where the trough is not there scores nothing, whatever
+ * it is a stretch of -- so it is a second step, and it is a step about
+ * geometry rather than about the fabric: two segments belong to one groove
+ * when each points at the other and both point along the line between them.
+ *
+ * Greedy, taking the closest admissible join first, so a short segment between
+ * two long ones is picked up by whichever it actually continues rather than by
+ * whichever is considered first. The carried-through part is interpolated and
+ * marked unmeasured, because it is a claim about crust nothing was read on.
+ */
+export function linkGrooves(grooves: Groove[], options: GrooveOptions = {}): Groove[] {
+  const maxGapKm = options.maxGapKm ?? 700
+  const linkDeg = options.linkDeg ?? 12
+  const stepKm = options.stepKm ?? 20
+
+  /**
+   * The course from `a` to `b`, kept over the whole circle rather than folded.
+   *
+   * Folded to an axis, as a bearing is everywhere else here, this cannot tell
+   * a segment that continues the line from one that lies back along it: both
+   * read the same, and the linker happily doubled a groove back on itself and
+   * reported six thousand kilometres of line in a window four thousand across.
+   * A join has a direction even though a groove does not.
+   */
+  const course = (a: GroovePoint, b: GroovePoint) => {
+    const dl = (b.lon - a.lon) * RAD
+    const p1 = a.lat * RAD
+    const p2 = b.lat * RAD
+    const t = Math.atan2(
+      Math.sin(dl) * Math.cos(p2),
+      Math.cos(p1) * Math.sin(p2) - Math.sin(p1) * Math.cos(p2) * Math.cos(dl),
+    )
+    return (((t / RAD) % 360) + 360) % 360
+  }
+  /** How far two courses differ, 0 to 180, keeping which way round they are. */
+  const apart = (p: number, q: number) => {
+    const d = Math.abs(p - q) % 360
+    return d > 180 ? 360 - d : d
+  }
+  const away = (a: GroovePoint, b: GroovePoint) => {
+    const dLat = (b.lat - a.lat) * KM_PER_DEG
+    const dLon = (b.lon - a.lon) * KM_PER_DEG * Math.cos(((a.lat + b.lat) / 2) * RAD)
+    return Math.hypot(dLat, dLon)
+  }
+  /**
+   * The course a segment is travelling in at one of its ends, going forwards.
+   *
+   * At the far end that is the course out of the segment; at the near end it is
+   * the course into it, which is the same line read the same way round.
+   */
+  const tangent = (points: GroovePoint[], atEnd: boolean) => {
+    const n = points.length
+    const reach = Math.min(n - 1, 5)
+    return atEnd
+      ? course(points[n - 1 - reach], points[n - 1])
+      : course(points[0], points[reach])
+  }
+  /** Straight points across a gap, at the walk's own spacing. */
+  const across = (from: GroovePoint, to: GroovePoint): GroovePoint[] => {
+    const steps = Math.max(1, Math.round(away(from, to) / stepKm))
+    const filled: GroovePoint[] = []
+    for (let s = 1; s < steps; s++) {
+      const t = s / steps
+      filled.push({
+        lon: from.lon + (to.lon - from.lon) * t,
+        lat: from.lat + (to.lat - from.lat) * t,
+        measured: false,
+      })
+    }
+    return filled
+  }
+
+  const open = grooves.map((g) => ({ ...g, points: [...g.points] }))
+  for (;;) {
+    let best: { i: number; j: number; flipI: boolean; flipJ: boolean; gap: number } | null = null
+    for (let i = 0; i < open.length; i++) {
+      if (!open[i].points.length) continue
+      for (let j = 0; j < open.length; j++) {
+        if (i === j || !open[j].points.length) continue
+        // Either end of either segment may be the one that joins.
+        for (const flipI of [false, true]) {
+          for (const flipJ of [false, true]) {
+            const a = flipI ? [...open[i].points].reverse() : open[i].points
+            const b = flipJ ? [...open[j].points].reverse() : open[j].points
+            const from = a[a.length - 1]
+            const to = b[0]
+            const gap = away(from, to)
+            if (gap > maxGapKm || (best && gap >= best.gap)) continue
+            const line = course(from, to)
+            if (apart(line, tangent(a, true)) > linkDeg) continue
+            if (apart(line, tangent(b, false)) > linkDeg) continue
+            if (apart(tangent(a, true), tangent(b, false)) > linkDeg) continue
+            best = { i, j, flipI, flipJ, gap }
+          }
+        }
+      }
+    }
+    if (!best) break
+    const a = best.flipI ? [...open[best.i].points].reverse() : open[best.i].points
+    const b = best.flipJ ? [...open[best.j].points].reverse() : open[best.j].points
+    open[best.i] = {
+      points: [...a, ...across(a[a.length - 1], b[0]), ...b],
+      lengthKm: open[best.i].lengthKm + best.gap + open[best.j].lengthKm,
+      score: (open[best.i].score + open[best.j].score) / 2,
+    }
+    open[best.j] = { points: [], lengthKm: 0, score: 0 }
+  }
+  return open.filter((g) => g.points.length).sort((a, b) => b.lengthKm - a.lengthKm)
+}
+
+/**
+ * Drop the segments that run across the grain of the ones around them.
+ *
+ * The reader, on a window of the South Atlantic: *all the short segments here
+ * should be more or less parallel, with a small swing here and there.* They
+ * are -- the median bearing is 81 degrees and half of them are within 11
+ * degrees of it -- but about a tenth sit sixty or seventy degrees off, which
+ * is not a swing, and those are near the continental margins where the fabric
+ * is structured by something other than spreading.
+ *
+ * This is the same idea as the bearing test in ./bearing.ts, which was
+ * withdrawn because it was asked to judge *pairs*: there are a couple of
+ * thousand of those over the whole Earth, so the neighbourhood had to be
+ * fifteen hundred kilometres wide and it smeared away the real swing it was
+ * supposed to tolerate. Segments are twenty times denser, so the same test can
+ * be taken over a few hundred kilometres, where a swing survives it. The
+ * primitives are shared with that module; the claim is not.
+ */
+export function trimAcross(
+  grooves: Groove[], radiusKm = 800, toleranceDeg = 30,
+): { kept: Groove[]; dropped: Groove[] } {
+  const of = (groove: Groove) => {
+    const a = groove.points[0]
+    const b = groove.points[groove.points.length - 1]
+    const middle = groove.points[Math.floor(groove.points.length / 2)]
+    const dLat = b.lat - a.lat
+    const dLon = (b.lon - a.lon) * Math.cos(((a.lat + b.lat) / 2) * RAD)
+    return {
+      at: middle,
+      axis: (((Math.atan2(dLon, dLat) * 180) / Math.PI % 180) + 180) % 180,
+    }
+  }
+  const each = grooves.map(of)
+  const kept: Groove[] = []
+  const dropped: Groove[] = []
+  grooves.forEach((groove, i) => {
+    const near: number[] = []
+    for (let q = 0; q < each.length; q++) {
+      if (q === i) continue
+      if (apartKm(each[i].at, each[q].at) < radiusKm) near.push(each[q].axis)
+    }
+    // Too few neighbours to have a grain: kept, because there is nothing to
+    // have run across. A lone groove is not evidence against itself.
+    if (near.length < 4 || axisDiff(each[i].axis, axisMedian(near)) <= toleranceDeg) {
+      kept.push(groove)
+    } else {
+      dropped.push(groove)
+    }
+  })
+  return { kept, dropped }
 }

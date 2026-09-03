@@ -1216,11 +1216,12 @@ describe("finding a groove the way a reader finds one", () => {
    * A synthetic fabric with the three things that look alike in a real one.
    *
    * The reader's rule is that a groove is a light band with a dark centre
-   * line. Two other features satisfy that locally and must not be reported: a
-   * seamount, whose bright ring has a dark middle, and which is the strongest
-   * bright-dark-bright profile in the real South Atlantic; and a scarp, which
-   * is bright on one side of a dark line and quiet on the other. Only the line
-   * that keeps its shape along its whole length is a groove.
+   * line, and both halves of it earn their place here. A solid bright band
+   * with no dark middle -- a volcanic ridge -- is the commonest long line in
+   * the fabric and is not a groove: that is what the centre line rules out. A
+   * seamount, whose bright ring does have a dark middle, is the strongest
+   * bright-dark-bright profile in the real South Atlantic: that is what being
+   * a line, and keeping the shape along its whole length, rules out.
    */
   const W = 3600
   const H = 1800
@@ -1239,11 +1240,10 @@ describe("finding a groove the way a reader finds one", () => {
       put(c, grooveRow, 20)
       for (const d of [-2, -3, 2, 3]) put(c, grooveRow + d, 220)
     }
-    // A scarp along latitude -25: dark line, bright on its north side only.
-    const [, scarpRow] = cell(0, -25)
+    // A bright band along latitude -25 with no dark line down it.
+    const [, bandRow] = cell(0, -25)
     for (let c = 0; c < W; c++) {
-      put(c, scarpRow, 20)
-      for (const d of [-2, -3]) put(c, scarpRow + d, 220)
+      for (const d of [-3, -2, -1, 0, 1, 2, 3]) put(c, bandRow + d, 220)
     }
     // A seamount at 10 west, 30 south: a bright ring with a dark middle.
     const [mountColumn, mountRow] = cell(-10, -30)
@@ -1270,7 +1270,7 @@ describe("finding a groove the way a reader finds one", () => {
     return steps
   }
 
-  it('finds the groove, and not the scarp or the seamount', () => {
+  it('finds the groove, and not the bright band or the seamount', () => {
     const grooves = found()
     expect(alongLat(grooves, -20)).toBeGreaterThan(10)
     expect(alongLat(grooves, -25)).toBe(0)
