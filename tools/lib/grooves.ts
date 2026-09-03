@@ -47,6 +47,17 @@ export interface GrooveOptions {
   scoutKm?: number
   /** How far apart the samples along the line are, km. */
   alongStepKm?: number
+  /**
+   * How long a stretch is -- the length over which the shape has to hold at
+   * once, km.
+   *
+   * With `alongKm`, this is what decides how long a groove has to be to be
+   * seen at all, and it turned out to matter far more than any threshold: the
+   * run has to fit `minStretches` stretches, so 240 over 60 could only see a
+   * groove clear for the better part of two hundred kilometres, and the reader
+   * kept pointing at shorter ones that are perfectly plain to the eye.
+   */
+  stretchKm?: number
   /** How far out the walls are looked for, km. Tried in turn; the best wins. */
   wallsKm?: number[]
   /** How much darker the floor has to be than the darker wall, in ramp steps. */
@@ -78,6 +89,8 @@ export interface GrooveOptions {
   maxGapKm?: number
   /** How far two segments and the gap between them may disagree, degrees. */
   linkDeg?: number
+  /** How long a gap may be, as a multiple of the shorter segment it joins. */
+  gapReach?: number
 }
 
 export interface GrooveField {
@@ -141,16 +154,20 @@ function cellSize(fabric: Fabric, row: number) {
  * at the centre and minus fifty a hundred and fifty kilometres along. A groove
  * is a line. Its weakest stretch is still a groove.
  *
- * A stretch that runs onto unsurveyed crust is dropped rather than failed, so a
- * groove crossing a gap in the survey is still measured on what there is; below
- * `minStretches` of them there is nothing worth calling a measurement.
+ * Unsurveyed crust costs the sample it falls on and nothing more. Poisoning the
+ * whole stretch instead, which is what this did first, looks careful and is
+ * ruinous: only 2.7% of cells in the South Atlantic window are unsurveyed, but
+ * a stretch is eighteen reads, so two stretches in five contained one, and 45%
+ * of the window could not be measured at all. A stretch needs half its samples;
+ * a run needs `minStretches` of its stretches.
  */
-const STRETCH_KM = 60
+const STRETCH_KM = 40
 const MIN_STRETCHES = 3
 
 function profile(
   fabric: Fabric, column: number, row: number, axis: number, wallKm: number,
-  alongKm: number, alongStepKm: number, read: (c: number, r: number) => number,
+  alongKm: number, alongStepKm: number, stretchKm: number,
+  read: (c: number, r: number) => number,
   /**
    * How many stretches must survive. Three for a measurement; one for the
    * scout, whose run is one stretch long and which only wants the mean.
@@ -167,7 +184,7 @@ function profile(
   const acrossR = sin / heightKm
 
   const steps = Math.max(1, Math.round(alongKm / (2 * alongStepKm)))
-  const perStretch = Math.max(1, Math.round(STRETCH_KM / alongStepKm))
+  const perStretch = Math.max(2, Math.round(stretchKm / alongStepKm))
   let weakest = Infinity
   let mean = 0
   let wall = 0
@@ -175,7 +192,7 @@ function profile(
   let stretches = 0
   let inStretch = 0
   let stretchSum = 0
-  let holed = false
+  let holed = 0
   for (let s = -steps; s <= steps; s++) {
     const t = s * alongStepKm
     const cc = column + alongC * t
@@ -184,7 +201,7 @@ function profile(
     const plus = read(cc + acrossC * wallKm, cr + acrossR * wallKm)
     const minus = read(cc - acrossC * wallKm, cr - acrossR * wallKm)
     if (!floor || !plus || !minus) {
-      holed = true
+      holed++
     } else {
       const weaker = Math.min(plus, minus)
       stretchSum += weaker - floor
@@ -193,14 +210,14 @@ function profile(
       seen++
       inStretch++
     }
-    if (inStretch + (holed ? 1 : 0) >= perStretch) {
-      if (!holed && inStretch) {
+    if (inStretch + holed >= perStretch) {
+      if (inStretch * 2 >= perStretch) {
         weakest = Math.min(weakest, stretchSum / inStretch)
         stretches++
       }
       inStretch = 0
       stretchSum = 0
-      holed = false
+      holed = 0
     }
   }
   if (stretches < minStretches || !seen) {
@@ -225,13 +242,14 @@ export function grooveField(
   window: { lonFrom: number; lonTo: number; latFrom: number; latTo: number },
   options: GrooveOptions = {},
 ): GrooveField {
-  const alongKm = options.alongKm ?? 240
+  const alongKm = options.alongKm ?? 120
   const scoutKm = options.scoutKm ?? 60
   const alongStepKm = options.alongStepKm ?? 10
+  const stretchKm = options.stretchKm ?? STRETCH_KM
   const wallsKm = options.wallsKm ?? [12, 20, 30]
-  const minContrast = options.minContrast ?? 12
-  const minWall = options.minWall ?? 60
-  const scoutQuantile = options.scoutQuantile ?? 0.4
+  const minContrast = options.minContrast ?? 6
+  const minWall = options.minWall ?? 40
+  const scoutQuantile = options.scoutQuantile ?? 0.2
 
   const x0 = Math.floor(((window.lonFrom + 180) / 360) * fabric.width)
   const y0 = Math.floor(((90 - window.latTo) / 180) * fabric.height)
@@ -258,7 +276,7 @@ export function grooveField(
       let bestAxis = 0
       for (let a = 0; a < 180; a += 15) {
         const { mean } = profile(
-          fabric, x0 + x, row, a, wallsKm[1], scoutKm, alongStepKm, nearest, 1,
+          fabric, x0 + x, row, a, wallsKm[1], scoutKm, alongStepKm, scoutKm, nearest, 1,
         )
         if (mean > best) {
           best = mean
@@ -288,7 +306,9 @@ export function grooveField(
       for (let d = -12; d <= 12; d += 3) {
         const a = ((axis[i] + d) % 180 + 180) % 180
         for (const wallKm of wallsKm) {
-          const at = profile(fabric, x0 + x, row, a, wallKm, alongKm, alongStepKm, nearest)
+          const at = profile(
+            fabric, x0 + x, row, a, wallKm, alongKm, alongStepKm, stretchKm, nearest,
+          )
           if (at.weakest > best && at.wall >= minWall) {
             best = at.weakest
             axis[i] = a
@@ -347,8 +367,9 @@ export function grooveField(
 export function walkGrooves(
   fabric: Fabric, field: GrooveField, options: GrooveOptions = {},
 ): Groove[] {
-  const alongKm = options.alongKm ?? 240
+  const alongKm = options.alongKm ?? 120
   const alongStepKm = options.alongStepKm ?? 10
+  const stretchKm = options.stretchKm ?? STRETCH_KM
   const stepKm = options.stepKm ?? 20
   const driftKm = options.driftKm ?? 6
   const turnDeg = options.turnDeg ?? 5
@@ -432,7 +453,8 @@ export function walkGrooves(
           const wallKm = ox >= 0 && oy >= 0 && ox < width && oy < height && field.walls[oy * width + ox]
             ? field.walls[oy * width + ox] : seedWall
           const { weakest } = profile(
-            fabric, oc, or, ((heading % 180) + 180) % 180, wallKm, alongKm, alongStepKm, read,
+            fabric, oc, or, ((heading % 180) + 180) % 180, wallKm, alongKm, alongStepKm,
+            stretchKm, read,
           )
           if (weakest > best) {
             best = weakest
@@ -526,8 +548,18 @@ export function walkGrooves(
  * marked unmeasured, because it is a claim about crust nothing was read on.
  */
 export function linkGrooves(grooves: Groove[], options: GrooveOptions = {}): Groove[] {
-  const maxGapKm = options.maxGapKm ?? 700
-  const linkDeg = options.linkDeg ?? 12
+  const maxGapKm = options.maxGapKm ?? 600
+  const linkDeg = options.linkDeg ?? 10
+  /**
+   * How far a gap may be carried, as a multiple of the shorter segment it joins.
+   *
+   * A seven-hundred-kilometre bridge between two eighty-kilometre segments is
+   * not a groove with a fade in it, whatever the angles say, and once the
+   * detector was finding hundreds of segments there were enough of them lying
+   * around for the angles to say it often. What a segment has earned the right
+   * to claim is bounded by how much of it was actually read.
+   */
+  const reach = options.gapReach ?? 3
   const stepKm = options.stepKm ?? 20
 
   /**
@@ -587,42 +619,84 @@ export function linkGrooves(grooves: Groove[], options: GrooveOptions = {}): Gro
     return filled
   }
 
-  const open = grooves.map((g) => ({ ...g, points: [...g.points] }))
-  for (;;) {
-    let best: { i: number; j: number; flipI: boolean; flipJ: boolean; gap: number } | null = null
-    for (let i = 0; i < open.length; i++) {
-      if (!open[i].points.length) continue
-      for (let j = 0; j < open.length; j++) {
-        if (i === j || !open[j].points.length) continue
-        // Either end of either segment may be the one that joins.
-        for (const flipI of [false, true]) {
-          for (const flipJ of [false, true]) {
-            const a = flipI ? [...open[i].points].reverse() : open[i].points
-            const b = flipJ ? [...open[j].points].reverse() : open[j].points
-            const from = a[a.length - 1]
-            const to = b[0]
-            const gap = away(from, to)
-            if (gap > maxGapKm || (best && gap >= best.gap)) continue
-            const line = course(from, to)
-            if (apart(line, tangent(a, true)) > linkDeg) continue
-            if (apart(line, tangent(b, false)) > linkDeg) continue
-            if (apart(tangent(a, true), tangent(b, false)) > linkDeg) continue
-            best = { i, j, flipI, flipJ, gap }
-          }
+  /**
+   * Every admissible join, collected once and then taken shortest first.
+   *
+   * Re-scanning all the pairs after each merge is the obvious way to be greedy
+   * and it is cubic in the number of segments, which stopped being affordable
+   * the moment the detector started finding hundreds of them. Collecting the
+   * candidates once is quadratic, and taking them shortest first with each end
+   * usable once gives the same answer: a merge can only ever remove candidates
+   * from consideration, never create a shorter one.
+   */
+  const ends = grooves.map((g) => ({
+    head: g.points[0],
+    tail: g.points[g.points.length - 1],
+    intoHead: tangent(g.points, false),
+    outOfTail: tangent(g.points, true),
+  }))
+  interface Join { i: number; atTailOfI: boolean; j: number; atHeadOfJ: boolean; gap: number }
+  const joins: Join[] = []
+  for (let i = 0; i < grooves.length; i++) {
+    for (let j = i + 1; j < grooves.length; j++) {
+      for (const atTailOfI of [true, false]) {
+        for (const atHeadOfJ of [true, false]) {
+          const from = atTailOfI ? ends[i].tail : ends[i].head
+          const to = atHeadOfJ ? ends[j].head : ends[j].tail
+          const gap = away(from, to)
+          if (gap > maxGapKm) continue
+          if (gap > reach * Math.min(grooves[i].lengthKm, grooves[j].lengthKm)) continue
+          // The course each segment travels in as it reaches the join. At its
+          // own tail that is the way it leaves; at its head, reversed.
+          const leaving = atTailOfI ? ends[i].outOfTail : (ends[i].intoHead + 180) % 360
+          const arriving = atHeadOfJ ? ends[j].intoHead : (ends[j].outOfTail + 180) % 360
+          const line = course(from, to)
+          if (apart(line, leaving) > linkDeg) continue
+          if (apart(line, arriving) > linkDeg) continue
+          if (apart(leaving, arriving) > linkDeg) continue
+          joins.push({ i, atTailOfI, j, atHeadOfJ, gap })
         }
       }
     }
-    if (!best) break
-    const a = best.flipI ? [...open[best.i].points].reverse() : open[best.i].points
-    const b = best.flipJ ? [...open[best.j].points].reverse() : open[best.j].points
-    open[best.i] = {
-      points: [...a, ...across(a[a.length - 1], b[0]), ...b],
-      lengthKm: open[best.i].lengthKm + best.gap + open[best.j].lengthKm,
-      score: (open[best.i].score + open[best.j].score) / 2,
-    }
-    open[best.j] = { points: [], lengthKm: 0, score: 0 }
   }
-  return open.filter((g) => g.points.length).sort((a, b) => b.lengthKm - a.lengthKm)
+  joins.sort((a, b) => a.gap - b.gap)
+
+  const open: (Groove | null)[] = grooves.map((g) => ({ ...g, points: [...g.points] }))
+  /** Which chain a segment has ended up in, and whether its ends are spoken for. */
+  const chain = grooves.map((_, i) => i)
+  const used = grooves.map(() => ({ head: false, tail: false }))
+  const rootOf = (i: number): number => (chain[i] === i ? i : (chain[i] = rootOf(chain[i])))
+  for (const join of joins) {
+    if (join.atTailOfI ? used[join.i].tail : used[join.i].head) continue
+    if (join.atHeadOfJ ? used[join.j].head : used[join.j].tail) continue
+    const left = rootOf(join.i)
+    const right = rootOf(join.j)
+    // A join back into the chain a segment is already in would close a loop,
+    // which a fracture zone does not do.
+    if (left === right) continue
+    const a = open[left]
+    const b = open[right]
+    if (!a || !b) continue
+    // Put the two chains the right way round for each other: the end of the
+    // one being joined has to finish at the join, and the other start there.
+    const aPoints = a.points[a.points.length - 1] === (join.atTailOfI ? ends[join.i].tail : ends[join.i].head)
+      ? a.points : [...a.points].reverse()
+    const bPoints = b.points[0] === (join.atHeadOfJ ? ends[join.j].head : ends[join.j].tail)
+      ? b.points : [...b.points].reverse()
+    open[left] = {
+      points: [...aPoints, ...across(aPoints[aPoints.length - 1], bPoints[0]), ...bPoints],
+      lengthKm: a.lengthKm + join.gap + b.lengthKm,
+      score: (a.score + b.score) / 2,
+    }
+    open[right] = null
+    chain[right] = left
+    if (join.atTailOfI) used[join.i].tail = true
+    else used[join.i].head = true
+    if (join.atHeadOfJ) used[join.j].head = true
+    else used[join.j].tail = true
+  }
+  return open.filter((g): g is Groove => !!g && g.points.length > 0)
+    .sort((a, b) => b.lengthKm - a.lengthKm)
 }
 
 /**

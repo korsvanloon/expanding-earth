@@ -97,7 +97,9 @@ function main() {
   // The knobs the detector is being argued about through, so a picture can be
   // asked for without editing the library it is a picture of.
   const knobs = {
-    minContrast: Number(process.env.SEED ?? 12),
+    alongKm: Number(process.env.ALONG ?? 120),
+    stretchKm: Number(process.env.STRETCH ?? 40),
+    minContrast: Number(process.env.SEED ?? 6),
     holdContrast: Number(process.env.HOLD ?? 4),
     bridgeSteps: Number(process.env.BRIDGE ?? 8),
     minLengthKm: Number(process.env.MINLEN ?? 80),
@@ -131,7 +133,7 @@ function main() {
     : []
   const measured = (list: Groove[]) => list.reduce(
     (s, g) => s + g.points.filter((p) => p.measured).length, 0,
-  ) * Number(process.env.STEP ?? 20)
+  ) * (Number(process.env.WALKSTEP ?? 20))
   console.log(
     `[grooves] ${field.width}x${field.height} cells in `
       + `${((Date.now() - started) / 1000).toFixed(1)}s; `
@@ -179,7 +181,11 @@ function main() {
           )
         }
       } else if (i % 2) {
-        canvas.line(from, to, [colour[0] / 2, colour[1] / 2, colour[2] / 2])
+        // Bright yellow rather than a dimmed version of the line's own colour:
+        // dimmed grey was there to say "this is less than a reading" and was
+        // simply hard to see, which is not the same thing. Yellow says it is a
+        // different kind of claim without saying it quietly.
+        canvas.line(from, to, [255, 225, 60])
       }
     }
   })
