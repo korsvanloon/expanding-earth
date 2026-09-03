@@ -28,7 +28,7 @@ import {
   axisOf, grainReference, grooveField, linkGrooves, readKm, trimAgainst, trimEither,
   walkGrooves, type Fabric, type Groove, type GroovePoint,
 } from './lib/grooves.js'
-import { fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
+import { ageWindow, fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
 
 /**
  * How well a pair's join follows the grooves along its whole length.
@@ -326,16 +326,7 @@ async function main() {
    * base claims to show.
    */
   const canvas = process.env.BASE === 'age'
-    ? fabricWindow(window, {
-      width: ages.width,
-      height: ages.height,
-      at: (column, row) => {
-        const age = ages.at(column, row)
-        if (Number.isNaN(age)) return 0
-        // Youngest bright, oldest dark, over the encoded ramp the drawing uses.
-        return 1 + Math.round(254 * (1 - Math.min(1, age / 180)))
-      },
-    })
+    ? ageWindow(window, ages)
     : process.env.BASE === 'plain'
     ? fabricWindow(window, {
       width: fabric.width,
@@ -374,8 +365,13 @@ async function main() {
   })
   // What the grain test threw out, so the reader can say whether it was right
   // to: a filter that drops two segments in five has to be shown, not trusted.
-  draw(ashoreSegments, [130, 110, 200])
-  draw(trimmed.dropped, [220, 60, 60])
+  // DROPPED=0 leaves out the rejected lines. They are diagnosis -- worth seeing
+  // on one ocean, where the question is whether the rejecting is right -- and
+  // clutter on a world map, where the question is where the lines are.
+  if (Number(process.env.DROPPED ?? 1) > 0) {
+    draw(ashoreSegments, [130, 110, 200])
+    draw(trimmed.dropped, [220, 60, 60])
+  }
   draw(loose, [90, 220, 255])
   draw(grooves, [255, 255, 255])
   /**
@@ -424,6 +420,31 @@ async function main() {
       `[grooves] off the spreading direction: a quarter within ${at(offs, 0.25)} deg, `
         + `half within ${at(offs, 0.5)}, three quarters within ${at(offs, 0.75)}`,
     )
+    /**
+     * What each candidate pair of thresholds would actually anchor.
+     *
+     * The number to aim at is a density, not a threshold: the old detector
+     * anchored 0.6% to 1% of the grid's cells and that is the configuration
+     * known to work, so the question is which conditions land there with
+     * cleaner lines rather than which conditions sound strict. Anchored cells
+     * go roughly with read line, and 48 grooves carrying 27,960 km lit 0.14%,
+     * so about 120,000 km -- 8% of all the read line there is -- is the mark.
+     */
+    const wholeKm = reads.reduce((sum, km) => sum + km, 0)
+    console.log('  read km   off deg   grooves   read line   share of all read line')
+    for (const minRead of [120, 160, 200, 280]) {
+      for (const maxOff of [15, 20, 25, 30]) {
+        const set = trimAgainst(
+          grooves.filter((groove) => readKm(groove) >= minRead), spreading, maxOff,
+        ).kept
+        const km = set.reduce((sum: number, g: Groove) => sum + readKm(g), 0)
+        console.log(
+          `  ${String(minRead).padStart(7)}   ${String(maxOff).padStart(7)}   `
+            + `${String(set.length).padStart(7)}   ${String(km.toFixed(0)).padStart(9)}   `
+            + `${((100 * km) / wholeKm).toFixed(1)}%`,
+        )
+      }
+    }
   }
   if (loose.length) {
     console.log(

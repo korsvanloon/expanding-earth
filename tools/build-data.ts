@@ -292,15 +292,23 @@ export const CONFIG = {
    * rubbish through, since a reader can see a wrong line and cannot see a right
    * line never drawn -- is the dearer one here.
    *
-   * So these are the two conditions the old detector imposed, which had 1,500
-   * anchors and beat ten thousand: four hundred kilometres of line, and within
-   * twenty degrees of the way the crust travelled. Read length, not length: a
-   * linked groove can be mostly bridge, and a bridge is a claim rather than
-   * evidence. And measured against the spreading direction alone, not against
-   * the neighbours' grain as well, because the grain is a vote among the very
-   * segments being judged and cannot referee itself.
+   * The angle is the old detector's own gate, twenty degrees off the way the
+   * crust travelled. The length is not: its four hundred kilometres was of
+   * line, and applied to *read* line it left 48 grooves on 0.14% of the grid's
+   * cells -- sparser than the detector it was copied from, which had 0.6% to
+   * 1%. So the length is set to land at that density instead, which the
+   * measured distribution puts at two hundred kilometres: 516 grooves carrying
+   * 143,000 km of read line, the same order as the old detector's 679 curves.
+   * The conditions are its conditions; only the lines underneath are new.
+   *
+   * Read length, not length, because a linked groove can be mostly bridge and
+   * a bridge is a claim rather than evidence. And measured against the
+   * spreading direction alone, not against the neighbours' grain as well,
+   * because the grain is a vote among the very segments being judged and
+   * cannot referee itself -- for a picture it can, since a reader checks the
+   * answer, but not for a fit.
    */
-  anchorMinReadKm: Number(process.env.ANCHOR_KM ?? 400),
+  anchorMinReadKm: Number(process.env.ANCHOR_KM ?? 200),
   anchorMaxOffDeg: Number(process.env.ANCHOR_OFF ?? 20),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: 60,

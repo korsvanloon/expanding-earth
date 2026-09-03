@@ -49,6 +49,27 @@ export function fabricColour(encoded: number): [number, number, number] {
   return [Math.round(c[0]), Math.round(c[1]), Math.round(c[2])]
 }
 
+/**
+ * The sea floor's age, in one muted hue.
+ *
+ * Deliberately not the fabric's ramp, which ends in a bright cream: this base
+ * exists to have lines drawn over it, and the lines were disappearing into the
+ * young crust along every ridge. One hue, light where the crust is young and
+ * deep where it is old, leaves every other colour on the page to the lines.
+ * `age` is millions of years, or NaN where nothing is dated.
+ */
+export function ageColour(age: number, oldestMa = 180): [number, number, number] {
+  if (Number.isNaN(age)) return [58, 58, 64]
+  const t = Math.min(1, Math.max(0, age / oldestMa))
+  const young = [186, 214, 235]
+  const old = [16, 30, 58]
+  return [
+    Math.round(young[0] + (old[0] - young[0]) * t),
+    Math.round(young[1] + (old[1] - young[1]) * t),
+    Math.round(young[2] + (old[2] - young[2]) * t),
+  ]
+}
+
 export type Colour = readonly [number, number, number]
 
 export class Canvas {
@@ -179,6 +200,26 @@ export function fabricWindow(
       const column = ((Math.floor(((lon + 180) / 360) * fabric.width) % fabric.width)
         + fabric.width) % fabric.width
       canvas.put(x, y, fabricColour(fabric.at(column, row)))
+    }
+  }
+  return canvas
+}
+
+/** A canvas the size of the window's cells, with the sea floor's age on it. */
+export function ageWindow(
+  window: Window, ages: { width: number; height: number; at: (c: number, r: number) => number },
+): Canvas {
+  const cellsX = Math.round(((window.lonTo - window.lonFrom) / 360) * ages.width)
+  const cellsY = Math.round(((window.latTo - window.latFrom) / 180) * ages.height)
+  const canvas = new Canvas(window, cellsX, cellsY)
+  for (let y = 0; y < canvas.height; y++) {
+    const lat = window.latTo - ((y + 0.5) / canvas.height) * (window.latTo - window.latFrom)
+    const row = Math.min(ages.height - 1, Math.floor(((90 - lat) / 180) * ages.height))
+    for (let x = 0; x < canvas.width; x++) {
+      const lon = window.lonFrom + ((x + 0.5) / canvas.width) * (window.lonTo - window.lonFrom)
+      const column = ((Math.floor(((lon + 180) / 360) * ages.width) % ages.width)
+        + ages.width) % ages.width
+      canvas.put(x, y, ageColour(ages.at(column, row)))
     }
   }
   return canvas
