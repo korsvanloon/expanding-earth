@@ -53,7 +53,14 @@ export interface GrooveOptions {
   holdContrast?: number
   /** How many poor steps running a walk will bridge before it gives up. */
   bridgeSteps?: number
-  /** Which quantile of the scouting score is worth measuring properly. */
+  /**
+   * Which quantile of the scouting score is worth measuring properly.
+   *
+   * Low, because the scout is a sixty-kilometre run and is meant to be noisy:
+   * it is there to point the real measurement in the right direction, and a
+   * bar high enough to be selective throws away grooves the long run would
+   * have found. Selectivity belongs in `minContrast`, where it is measured.
+   */
   scoutQuantile?: number
   /** How bright the darker wall has to be, in ramp steps, so flat crust is not a groove. */
   minWall?: number
@@ -203,7 +210,7 @@ export function grooveField(
   const wallsKm = options.wallsKm ?? [12, 20, 30]
   const minContrast = options.minContrast ?? 18
   const minWall = options.minWall ?? 60
-  const scoutQuantile = options.scoutQuantile ?? 0.75
+  const scoutQuantile = options.scoutQuantile ?? 0.4
 
   const x0 = Math.floor(((window.lonFrom + 180) / 360) * fabric.width)
   const y0 = Math.floor(((90 - window.latTo) / 180) * fabric.height)
@@ -442,8 +449,12 @@ export function walkGrooves(
     const forward = arm(1)
     const cells = [...back, { c: sx, r: sy, score: field.ridge[seed] }, ...forward]
     // Claim a groove's whole width, or the next seed walks its wall and reports
-    // the same feature again a few cells to the side.
-    for (const { c, r } of cells) {
+    // the same feature again a few cells to the side. Only where the groove was
+    // actually there, though: a walk carried straight through an unclear
+    // stretch crosses other grooves, and claiming that stretch quietly deletes
+    // whichever of them had not been walked yet.
+    for (const { c, r, score: held } of cells) {
+      if (!held) continue
       const x = Math.round(c) - x0
       const y = Math.round(r) - y0
       const reach = Math.round((1.5 * seedWall) / cellSize(fabric, r).heightKm)

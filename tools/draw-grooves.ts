@@ -22,7 +22,7 @@ import { directionToUv } from '../shared/sphere.js'
 import { pairHue, readTracks } from '../shared/tracks.js'
 import { apartKm, axisDiff, bearingDeg, type Place } from './lib/bearing.js'
 import { grooveField, walkGrooves, type Fabric, type Groove } from './lib/grooves.js'
-import { fabricWindow, windowFromEnv } from './lib/window-map.js'
+import { fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
 
 /**
  * How well a pair's join follows the grooves along its whole length.
@@ -89,9 +89,33 @@ function main() {
     at: (column, row) => decoded.data[(row * decoded.width + column) * 4],
   }
 
+  // The knobs the detector is being argued about through, so a picture can be
+  // asked for without editing the library it is a picture of.
+  const knobs = {
+    minContrast: Number(process.env.SEED ?? 18),
+    holdContrast: Number(process.env.HOLD ?? 4),
+    bridgeSteps: Number(process.env.BRIDGE ?? 8),
+    minLengthKm: Number(process.env.MINLEN ?? 400),
+  }
   const started = Date.now()
-  const field = grooveField(fabric, window)
-  const grooves = walkGrooves(fabric, field)
+  const field = grooveField(fabric, window, knobs)
+  const grooves = walkGrooves(fabric, field, knobs)
+  /**
+   * The same window at a lower bar, drawn underneath in another colour.
+   *
+   * Where the bar belongs is the one thing no measurement here can settle: the
+   * score says how clear a line is and only a reader can say whether a line
+   * that clear is a groove. So the picture separates the lines the bar already
+   * accepts from the ones lowering it would add, and the answer to *which of
+   * the second colour are wrong* is what sets it.
+   */
+  const loose = process.env.SEED2
+    ? walkGrooves(
+      fabric,
+      grooveField(fabric, window, { ...knobs, minContrast: Number(process.env.SEED2) }),
+      { ...knobs, minContrast: Number(process.env.SEED2) },
+    )
+    : []
   console.log(
     `[grooves] ${field.width}x${field.height} cells in `
       + `${((Date.now() - started) / 1000).toFixed(1)}s; `
@@ -100,9 +124,9 @@ function main() {
   )
 
   const canvas = fabricWindow(window, fabric)
-  // The lines first, in one colour, so what is being asked about is not
-  // confused with the pairs' own colours.
-  grooves.forEach((groove) => {
+  // The lines first, so what is being asked about is not confused with the
+  // pairs' own colours. The looser set underneath, the confident set over it.
+  const draw = (list: Groove[], colour: Colour) => list.forEach((groove) => {
     for (let i = 1; i < groove.points.length; i++) {
       const from = canvas.at(groove.points[i - 1].lon, groove.points[i - 1].lat)
       const to = canvas.at(groove.points[i].lon, groove.points[i].lat)
@@ -110,11 +134,19 @@ function main() {
       // pair's own colour in the picture that compares the two.
       for (const lift of [-1, 0, 1]) {
         canvas.line(
-          { px: from.px, py: from.py + lift }, { px: to.px, py: to.py + lift }, [255, 255, 255],
+          { px: from.px, py: from.py + lift }, { px: to.px, py: to.py + lift }, colour,
         )
       }
     }
   })
+  draw(loose, [90, 220, 255])
+  draw(grooves, [255, 255, 255])
+  if (loose.length) {
+    console.log(
+      `[grooves] and ${loose.length} at a bar of ${process.env.SEED2}, `
+        + `${loose.reduce((s, g) => s + g.lengthKm, 0).toFixed(0)} km, drawn in blue`,
+    )
+  }
 
   console.log(`[grooves] ${canvas.write(resolve(OUT, 'grooves.png'))}`)
 
