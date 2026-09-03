@@ -242,23 +242,6 @@ export function Globe({ data }: { data: Dataset }) {
   const overlay = useMemo(() => {
     const t = data.tracks
     if (!t) return null
-    // One segment per step of the walk, as pairs of points. Each point is a
-    // place inside a triangle, so it is copied out corner by corner rather than
-    // referred to by an index.
-    const verts: number[] = []
-    const weights: number[] = []
-    const age: number[] = []
-    const at = (p: number) => {
-      verts.push(t.pointVerts[p * 3], t.pointVerts[p * 3 + 1], t.pointVerts[p * 3 + 2])
-      weights.push(t.pointWeights[p * 3], t.pointWeights[p * 3 + 1], t.pointWeights[p * 3 + 2])
-      age.push(t.ageMa[p])
-    }
-    for (let i = 0; i < t.ridge.length; i++) {
-      for (let p = t.offsets[i]; p + 1 < t.offsets[i + 1]; p++) {
-        at(p)
-        at(p + 1)
-      }
-    }
     /**
      * Thick lines need geometry, not a line width.
      *
@@ -293,21 +276,19 @@ export function Globe({ data }: { data: Dataset }) {
       object.renderOrder = 2
       return { geometry, material, object, points: new Float32Array(count * 3) }
     }
-    return {
-      pathVerts: Uint32Array.from(verts),
-      pathWeights: Float32Array.from(weights),
-      pathAgeMa: Float32Array.from(age),
-      // Room for every segment; only the ones whose crust exists get written.
-      shownVerts: new Uint32Array(verts.length),
-      shownWeights: new Float32Array(weights.length),
-      pathLine: line(weights.length / 3, '#ff4fa3', 2.5),
-      // Every pair gets room; only the ones due at the drawn frame are written.
-      gapLine: line(t.pairAgeMa.length * 2, '#ffd24a', 4),
-    }
+    // Every pair gets room; only the ones due at the drawn frame are written.
+    //
+    // The flow lines used to be drawn here too, in pink, and are gone. They
+    // were the same claim told less directly: a track is the path one piece of
+    // crust took away from its ridge, and the pairs *are* the two ends of that
+    // path at a given age. Drawing both said one thing twice, and the pink was
+    // the half that cannot be checked -- a line has no partner to fail to meet.
+    // The reader who asked for the pairs on the globe also spotted that.
+    return { gapLine: line(t.pairAgeMa.length * 2, '#ffd24a', 4) }
   }, [data])
 
   useEffect(() => () => {
-    for (const l of [overlay?.pathLine, overlay?.gapLine]) {
+    for (const l of [overlay?.gapLine]) {
       l?.geometry.dispose()
       l?.material.dispose()
     }
@@ -369,29 +350,6 @@ export function Globe({ data }: { data: Dataset }) {
   )
   const refreshOverlay = () => {
     if (!overlay || !data.tracks) return
-    /**
-     * Only the crust that exists yet.
-     *
-     * A track is a path the sea floor took away from a ridge, and its far ends
-     * are its oldest crust. Wind back past the moment a stretch of it erupted
-     * and it was not there -- so the whole line was being drawn over ocean that
-     * had not opened, riding on triangles the mesh had already collapsed away,
-     * which is what made it look like it was floating over the globe rather
-     * than lying on it. Dropping each segment at the moment its crust un-forms
-     * makes the pair of flanks retract towards their ridge as the ocean shuts,
-     * and whether they arrive there together is the thing worth watching.
-     */
-    let shown = 0
-    for (let seg = 0; seg + 1 < overlay.pathAgeMa.length; seg += 2) {
-      if (overlay.pathAgeMa[seg] < clock.timeMa) continue
-      if (overlay.pathAgeMa[seg + 1] < clock.timeMa) continue
-      for (let k = 0; k < 6; k++) {
-        overlay.shownVerts[shown * 3 + k] = overlay.pathVerts[seg * 3 + k]
-        overlay.shownWeights[shown * 3 + k] = overlay.pathWeights[seg * 3 + k]
-      }
-      shown += 2
-    }
-    drawLines(overlay.pathLine, overlay.shownVerts, overlay.shownWeights, shown)
     const t = data.tracks
     const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
     let n = 0
@@ -476,7 +434,7 @@ export function Globe({ data }: { data: Dataset }) {
   // A screen-space line width has to be told what the screen is.
   useEffect(() => {
     if (!overlay) return
-    for (const l of [overlay.pathLine, overlay.gapLine]) {
+    for (const l of [overlay.gapLine]) {
       l.material.resolution.set(size.width, size.height)
     }
     invalidate()
@@ -758,7 +716,6 @@ export function Globe({ data }: { data: Dataset }) {
         <>
           {/* The paths the crust took away from the ridges, in magenta because
               nothing in the age ramp or the satellite imagery is. */}
-          <primitive object={overlay.pathLine.object} />
           {/* One segment per pair that was a single point at this moment, so its
               length is the model's error, drawn. */}
           <primitive object={overlay.gapLine.object} />

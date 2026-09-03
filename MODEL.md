@@ -1975,6 +1975,102 @@ The Atlantic join the fold had collapsed comes back by 278 km, and India goes
 the data**, and because every argument the model makes about a 33 km strip was
 being made against a grid that could not resolve one.
 
+## Are the pairs any good?
+
+Everything this model is scored on rests on the conjugate pairs, and a reader
+put the objection better than any measurement had:
+
+> *ik vertrouw niet dat jij goede paren kunt vinden, als je die roze lijnen niet
+> goed kan tekenen, wat je niet goed kan doen omdat de fracture zones moeilijk
+> te detecteren zijn nog*
+
+Which is exactly right, and worse than it looks. The pairs come off traced flow
+lines, the lines come off fracture-zone detection, and the detection is not good
+yet. **Splitting the pairs in half does not protect against this.** That split
+protects against one thing only -- the solver marking its own homework. Both
+halves come off the same tracer on the same data, so a systematic error in the
+tracing steers the crust and grades it in the same direction at once, and no
+number computed inside the model can see it. It is the one kind of error that
+looks like success.
+
+So it has to be looked at, and there is a picture for it now
+(`tools/draw-pairs.ts`): every pair as two dots and the line between them, over
+the flow lines they came from, over crust younger than two million years --
+which is where the axes are today, and is what a pair is meant to straddle.
+
+### Three tests that are the definition, not a theory
+
+Two points that were one point erupted at the same moment. So the grid must give
+them the same age, that age must be the age the pair claims, and neither end can
+sit on crust the grid does not date at all. Nothing about plates or poles is
+involved.
+
+| | result |
+|---|---|
+| the two ends' ages differ by | median 0.67 Ma, ninetieth 2.02 Ma |
+| off the age the pair claims by | median 0.35 Ma, ninetieth 1.08 Ma |
+| an end on undated crust | 0 of 2,575 |
+
+That rules out crude nonsense and misses the failure that matters. A point
+matched to another five hundred kilometres along the ridge from its true
+conjugate has the same age, sits on sea floor, and is wrong. What separates them
+is **direction**: sea floor leaves its axis along the spreading direction, which
+is the direction the age climbs fastest, so a true pair's join runs along the
+local age gradient. Median 14 degrees off, ninetieth 48, and **11.4% more than
+forty-five degrees out**.
+
+Split by age, the share past forty-five degrees is 11.1%, 13.3%, 5.1% and 15.3%
+over 0-10, 10-30, 30-60 and 60-200 Ma. That is what makes it real rather than a
+bad ruler: a gradient is ill-defined *at* an axis, where the age turns round, so
+a measurement at fault would have put all of it in the youngest band. Instead it
+is worst in the oldest crust, where the score is worst.
+
+Those 292 pairs are now dropped where they are traced, in `build-data`. What is
+left has a median of 12 degrees and a ninetieth of 34, and the age tests do not
+move -- 0.34 Ma off the claim against 0.35 -- so the filter removes the oblique
+ones and not a random sample.
+
+### And it changes the reconstruction by nothing at all
+
+| | 20 Ma pairs | bare | 40 Ma pairs | bare |
+|---|---|---|---|---|
+| unfiltered | 139 km, 76 pairs | 1.41% | 180 km, 68 pairs | 2.96% |
+| filtered | 131 km, 62 pairs | **1.42%** | 167 km, 63 pairs | **2.96%** |
+
+Bare sphere is the only measure here that owes nothing to a pair, and it does not
+move to two decimals. The pairs score improves by about what dropping the worst
+members of a test set improves it by, which is no evidence of anything.
+
+So the 11% were noise that averaged out, not a bias that steered. The other
+answer says the same from the other side: **switch every pair off** with
+`PAIR_K=0` and bare sphere goes from 1.41% to 1.85% at 20 Ma and 2.96% to 3.69%
+at 40. Pulling on them closes gaps that no pair is used to measure, so the bulk
+is carrying real signal. The filter is right because the data was wrong, not
+because the model wanted it.
+
+### What the picture shows that the numbers had not
+
+Coverage. Of the pairs, 47.7% are in the Atlantic and **12.4% in the Pacific**,
+which is a third of the planet -- and the Pacific's median pair is 20 Ma against
+the Atlantic's 60. Old Pacific sea floor has no conjugate to be paired with,
+because in the standard reading its other flank has been subducted. On an
+expanding Earth it has not been subducted, it is what has to close, and **the
+pairs are systematically unavailable exactly where this hypothesis makes its
+boldest claim** -- and exactly where the first step's gaps and crushed
+triangles are: the East Pacific Rise, the Mariana and Tonga trenches, the Scotia
+arc, the South China Sea.
+
+That is not a flaw in the pairs. It is the shape of what they can and cannot
+say, and it means the Pacific has to be got right by some other argument.
+
+### The flow lines are gone from the globe
+
+They were drawn beside the pairs, in pink, and the same reader saw that they are
+the same claim told twice: a track is the path one piece of crust took away from
+its ridge, and a pair is the two ends of that path at a given age. The pink half
+was also the half that cannot fail a check, because a line has no partner to
+fail to meet. The globe now draws the pairs alone.
+
 ## Known weaknesses
 
 - **The crust does not tile, and the figure is honest about it.** An earlier

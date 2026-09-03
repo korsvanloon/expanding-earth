@@ -207,7 +207,7 @@ export function Panel({ data }: { data: Dataset }) {
               checked={showTracks}
               onChange={(e) => setShowTracks(e.target.checked)}
             />
-            Flow lines and pairs
+            Conjugate pairs
           </label>
           <label className="toggle">
             <input

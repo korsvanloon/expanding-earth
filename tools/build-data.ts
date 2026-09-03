@@ -23,6 +23,7 @@ import {
   Raster, areaQuantile, downsample, downsampleField, loadRaster,
 } from './lib/raster.js'
 import { loadAgeGrid } from './lib/agegrid.js'
+import { obliquityDeg } from './lib/age-gradient.js'
 import {
   AGE_SAMPLES, encodeAge, momentOf, olderShare,
 } from '../shared/age-samples.js'
@@ -237,6 +238,15 @@ export const CONFIG = {
    * as tight as the grid allows -- one grey level is 1.1 Ma.
    */
   conjugateToleranceMa: 2,
+  /**
+   * How far a pair's join may run off the local spreading direction, degrees.
+   *
+   * Forty-five is loose on purpose. The measurement it comes from shows the
+   * bulk of the pairs within about fifteen degrees and a distinct tail past
+   * forty-five, so this cuts the tail and leaves the argument about where
+   * exactly to put it for when there is a number that decides it.
+   */
+  maxPairObliquityDeg: Number(process.env.PAIR_OBLIQUE ?? 45),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: 60,
   /**
@@ -541,6 +551,53 @@ async function main() {
     (_, i) => i * CONFIG.frameStepMa,
   )
   const conjugates = conjugatePairs(traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa)
+
+  /**
+   * Throw away the pairs whose join does not run along the spreading direction.
+   *
+   * These are the mispairings along strike: same age at both ends, both ends on
+   * sea floor, wrong partner. They survive every check that only looks at age,
+   * they are 11.4% of what the tracer produces, and they land in *both* halves
+   * of the score -- the half that pulls the crust and the half held back to
+   * judge it -- so nothing measured inside the model can catch them. See
+   * tools/lib/age-gradient.ts for the test and what says it is real.
+   *
+   * The reader who asked for this put it exactly right: the pairs come off the
+   * flow lines, the flow lines come off fracture-zone detection, and the
+   * detection is not good enough yet to be trusted blind. This does not fix the
+   * detection. It drops what the detection demonstrably got wrong.
+   */
+  {
+    const atDirection = (x: number, y: number, z: number) => {
+      const [column, row] = directionToPixel(x, y, z, ageFull.width, ageFull.height)
+      return ageMa[row * ageFull.width + column]
+    }
+    const place = (point: { v: number[]; w: number[] }) => {
+      let x = 0
+      let y = 0
+      let z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = point.v[k] * 3
+        x += mesh.positions[v] * point.w[k]
+        y += mesh.positions[v + 1] * point.w[k]
+        z += mesh.positions[v + 2] * point.w[k]
+      }
+      const l = Math.hypot(x, y, z) || 1
+      return [x / l, y / l, z / l] as const
+    }
+    const before = conjugates.pairs.length
+    const kept = conjugates.pairs.filter((pair) => {
+      const off = obliquityDeg(atDirection, place(pair.a), place(pair.b))
+      // Unreadable is kept: a gradient that cannot be measured is not evidence
+      // against a pair, and dropping those would quietly prefer slow ridges.
+      return off === null || off <= CONFIG.maxPairObliquityDeg
+    })
+    conjugates.pairs.length = 0
+    conjugates.pairs.push(...kept)
+    conjugates.rejected[
+      `the join runs more than ${CONFIG.maxPairObliquityDeg} degrees off the spreading direction`
+    ] = before - kept.length
+  }
   console.log(
     `  ${conjugates.pairs.length} conjugate pairs at the frame ages; ` +
       Object.entries(conjugates.rejected).map(([why, n]) => `${n} ${why}`).join(', '),

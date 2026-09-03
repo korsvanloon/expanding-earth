@@ -32,6 +32,7 @@ import { PNG } from 'pngjs'
 import { directionToUv } from '../shared/sphere.js'
 import { pairPulls, readTracks } from '../shared/tracks.js'
 import { loadAgeGrid } from './lib/agegrid.js'
+import { obliquityDeg } from './lib/age-gradient.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
@@ -240,38 +241,6 @@ async function main() {
    * Reported as the angle between the two, per end, in degrees. Zero is
    * perfect; ninety means the pair was matched sideways along the ridge.
    */
-  const gradient = (x: number, y: number, z: number) => {
-    // Two steps of about thirty kilometres on the sphere, along whatever pair of
-    // axes is furthest from the radius here, so nothing degenerates at a pole.
-    const step = 30 / 6371
-    const up: [number, number, number] = Math.abs(y) < 0.9 ? [0, 1, 0] : [1, 0, 0]
-    let ex: [number, number, number] = [
-      up[1] * z - up[2] * y, up[2] * x - up[0] * z, up[0] * y - up[1] * x,
-    ]
-    let l = Math.hypot(...ex) || 1
-    ex = [ex[0] / l, ex[1] / l, ex[2] / l]
-    let ey: [number, number, number] = [
-      y * ex[2] - z * ex[1], z * ex[0] - x * ex[2], x * ex[1] - y * ex[0],
-    ]
-    l = Math.hypot(...ey) || 1
-    ey = [ey[0] / l, ey[1] / l, ey[2] / l]
-    const at = (dx: number, dy: number) => {
-      const px = x + ex[0] * dx + ey[0] * dy
-      const py = y + ex[1] * dx + ey[1] * dy
-      const pz = z + ex[2] * dx + ey[2] * dy
-      const pl = Math.hypot(px, py, pz) || 1
-      return age.atDirection(px / pl, py / pl, pz / pl)
-    }
-    const gx = at(step, 0) - at(-step, 0)
-    const gy = at(0, step) - at(0, -step)
-    if (Number.isNaN(gx) || Number.isNaN(gy) || (!gx && !gy)) return null
-    // Back to a 3-vector in the tangent plane.
-    const vx = ex[0] * gx + ey[0] * gy
-    const vy = ex[1] * gx + ey[1] * gy
-    const vz = ex[2] * gx + ey[2] * gy
-    const vl = Math.hypot(vx, vy, vz) || 1
-    return [vx / vl, vy / vl, vz / vl] as const
-  }
   const unitAt = (verts: Uint32Array, weights: Float32Array, i: number) => {
     let x = 0
     let y = 0
@@ -291,19 +260,8 @@ async function main() {
   for (let i = 0; i < tracks.pairAgeMa.length; i++) {
     const a = unitAt(tracks.pairAVerts, tracks.pairAWeights, i)
     const b = unitAt(tracks.pairBVerts, tracks.pairBWeights, i)
-    // The chord from A to B, projected into A's tangent plane.
-    let cx = b[0] - a[0]
-    let cy = b[1] - a[1]
-    let cz = b[2] - a[2]
-    const radial = cx * a[0] + cy * a[1] + cz * a[2]
-    cx -= radial * a[0]; cy -= radial * a[1]; cz -= radial * a[2]
-    const cl = Math.hypot(cx, cy, cz)
-    const g = gradient(a[0], a[1], a[2])
-    if (!g || !cl) continue
-    // The gradient climbs away from the axis and the chord runs towards it, so
-    // a perfect pair is antiparallel; the angle is measured off 180 degrees.
-    const dot = (cx * g[0] + cy * g[1] + cz * g[2]) / cl
-    const off = 180 - (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI
+    const off = obliquityDeg((x, y, z) => age.atDirection(x, y, z), a, b)
+    if (off === null) continue
     oblique.push(off)
     obliqueAt.push({ age: tracks.pairAgeMa[i], off })
   }

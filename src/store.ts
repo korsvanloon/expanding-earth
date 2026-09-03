@@ -119,21 +119,27 @@ interface State {
    */
   showSection: boolean
   /**
-   * Draw the traced flow lines and the pairs due to meet now.
+   * Draw the conjugate pairs due to meet at the moment on screen.
    *
-   * These are paths, one per track, read off the age grid by walking away from
-   * a ridge -- what the model believes the crust did. See shared/tracks.ts.
+   * Each is two points that were one point, and the line between them is what
+   * the reconstruction owes: at their own age it should be nothing. This used to
+   * draw the traced flow lines beside them, in pink, and no longer does -- a
+   * track is the path one piece of crust took away from its ridge and the pairs
+   * are the two ends of that same path, so it was one claim told twice, and the
+   * pink half was the half that cannot fail a check. See shared/tracks.ts.
    */
   showTracks: boolean
   /**
    * Paint the fracture zones the gravity grid was searched for.
    *
    * Not the same thing as showTracks, and the pair of them is the point. Those
-   * are paths: continuous, one per track, covering the ocean, and inferred.
-   * These are evidence: scarps a fracture zone left in an independent dataset,
-   * sparse, broken where nothing was left behind, and observed. Putting the two
-   * on the same crust is how a reader judges whether the inference matches the
-   * evidence. See fractureZones in tools/lib/structure.ts.
+   * are inference: where the model believes one piece of crust went. These are
+   * evidence: scarps a fracture zone left in an independent dataset, sparse,
+   * broken where nothing was left behind, and observed. Putting the two on the
+   * same crust is how a reader judges whether the inference matches the
+   * evidence -- and it is the check that matters most, because the pairs are
+   * traced along these and inherit whatever the detection gets wrong. See
+   * fractureZones in tools/lib/structure.ts.
    */
   showZones: boolean
   /**
