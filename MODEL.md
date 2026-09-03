@@ -36,7 +36,7 @@ So 94.8% of the map is internally consistent and the real hole is 2.8%. What
 that hole does to the answer is what matters:
 
 <!-- from-the-run: bounds -->
-Counting it as continent gives R(200 Ma) = 4030 km, counting it as ocean gives 3895 km &mdash; the entire ambiguity is worth 3.4% of the radius.
+Counting it as continent gives R(200 Ma) = 4115 km, counting it as ocean gives 3926 km &mdash; the entire ambiguity is worth 4.8% of the radius.
 <!-- /from-the-run -->
 
 Three classification variants are carried through the pipeline and shown as the
@@ -455,11 +455,11 @@ construction, so the lines come out as lines.
 <!-- from-the-run: pairs -->
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
-| 0 Ma | 31 | 80 km | 100% | 0% |
-| 5 Ma | 74 | 61 km | 96% | 0% |
-| 30 Ma | 63 | 145 km | 56% | 0% |
-| 60 Ma | 53 | 244 km | 38% | 0% |
-| 120 Ma | 25 | 752 km | 8% | 0% |
+| 0 Ma | 41 | 80 km | 100% | 0% |
+| 5 Ma | 82 | 65 km | 99% | 0% |
+| 30 Ma | 67 | 174 km | 57% | 0% |
+| 60 Ma | 54 | 208 km | 50% | 0% |
+| 120 Ma | 12 | 499 km | 33% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -548,7 +548,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 153 blocks at its most divided and 5 at 200 Ma.
+The run finds 164 blocks at its most divided and 6 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -561,7 +561,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.03% of the globe in total &mdash; 0.001% per Myr, against a peak of 0.88%. The median surface speed falls from a peak of 23 km/Myr to 3.4, the block count from as many as 153 to 5, and the biggest block grows to 64% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 23 km/Myr to 4.3, the block count from as many as 164 to 6, and the biggest block grows to 50% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -588,11 +588,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 0.881%/Myr | 14.0 km/Myr | 139 | 3% | 0.4% |
-| 30 Ma | 0.687%/Myr | 22.6 km/Myr | 153 | 2% | 1.0% |
-| 60 Ma | 0.387%/Myr | 15.4 km/Myr | 119 | 10% | 1.9% |
-| 120 Ma | 0.278%/Myr | 15.0 km/Myr | 77 | 14% | 2.5% |
-| 200 Ma | 0.000%/Myr | 3.4 km/Myr | 5 | 64% | 3.1% |
+| 5 Ma | 1.019%/Myr | 15.0 km/Myr | 164 | 2% | 0.5% |
+| 30 Ma | 0.617%/Myr | 22.2 km/Myr | 149 | 3% | 1.0% |
+| 60 Ma | 0.408%/Myr | 16.4 km/Myr | 118 | 7% | 1.7% |
+| 120 Ma | 0.284%/Myr | 17.1 km/Myr | 84 | 11% | 2.4% |
+| 200 Ma | 0.000%/Myr | 4.3 km/Myr | 6 | 50% | 3.0% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -785,11 +785,11 @@ Then the detail. Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6229 km | 0.51% | 0.05% | 0.000% | 0.00% | 0.07% | 1.0% |
-| 30 Ma | 5685 km | 2.13% | 0.09% | 0.000% | 0.00% | 0.20% | 2.6% |
-| 60 Ma | 5168 km | 4.34% | 0.34% | 0.000% | 0.03% | 0.30% | 4.0% |
-| 120 Ma | 4345 km | 9.85% | 1.77% | 0.319% | 0.45% | 0.59% | 5.9% |
-| 200 Ma | 3895 km | 13.39% | 3.67% | 1.496% | 0.90% | 0.92% | 10.9% |
+| 5 Ma | 6207 km | 0.63% | 0.03% | 0.000% | 0.00% | 0.07% | 1.0% |
+| 30 Ma | 5673 km | 2.15% | 0.11% | 0.000% | 0.00% | 0.20% | 2.7% |
+| 60 Ma | 5152 km | 4.43% | 0.36% | 0.000% | 0.03% | 0.30% | 4.1% |
+| 120 Ma | 4315 km | 10.46% | 1.82% | 0.325% | 0.58% | 0.55% | 6.0% |
+| 200 Ma | 3926 km | 13.17% | 3.57% | 1.408% | 0.97% | 0.93% | 10.5% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -803,14 +803,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 34 km | 5 km at 105 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 28% | +28 | 23 km | 2 km at 140 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 860 km | 838 km at 110 Ma |
-| Greenland &ndash; North America | 60 Ma | 38% | 40% | +2 | 0 km | 0 km at 5 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1137 km | 848 km at 170 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 3 km | 3 km at 170 Ma |
-| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 5 km | 2 km at 165 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2251 km | 2251 km at 200 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 6% | +6 | 28 km | 9 km at 120 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 24% | +24 | 30 km | 3 km at 155 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1128 km | 1075 km at 105 Ma |
+| Greenland &ndash; North America | 60 Ma | 20% | 20% | +0 | 0 km | 0 km at 0 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 859 km | 712 km at 175 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 12 km | 6 km at 180 Ma |
+| Antarctica &ndash; South America | watched | 0% | 14% | +14 | 7 km | 1 km at 140 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2223 km | 2223 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -851,7 +851,7 @@ Hold the radius at today's value and the same crust budget cannot cover the
 sphere.
 
 <!-- from-the-run: shortfall -->
-At 200 Ma it falls short by 63%.
+At 200 Ma it falls short by 62%.
 <!-- /from-the-run -->
 
 On a non-expanding Earth that shortfall
@@ -1910,6 +1910,70 @@ the old 1.60% was the smaller number precisely because the fade was adding area
 back that the un-stretching had taken off. Two errors pointing opposite ways.
 The check is worth watching for a jump. It was never a score, and it had been
 read as one.
+
+### Then the grid itself, instead of a picture of it
+
+At which point the input was the limit. The model had been running off
+`age-map.png`, a faithful but lossy rendering of the same survey: 255 grey
+levels over 280 million years, **1.1 Ma to the level**. Invisible while the
+fold could only take crust that was wholly gone; not invisible at all once the
+fold began walking each edge, because one grey level is 36 km of
+ridge-perpendicular distance at a typical spreading rate and the walk resolves
+8 km.
+
+So `data-src/agegrid.nc`: Muller et al. 2019 Tectonics v2.0, present day, a
+tenth of a degree, float ages to 338.81 Ma with NaN over whatever the survey
+does not date. Of the two files offered, the 7.6 MB netCDF-4 and the 25 MB
+netCDF-3 are the same data -- they agree on 3,145,333 of 3,154,532 dated cells
+and carry the same NaN mask cell for cell. The larger is uncompressed and
+older; the smaller is the newer revision, and h5wasm already in the tree reads
+it.
+
+Three things measured independently say the precision was real:
+
+| | picture | grid |
+|---|---|---|
+| depth-age regression, same fit over the same cells | r&sup2; 0.176 | **0.263** |
+| radius curve against the same measurement at source resolution | 1.91% | **1.58%** |
+| conjugate pairs traceable at all | 2,470 | **2,575** |
+
+**And it makes the model's problem bigger, which is what measuring is for.** At
+the first step the crust that has to go is 2.32 million km&sup2; rather than
+1.61, because a one-million-year step now removes a real 33 km strip along
+every ridge instead of sometimes removing nothing at all -- every sample on an
+edge could sit inside a single grey level. Bare sky at that step goes from
+0.331% to 0.481%. The closure is not keeping up, and nothing is hiding it now.
+
+Over the whole record it is not one direction. On the held-back pairs the deep
+end improves and the middle gives way:
+
+| | 5 Ma | 30 Ma | 60 Ma | 120 Ma |
+|---|---|---|---|---|
+| picture | 61 km, 96% | **145 km**, 56% | 244 km, 38% | 752 km, 8% |
+| grid | 65 km, **99%** | 174 km, **57%** | **208 km, 50%** | **499 km, 33%** |
+
+Read the pair counts beside those before reading the numbers, because **the
+pairs are traced out of the age grid, so changing the grid changes the test as
+well as the model**: 82 pairs due at 5 Ma against 74, 67 at 30 against 63, and
+12 at 120 against 25. Half the test set at depth is not a comparison.
+
+The scorecard is the ruler that does not move -- named joins with dates from
+the geology -- and it splits:
+
+| pair | picture | grid |
+|---|---|---|
+| North America &ndash; Africa | 1137 km | **859 km** |
+| South America &ndash; Africa | 34 km | **28 km** |
+| Antarctica &ndash; Africa | **3 km** | 12 km |
+| Australia &ndash; Antarctica | **23 km** | 30 km |
+| India &ndash; Africa | **860 km** | 1128 km |
+
+The Atlantic join the fold had collapsed comes back by 278 km, and India goes
+268 km the other way. Three better, three worse, and no verdict in it.
+
+**So this is not shipped because it scores better. It is shipped because it is
+the data**, and because every argument the model makes about a 33 km strip was
+being made against a grid that could not resolve one.
 
 ## Known weaknesses
 
