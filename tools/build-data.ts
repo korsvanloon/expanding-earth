@@ -23,7 +23,7 @@ import {
   Raster, areaQuantile, downsample, downsampleField, loadRaster,
 } from './lib/raster.js'
 import { loadAgeGrid } from './lib/agegrid.js'
-import { obliquityDeg } from './lib/age-gradient.js'
+import { obliquityDeg, overDisc } from './lib/age-gradient.js'
 import {
   AGE_SAMPLES, encodeAge, momentOf, olderShare,
 } from '../shared/age-samples.js'
@@ -247,6 +247,16 @@ export const CONFIG = {
    * exactly to put it for when there is a number that decides it.
    */
   maxPairObliquityDeg: Number(process.env.PAIR_OBLIQUE ?? 45),
+  /**
+   * How wide a disc the age is averaged over before its gradient is read, km.
+   *
+   * The spreading direction is a property of the regional age field, not of a
+   * tenth of a degree of it. A fracture zone offsets the isochrons, so read
+   * narrowly the gradient on a fracture zone points across the zone -- and the
+   * obliquity filter then rejected precisely the pairs that straddle one,
+   * which are the pairs whose partners are least in doubt.
+   */
+  spreadingDiscKm: Number(process.env.AGE_DISC ?? 200),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: 60,
   /**
@@ -568,10 +578,20 @@ async function main() {
    * detection. It drops what the detection demonstrably got wrong.
    */
   {
-    const atDirection = (x: number, y: number, z: number) => {
+    /**
+     * The age, averaged over a disc, which is the field whose gradient is the
+     * spreading direction.
+     *
+     * Read cell by cell this filter had the defect it exists to catch. A
+     * fracture zone offsets the isochrons, so a gradient taken on one reads
+     * the offset -- square to the zone -- and the filter then threw out the
+     * pairs that straddle a fracture zone, which are the pairs whose partners
+     * are least in doubt. See overDisc.
+     */
+    const atDirection = overDisc((x: number, y: number, z: number) => {
       const [column, row] = directionToPixel(x, y, z, ageFull.width, ageFull.height)
       return ageMa[row * ageFull.width + column]
-    }
+    }, CONFIG.spreadingDiscKm)
     const place = (point: { v: number[]; w: number[] }) => {
       let x = 0
       let y = 0

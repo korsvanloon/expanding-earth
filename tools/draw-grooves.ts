@@ -22,9 +22,10 @@ import { directionToPixel, directionToUv, lonLatToDirection } from '../shared/sp
 import { pairHue, readTracks } from '../shared/tracks.js'
 import { apartKm, axisDiff, bearingDeg, type Place } from './lib/bearing.js'
 import { loadAgeGrid } from './lib/agegrid.js'
-import { spreadingDirection } from './lib/age-gradient.js'
+import { overDisc, spreadingDirection } from './lib/age-gradient.js'
+import { loadRaster } from './lib/raster.js'
 import {
-  grooveField, linkGrooves, trimAcross, trimAgainst, walkGrooves,
+  axisOf, grainReference, grooveField, linkGrooves, trimEither, walkGrooves,
   type Fabric, type Groove, type GroovePoint,
 } from './lib/grooves.js'
 import { fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
@@ -96,14 +97,19 @@ const OUT = resolve(ROOT, process.env.OUT ?? '.stage/maps')
  */
 async function spreadingReference(): Promise<(at: GroovePoint) => number | null> {
   const grid = await loadAgeGrid(resolve(ROOT, 'data-src/agegrid.nc'))
-  const age = (x: number, y: number, z: number) => {
+  const raw = (x: number, y: number, z: number) => {
     const [column, row] = directionToPixel(x, y, z, grid.width, grid.height)
     return grid.at(column, row)
   }
+  // The regional age field, whose gradient is the spreading direction. Read
+  // cell by cell it is the wrong field on exactly the lines this is about; see
+  // overDisc in ./lib/age-gradient.ts for why, and for what else was tried.
+  const age = overDisc(raw, Number(process.env.AGESMOOTH ?? 200))
+
   const RADIANS = Math.PI / 180
   return (at: GroovePoint) => {
     const [x, y, z] = lonLatToDirection(at.lon * RADIANS, at.lat * RADIANS)
-    const direction = spreadingDirection(age, x, y, z)
+    const direction = spreadingDirection(age, x, y, z, Number(process.env.AGESTEP ?? 60))
     if (!direction) return null
     // The tangent as a bearing: north and east here, then the angle between.
     const l = Math.hypot(x, y, z) || 1
@@ -124,6 +130,25 @@ async function spreadingReference(): Promise<(at: GroovePoint) => number | null>
     const north = direction[0] * nx + direction[1] * ny + direction[2] * nz
     const east = direction[0] * ex + direction[1] * ey + direction[2] * ez
     return (((Math.atan2(east, north) / RADIANS) % 180) + 180) % 180
+  }
+}
+
+/**
+ * Whether a place sits on crust ECM1 calls continental.
+ *
+ * Read off the published crust raster, whose red channel is the class index.
+ * Normal ocean, ridge and oceanic plateau are sea floor; everything else --
+ * margins, extended crust, shields, orogens, platforms, basins, arcs -- is
+ * crust that was not erupted at a ridge.
+ */
+function ashore(): (at: GroovePoint) => boolean {
+  const raster = loadRaster(resolve(DATA, 'crust.png'))
+  const RADIANS = Math.PI / 180
+  const OCEANIC = new Set([0, 1, 2])
+  return (at: GroovePoint) => {
+    const [x, y, z] = lonLatToDirection(at.lon * RADIANS, at.lat * RADIANS)
+    const [column, row] = directionToPixel(x, y, z, raster.width, raster.height)
+    return !OCEANIC.has(raster.at(column, row))
   }
 }
 
@@ -166,13 +191,35 @@ async function main() {
    * so the direction the age climbs fastest is what a groove here should run
    * in -- and it is measured from data the fabric had no part in.
    */
-  const against = process.env.AGAINST ?? 'spreading'
-  const reference = against === 'spreading' ? await spreadingReference() : null
-  const trimmed = Number(process.env.TRIM ?? 1) > 0
-    ? (reference
-      ? trimAgainst(found, reference, Number(process.env.SWING ?? 30))
-      : trimAcross(found, Number(process.env.GRAIN ?? 800), Number(process.env.SWING ?? 30)))
-    : { kept: found, dropped: [] }
+  const against = (process.env.AGAINST ?? 'both').split(',')
+  const references: ((at: GroovePoint) => number | null)[] = []
+  if (against.includes('spreading') || against.includes('both')) {
+    references.push(await spreadingReference())
+  }
+  if (against.includes('grain') || against.includes('both')) {
+    references.push(grainReference(found, Number(process.env.GRAIN ?? 800)))
+  }
+  /**
+   * Segments on crust the age grid does not date, split from the rest.
+   *
+   * The reader: *on land it is the most chaotic and least useful, because land
+   * in principle does not disappear.* Which is the whole argument. A groove is
+   * a flow line -- a record of two pieces of sea floor moving apart -- and
+   * continental crust did not come out of a ridge, so whatever is drawn on it
+   * is not that, however clean a line it is. Undated *ocean* is a different
+   * case and worth keeping separately: the survey is incomplete, and a groove
+   * there is a groove nobody has dated yet.
+   */
+  const onLand = ashore()
+  const ashoreSegments = Number(process.env.LAND ?? 0) > 0
+    ? []
+    : found.filter((g) => onLand(axisOf(g).at))
+  const afloat = ashoreSegments.length
+    ? found.filter((g) => !onLand(axisOf(g).at))
+    : found
+  const trimmed = Number(process.env.TRIM ?? 1) > 0 && references.length
+    ? trimEither(afloat, references, Number(process.env.SWING ?? 30))
+    : { kept: afloat, dropped: [] as Groove[] }
   const segments = trimmed.kept
   const grooves = link ? linkGrooves(segments, knobs, trimmed.dropped) : segments
   /**
@@ -199,6 +246,7 @@ async function main() {
       + `${((Date.now() - started) / 1000).toFixed(1)}s; `
       + `${segments.length} segments, ${measured(segments).toFixed(0)} km read`
       + (trimmed.dropped.length ? `, ${trimmed.dropped.length} dropped across the grain` : '')
+      + (ashoreSegments.length ? `, ${ashoreSegments.length} dropped as continental` : '')
       + (link
         ? `, joined into ${grooves.length} grooves of `
           + `${grooves.reduce((s, g) => s + g.lengthKm, 0).toFixed(0)} km`
@@ -273,6 +321,7 @@ async function main() {
   })
   // What the grain test threw out, so the reader can say whether it was right
   // to: a filter that drops two segments in five has to be shown, not trusted.
+  draw(ashoreSegments, [130, 110, 200])
   draw(trimmed.dropped, [220, 60, 60])
   draw(loose, [90, 220, 255])
   draw(grooves, [255, 255, 255])

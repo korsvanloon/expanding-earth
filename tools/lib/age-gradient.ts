@@ -37,8 +37,39 @@ const EARTH_KM = 6371
 export function spreadingDirection(
   at: (x: number, y: number, z: number) => number,
   x: number, y: number, z: number,
+  stepKm?: number,
 ): readonly [number, number, number] | null {
-  const step = STEP_KM / EARTH_KM
+  return spreadingGradient(at, x, y, z, stepKm)?.direction ?? null
+}
+
+/**
+ * The same, with how steeply the age climbs -- which is what says whether the
+ * direction means anything.
+ *
+ * A gradient has a direction wherever it is not exactly zero, and over a
+ * stretch of sea floor the survey dated all the same, that direction is
+ * whatever rounding error happened to be. Nothing downstream can tell that
+ * apart from a real one unless the size comes with it: `climb` is millions of
+ * years per hundred kilometres, so a slow ridge reads about 5 and old crust
+ * the survey could not date finely reads near nothing.
+ */
+export function spreadingGradient(
+  at: (x: number, y: number, z: number) => number,
+  x: number, y: number, z: number,
+  /**
+   * How wide to take the difference, km.
+   *
+   * Thirty kilometres is right for asking what the age does *here* and wrong
+   * for asking which way the crust travelled, and the difference matters most
+   * at exactly the places worth asking about. A fracture zone offsets the
+   * isochrons, so the age field has a step across it, and a narrow difference
+   * taken on the line reads that step -- which points along the line's own
+   * normal -- rather than the spreading direction. The feature corrupts the
+   * reference at its own location. Stepping wide than the offset steps over it.
+   */
+  stepKm = STEP_KM,
+): { direction: readonly [number, number, number]; climb: number } | null {
+  const step = stepKm / EARTH_KM
   // Any pair of tangents will do; pick the first from whichever axis is
   // furthest from the radius here, so nothing degenerates at a pole.
   const up = Math.abs(y) < 0.9 ? [0, 1, 0] : [1, 0, 0]
@@ -67,7 +98,10 @@ export function spreadingDirection(
   const vy = ex[1] * gx + ey[1] * gy
   const vz = ex[2] * gx + ey[2] * gy
   const vl = Math.hypot(vx, vy, vz) || 1
-  return [vx / vl, vy / vl, vz / vl] as const
+  return {
+    direction: [vx / vl, vy / vl, vz / vl] as const,
+    climb: (100 * Math.hypot(gx, gy)) / (2 * stepKm),
+  }
 }
 
 /**
@@ -96,4 +130,71 @@ export function obliquityDeg(
   if (!chord) return null
   const dot = (cx * direction[0] + cy * direction[1] + cz * direction[2]) / chord
   return 180 - (Math.acos(Math.max(-1, Math.min(1, dot))) * 180) / Math.PI
+}
+
+/**
+ * A reader of the age grid that averages over a disc first.
+ *
+ * The spreading direction is the gradient of the *regional* age field, and a
+ * fracture zone offsets the isochrons, so the raw field has a step across
+ * exactly the line the direction is wanted at: read narrowly on the line, the
+ * gradient reads that step, which points along the line's own normal. The
+ * reader of this project put it better than a diagram would -- two great bands
+ * travelling the same way at different rates, a thick groove between them, and
+ * because one band runs ahead in time the check concludes the line ought to be
+ * square to itself.
+ *
+ * Stepping the gradient wide instead is the obvious alternative and is worse:
+ * a wide step in a survey with undated patches lands one of its four feet on
+ * nothing and loses its reference altogether, which in the North Pacific took
+ * the kept lines from half within 26 degrees of their own median to 45. An
+ * average ignores the holes and uses what there is, and returns NaN only where
+ * the whole disc is undated.
+ */
+export function overDisc(
+  at: (x: number, y: number, z: number) => number,
+  radiusKm: number,
+  rings = [0, 0.5, 1],
+  spokes = 8,
+): (x: number, y: number, z: number) => number {
+  return (x, y, z) => {
+    const l = Math.hypot(x, y, z) || 1
+    const ux = x / l
+    const uy = y / l
+    const uz = z / l
+    // North and east here. Degenerate at the poles, where the raw value is the
+    // best there is; a disc around a pole is not a disc in these coordinates.
+    let nx = -uy * ux
+    let ny = 1 - uy * uy
+    let nz = -uy * uz
+    const nl = Math.hypot(nx, ny, nz)
+    if (nl < 1e-6) return at(ux, uy, uz)
+    nx /= nl
+    ny /= nl
+    nz /= nl
+    const ex = ny * uz - nz * uy
+    const ey = nz * ux - nx * uz
+    const ez = nx * uy - ny * ux
+    let sum = 0
+    let seen = 0
+    for (const ring of rings) {
+      const count = ring ? spokes : 1
+      const r = (ring * radiusKm) / EARTH_KM
+      for (let k = 0; k < count; k++) {
+        const t = (k / count) * 2 * Math.PI
+        const cos = Math.cos(t)
+        const sin = Math.sin(t)
+        const px = ux + (cos * ex + sin * nx) * r
+        const py = uy + (cos * ey + sin * ny) * r
+        const pz = uz + (cos * ez + sin * nz) * r
+        const pl = Math.hypot(px, py, pz) || 1
+        const value = at(px / pl, py / pl, pz / pl)
+        if (!Number.isNaN(value)) {
+          sum += value
+          seen++
+        }
+      }
+    }
+    return seen ? sum / seen : NaN
+  }
 }

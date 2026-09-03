@@ -806,6 +806,65 @@ export function trimAgainst(
   return { kept, dropped }
 }
 
+/**
+ * Keep a segment that either reference passes, and drop only what both reject.
+ *
+ * Neither reference is sound everywhere and they fail in different places, so
+ * the reader's suggestion -- take a combination -- is the right shape. The
+ * neighbours' grain assumes most of what is detected nearby is a groove, which
+ * is false in the Pacific where most of it is abyssal-hill fabric. The
+ * spreading direction assumes the age grid knows which way the crust went,
+ * which is weakest in exactly the old, thinly-surveyed sea floor where the
+ * grid is mostly interpolation between a few identified isochrons.
+ *
+ * Requiring both would keep only what the weaker one happens to allow. Taking
+ * either lets some rubbish through, and that is the cheaper mistake here: the
+ * reader can see a wrong line in a picture, and cannot see a right line that
+ * was never drawn.
+ */
+export function trimEither(
+  grooves: Groove[],
+  references: ((at: GroovePoint) => number | null)[],
+  toleranceDeg = 30,
+): { kept: Groove[]; dropped: Groove[] } {
+  const kept: Groove[] = []
+  const dropped: Groove[] = []
+  for (const groove of grooves) {
+    const mine = axisOf(groove)
+    const verdicts = references.map((of) => of(mine.at))
+    const passes = verdicts.some(
+      (should) => should === null || axisDiff(mine.axis, should) <= toleranceDeg,
+    )
+    if (passes) kept.push(groove)
+    else dropped.push(groove)
+  }
+  return { kept, dropped }
+}
+
+/**
+ * The neighbours' grain as a reference, for use beside any other.
+ *
+ * Null where a segment has too few neighbours to have a grain: nothing to have
+ * run across, and a lone groove is not evidence against itself.
+ */
+export function grainReference(
+  grooves: Groove[], radiusKm = 800, least = 8, capKm = 2500,
+): (at: GroovePoint) => number | null {
+  const each = grooves.map(axisOf)
+  return (at: GroovePoint) => {
+    const away = each
+      .map((q) => ({ axis: q.axis, awayKm: apartKm(at, q.at) }))
+      .filter((q) => q.awayKm > 1)
+      .sort((a, b) => a.awayKm - b.awayKm)
+    const inside = away.filter((q) => q.awayKm < radiusKm)
+    const near = inside.length >= least
+      ? inside
+      : away.filter((q) => q.awayKm < capKm).slice(0, least)
+    if (near.length < 4) return null
+    return axisMedian(near.map((q) => q.axis))
+  }
+}
+
 export function trimAcross(
   grooves: Groove[], radiusKm = 800, toleranceDeg = 30, least = 8, capKm = 2500,
 ): { kept: Groove[]; dropped: Groove[] } {
