@@ -3,6 +3,18 @@ import { directionToUv } from '@shared/sphere'
 import type { Dataset } from '@/data'
 
 /**
+ * A reference frame that pins one point of a region rather than the whole of
+ * it: `africa:pin` against `africa`.
+ *
+ * The difference is the region's own turn. Holding every point of Africa still
+ * takes out both where Africa went and how it turned, and a reader wanting to
+ * know whether southern Africa reaches the pole is asking about exactly the
+ * turn that gets removed. Pinning one point takes out where it went and leaves
+ * the turn to be looked at.
+ */
+export const PINNED = ':pin'
+
+/**
  * Rotations that hold one continent still while the rest of the world moves
  * around it.
  *
@@ -20,7 +32,10 @@ export type Rotations = Float32Array
 
 export function buildReferenceRotations(data: Dataset, regionId: string): Rotations {
   const { meta, vertexCount, dirs, vertexAge, frames } = data
-  const region = REGIONS.find((r) => r.id === regionId)
+  const pinned = regionId.endsWith(PINNED)
+  const region = REGIONS.find(
+    (r) => r.id === (pinned ? regionId.slice(0, -PINNED.length) : regionId),
+  )
   const out = new Float32Array(meta.frameCount * 9)
   const identity = [1, 0, 0, 0, 1, 0, 0, 0, 1]
   out.set(identity, 0)
@@ -58,6 +73,42 @@ export function buildReferenceRotations(data: Dataset, regionId: string): Rotati
   const rotation = [...identity]
   const from: number[] = [0, 0, 0]
   const to: number[] = [0, 0, 0]
+
+  if (pinned) {
+    // The member nearest the region's own middle, and then the smallest
+    // rotation that puts it back where it sits today. Smallest matters: any
+    // rotation through the pinned point leaves it pinned, and the one that
+    // turns least about it is the one that adds no spin of its own, so what is
+    // left on screen is the plate's turn and not the frame's.
+    let mx = 0, my = 0, mz = 0
+    for (const v of members) {
+      mx += dirs[v * 3]; my += dirs[v * 3 + 1]; mz += dirs[v * 3 + 2]
+    }
+    const ml = Math.hypot(mx, my, mz) || 1
+    mx /= ml; my /= ml; mz /= ml
+    let pin = members[0]
+    let best = -2
+    for (const v of members) {
+      const dot = dirs[v * 3] * mx + dirs[v * 3 + 1] * my + dirs[v * 3 + 2] * mz
+      if (dot > best) { best = dot; pin = v }
+    }
+    for (let f = 1; f < meta.frameCount; f++) {
+      unit(f, pin, from)
+      unit(0, pin, to)
+      let ax = from[1] * to[2] - from[2] * to[1]
+      let ay = from[2] * to[0] - from[0] * to[2]
+      let az = from[0] * to[1] - from[1] * to[0]
+      const sin = Math.hypot(ax, ay, az)
+      const cos = Math.min(1, Math.max(-1, from[0] * to[0] + from[1] * to[1] + from[2] * to[2]))
+      const turn = [...identity]
+      if (sin > 1e-9) {
+        ax /= sin; ay /= sin; az /= sin
+        compose(turn, ax, ay, az, Math.atan2(sin, cos))
+      }
+      out.set(turn, f * 9)
+    }
+    return out
+  }
 
   for (let f = 1; f < meta.frameCount; f++) {
     for (let pass = 0; pass < 6; pass++) {

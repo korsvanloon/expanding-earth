@@ -342,7 +342,8 @@ export function remembered(stored: unknown): Partial<Remembered> {
     ...(SURFACE_MAPS.some((m) => m.id === s.surfaceMap)
       ? { surfaceMap: s.surfaceMap as string }
       : {}),
-    ...(s.referenceFrame === '' || REGIONS.some((r) => r.id === s.referenceFrame)
+    ...(s.referenceFrame === ''
+      || REGIONS.some((r) => r.id === s.referenceFrame || `${r.id}:pin` === s.referenceFrame)
       ? { referenceFrame: s.referenceFrame as string }
       : {}),
     ...(typeof s.speed === 'number' && s.speed > 0 && s.speed <= 1000

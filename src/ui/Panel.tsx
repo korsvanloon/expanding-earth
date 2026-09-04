@@ -5,6 +5,7 @@ import {
 } from '@shared/crust'
 import { R0_KM, REGIONS, surfaceGravity } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
+import { PINNED } from '@/frames'
 import { describePicks, describeZones, useStore, ZONE_LIMIT, type ViewMode } from '@/store'
 import { Chart, valueAt } from './Chart'
 import { useClockTime } from './useClockTime'
@@ -167,11 +168,20 @@ export function Panel({ data }: { data: Dataset }) {
               {r.label}
             </option>
           ))}
+          {REGIONS.map((r) => (
+            <option key={`${r.id}${PINNED}`} value={`${r.id}${PINNED}`}>
+              {r.label} (one point of it)
+            </option>
+          ))}
         </select>
       </label>
       <p className="caption">
         A viewpoint, not a change to the model. Spread the motion evenly over every plate and a
         continent that travelled thousands of kilometres looks like it hardly moved.
+        {' '}Holding a whole continent still takes out its own turn as well as
+        its travel; pinning one point of it leaves the turn to be looked at,
+        which is what a question like &ldquo;does southern Africa reach the
+        pole&rdquo; is about.
       </p>
       <label className="toggle">
         <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
