@@ -351,6 +351,8 @@ export const CONFIG = {
   stepWindowKm: Number(process.env.STEP_WINDOW ?? 150),
   /** How far a jump line may run off the regional climb and still be a path. */
   stepMaxOffDeg: Number(process.env.STEP_OFF ?? 30),
+  /** The most say one admitted jump line may have against the grooves', 0 to 1. */
+  stepShare: Number(process.env.STEP_SHARE ?? 1),
   /**
    * The interval along a path at which conjugate pairs are read, Ma; 0 for
    * every frame.
@@ -465,16 +467,31 @@ export const CONFIG = {
    */
   ridgeAxisReachKm: Number(process.env.RIDGE_AXIS_KM ?? 150),
   /**
-   * The second way a groove earns a vote, when the age grid cannot judge it.
+   * The second way a groove earns a vote, when the age grid cannot judge it,
+   * and it is off.
    *
    * See anchorGrooves: every other gate measures a groove against the
    * spreading direction read off the age grid, and at a ridge that reading is
    * the very thing being corrected. A tight local grain -- a dozen lines
    * within a few degrees of one another over this radius -- is evidence the age
-   * grid has no part in.
+   * grid has no part in. It was put in to fix the direction paths leave the
+   * ridge on, which it did: the equatorial Atlantic went from leaving at 31
+   * degrees to 77, on a target of about 90.
+   *
+   * It also cost more than anything else in this stretch of work. Admitting a
+   * groove on its neighbours' agreement takes the anchor count from 1,518 to
+   * 2,341, and those extra 823 anchors are the ones the age grid declined to
+   * confirm. Measured over a forty-million-year solve, the held-back pairs at
+   * 20 Ma go from 138 km and 59% reunited within two hundred kilometres to
+   * 228 km and 47%. Ninety kilometres, for a step the age grid's own jump lines
+   * now do better: they say which line the crust travelled along at every cell
+   * of the field, from a survey the grooves have no part in, and they say it
+   * where a ridge staircase leaves the age gradient useless. So the grain
+   * clause is off -- a spread of zero degrees admits nothing -- and
+   * GRAIN_SPREAD=15 is the measurement it came from.
    */
   grainRadiusKm: Number(process.env.GRAIN_KM ?? 800),
-  grainSpreadDeg: Number(process.env.GRAIN_SPREAD ?? 15),
+  grainSpreadDeg: Number(process.env.GRAIN_SPREAD ?? 0),
   grainOffDeg: Number(process.env.GRAIN_OFF ?? 15),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: Number(process.env.DRAWN_TRACKS ?? 400),
@@ -822,6 +839,7 @@ async function main() {
         windowKm: CONFIG.stepWindowKm,
         maxOffDeg: CONFIG.stepMaxOffDeg,
         regionalKm: CONFIG.spreadingDiscKm,
+        maxShare: CONFIG.stepShare,
       })
       console.log(
         `[build-data] age-jump lines: ${read.counts.along} cells anchor the flow field `

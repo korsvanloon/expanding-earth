@@ -455,11 +455,11 @@ construction, so the lines come out as lines.
 <!-- from-the-run: pairs -->
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
-| 0 Ma | 38 | 80 km | 100% | 0% |
-| 5 Ma | 70 | 61 km | 100% | 0% |
-| 30 Ma | 49 | 178 km | 53% | 0% |
-| 60 Ma | 25 | 223 km | 44% | 0% |
-| 120 Ma | 9 | 548 km | 22% | 0% |
+| 0 Ma | 29 | 80 km | 100% | 0% |
+| 5 Ma | 70 | 60 km | 96% | 0% |
+| 30 Ma | 49 | 245 km | 43% | 0% |
+| 60 Ma | 29 | 335 km | 31% | 0% |
+| 120 Ma | 8 | 707 km | 13% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -548,7 +548,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 165 blocks at its most divided and 3 at 200 Ma.
+The run finds 164 blocks at its most divided and 6 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -561,7 +561,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 23 km/Myr to 3.3, the block count from as many as 165 to 3, and the biggest block grows to 81% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 23 km/Myr to 3.0, the block count from as many as 164 to 6, and the biggest block grows to 76% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -588,11 +588,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 1.019%/Myr | 15.0 km/Myr | 165 | 1% | 0.5% |
-| 30 Ma | 0.617%/Myr | 22.5 km/Myr | 155 | 3% | 1.0% |
-| 60 Ma | 0.408%/Myr | 15.7 km/Myr | 120 | 4% | 1.6% |
-| 120 Ma | 0.284%/Myr | 17.3 km/Myr | 86 | 13% | 2.3% |
-| 200 Ma | 0.000%/Myr | 3.3 km/Myr | 3 | 81% | 3.0% |
+| 5 Ma | 1.019%/Myr | 15.0 km/Myr | 163 | 2% | 0.5% |
+| 30 Ma | 0.617%/Myr | 22.1 km/Myr | 161 | 2% | 1.0% |
+| 60 Ma | 0.408%/Myr | 15.1 km/Myr | 118 | 8% | 1.6% |
+| 120 Ma | 0.284%/Myr | 17.2 km/Myr | 89 | 11% | 2.4% |
+| 200 Ma | 0.000%/Myr | 3.0 km/Myr | 6 | 76% | 3.0% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -785,11 +785,11 @@ Then the detail. Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6207 km | 0.65% | 0.04% | 0.000% | 0.00% | 0.07% | 1.0% |
-| 30 Ma | 5673 km | 2.18% | 0.10% | 0.000% | 0.00% | 0.20% | 2.6% |
-| 60 Ma | 5152 km | 4.76% | 0.38% | 0.000% | 0.02% | 0.29% | 3.7% |
-| 120 Ma | 4315 km | 10.52% | 1.72% | 0.295% | 0.56% | 0.55% | 6.0% |
-| 200 Ma | 3926 km | 13.25% | 3.54% | 1.389% | 0.93% | 0.93% | 10.7% |
+| 5 Ma | 6207 km | 0.63% | 0.04% | 0.000% | 0.00% | 0.07% | 1.1% |
+| 30 Ma | 5673 km | 2.23% | 0.15% | 0.000% | 0.00% | 0.19% | 2.7% |
+| 60 Ma | 5152 km | 4.65% | 0.39% | 0.000% | 0.03% | 0.29% | 4.0% |
+| 120 Ma | 4315 km | 10.40% | 1.52% | 0.207% | 0.51% | 0.58% | 7.4% |
+| 200 Ma | 3926 km | 13.08% | 3.51% | 1.360% | 0.96% | 0.93% | 10.7% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -803,14 +803,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 20 km | 6 km at 160 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 20% | +20 | 54 km | 4 km at 155 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1167 km | 1090 km at 175 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 8% | +8 | 31 km | 5 km at 135 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 19% | +19 | 47 km | 3 km at 175 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1198 km | 1157 km at 200 Ma |
 | Greenland &ndash; North America | 60 Ma | 20% | 20% | +0 | 0 km | 0 km at 0 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1233 km | 864 km at 160 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 17 km | 3 km at 190 Ma |
-| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 6 km | 3 km at 120 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2178 km | 2178 km at 200 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 906 km | 695 km at 175 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 8 km | 6 km at 135 Ma |
+| Antarctica &ndash; South America | watched | 0% | 14% | +14 | 5 km | 1 km at 80 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2130 km | 1891 km at 175 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -2063,13 +2063,189 @@ arc, the South China Sea.
 That is not a flaw in the pairs. It is the shape of what they can and cannot
 say, and it means the Pacific has to be got right by some other argument.
 
-### The flow lines are gone from the globe
+### The flow lines came back, because a reader wanted to judge them
 
-They were drawn beside the pairs, in pink, and the same reader saw that they are
-the same claim told twice: a track is the path one piece of crust took away from
-its ridge, and a pair is the two ends of that path at a given age. The pink half
-was also the half that cannot fail a check, because a line has no partner to
-fail to meet. The globe now draws the pairs alone.
+They were taken off the globe once, as the same claim told twice: a track is the
+path one piece of crust took away from its ridge, and a pair is the two ends of
+that path at a given age. That was right about the arithmetic and wrong about
+the work. A pair is two dots and says nothing about where its crust went; the
+path is the thing a reader can look at and call wrong, and every correction to
+the direction field in this document came from someone doing exactly that. So
+the paths are drawn again, behind their own switch, in the same form as
+`tools/draw-paths.ts` draws flat.
+
+## Which way the crust went, read off the age grid's jumps
+
+The direction field decides everything downstream: follow it and you have the
+paths, the paths give the conjugate pairs, and half of those pull the solver. Up
+to here it was fitted through the grooves in the gravity fabric alone. It now
+has a second witness, from a survey the grooves have no part in, and a reader
+found it by looking at a scratch picture and saying what it showed.
+
+The picture was the size of the age jump between neighbouring cells, in the
+units a spreading gradient is quoted in:
+
+| age jump, Ma per 100 km | |
+|---|---|
+| median | 3.7 |
+| ninetieth centile | 14.3 |
+| ninety-ninth centile | 44.5 |
+
+A typical spreading gradient is 2 to 6, so the top of that distribution is not a
+slope at all. Over most of an ocean the age climbs steadily, a few million years per hundred
+kilometres. In strips it does not: one segment of ridge spread faster than its
+neighbour, the isochrons in the two strips are offset, and on the dividing line
+between them the age steps by the whole offset over a couple of cells. A reader
+looked at that and put it plainly &mdash; many places have bands of gradients,
+and the dividing line between the bands is a good indicator for a path. It is:
+that line is the trace of the transform that separated the two segments, and the
+crust ran *along* it.
+
+`tools/lib/age-steps.ts` measures the jump over the whole grid and finds the
+lines in it with the same structure tensor the grooves use. Two kinds of bright
+line live in that field and only one of them is a path. The dividing lines run
+with the flow. Ridge crests, and the terrace edges between the age bands the
+grid was compiled from, run across it and say nothing a path wants &mdash; the
+age gradient already knows the crust crosses them.
+
+What tells them apart is the regional climb, and *where* it is read is the whole
+of it. Read on the line, a disc wide enough to average the terracing also
+averages both sides of the offset, so what it reports is the offset: a climb
+square to the line, which refuses every fracture zone the rule exists to admit.
+That is not hypothetical, it is the failure the first attempt at this shipped in
+a picture, and a reader spotted it in the Weddell Sea. Read a few hundred
+kilometres off the line on each flank, each flank's own climb is clean, and
+across a transform the two flanks travelled the same way &mdash; which is what
+makes it a transform.
+
+The gate is thirty degrees:
+
+| | cells |
+|---|---|
+| a jump line running with the flow, which anchors the field | 7,261 |
+| a jump line running across it, ignored | 17,368 |
+| the climb on both flanks too flat to say, ignored | 148 |
+
+`flowField` takes several anchor fields now and adds their doubled angles, so
+the jump lines and the grooves are two readings blended rather than one
+overriding the other, and where they disagree the answer shortens into doubt
+instead of one of them winning. `tools/draw-steps.ts` draws the field with one
+tick per cell in the colour of what was done with it, which is how the gate was
+judged.
+
+The step it makes the biggest difference to is the one the grooves were worst
+at: the direction a path leaves the ridge on. A ridge is an age minimum, so the
+age gradient there is noise, and over a staircase of segments offset by
+transforms the oldest direction on a ring is the staircase's diagonal &mdash;
+paths left Brazil at 31 degrees where the answer is about 90. The previous
+attempt at that admitted grooves on their neighbours' agreement instead, which
+fixed the bearing and cost ninety kilometres of pair residual; the jump lines
+fix it with evidence the age grid itself provides, so that clause is off. See
+`grainSpreadDeg` in `tools/solve.ts`'s sibling `tools/build-data.ts` for the
+measurement.
+
+### Longer lines, and the reason they were short
+
+A reader asked for longer lines and said what the short ones do wrong: the line
+suddenly bends towards a sharper contrast between young and old where it should
+have carried straight on over the gentler gradient.
+
+The first reading of that was to prefer the shallowest climb at every step
+&mdash; the slowest route over the gradient rather than the shortest. That is
+worse, and the picture says so at a glance: every line drifts a little towards
+its own shallow side, the drift differs from one line to the next, and the
+family that must never meet crosses itself all over the South Atlantic. Two
+paths crossing off a ridge is two pieces of crust passing through each other.
+
+What was actually ending the walks was not a wrong turn at all. The age
+gradient is read over four points forty kilometres out, and one undated cell
+anywhere in that cross makes it nothing: **528 of 785 flanks ended on that,
+against 30 that had undated crust in their way.** Near a plateau, an aseismic
+ridge, a coastline, or any of the holes the survey left, the cross catches a
+hole while the path has hundreds of kilometres of good sea floor in front of it.
+
+So the gradient no longer decides whether to carry on. The fitted field covers
+the whole sphere and is the direction; the age ahead &mdash; one sample, not
+four &mdash; is the check; and the rule that the age must keep rising is what
+ends a flank. Total walking rose 44%, the ninetieth centile of path length from
+6,600 to 7,520 km, and the flanks now stop for reasons that are about the ocean
+rather than about the probe: 390 on undated crust, 370 on the age falling, 76
+after stepping over a hole and picking the line up on the far side.
+
+The bend itself is refused rather than steered around: a step whose climb is
+more than two and a half times the path's own looks in a thirty-degree cone for
+one that keeps to its rate, and takes the one that turns least. It fires on 788
+of 41,025 steps, which is what a rule that corrects one error rather than
+replacing the direction field should look like.
+
+### One-sided paths, for the crust with no other half
+
+Half the ocean has no conjugate left: the Pacific off California, the Weddell
+Sea, the sea west of Australia. In the standard reading the other flank was
+subducted; on an expanding Earth it is what has to close. Either way there is
+nothing to pair that crust with, and the section above on coverage is the same
+observation from the other end &mdash; the pairs are unavailable exactly where
+this hypothesis is boldest.
+
+A path over that crust is still readable. It is seeded where no two-sided path
+comes within 500 km, walked down to the young end its crust closed onto, and
+back out along the field. Each of its points is joined to that young end as a
+pair, and those pairs **pull the reconstruction and are never scored**: a path
+with no other half could never be a test of anything, and `pairPulls` in
+`shared/tracks.ts` now decides that from the pair's own kind rather than from
+its track number. 206 of them, against 221 two-sided paths.
+
+They cost nothing on the score and they buy nothing on it either &mdash; 229 km
+at 20 Ma without them, 228 with &mdash; which is exactly what a force that is
+never scored should do to a score. What they are for is the mesh: the basins
+that had no paths at all now have a direction, and whether that is right is a
+question for the pictures and the scorecard, not for the pairs.
+
+### The marks on a path, and what they cost
+
+A reader asked for the points on a path at a fixed interval, twenty-five million
+years, and for the same on the one-sided lines. Read that way the pairs
+themselves come to 284 where every frame gives 1,765, and the force thins with
+them:
+
+| pairs read | at 25 Ma | reunited within 200 km |
+|---|---|---|
+| every 25 Ma | 210 km | 48% |
+| every frame | 182 km | 62% |
+
+So the interval is what the pictures draw and every frame is what pulls. The
+one-sided pairs keep the ladder, since all of a path's own pairs share one end
+and forty-one claims on one triangle is a heavier hand than eight. The marks are
+coloured by the age of their crust, orange young to blue old, another reader's
+choice: both ends of a pair are the same age and so the same colour, which makes
+the ladder readable where a colour per pair made every claim a different hue.
+
+### The ledger, which does not come out in this work's favour
+
+The pictures are better and a reader says so: the Atlantic runs east-west
+instead of at 45 degrees, the Pacific off California has paths where it had
+none, and south of Africa and west of Australia are covered. The held-back pairs
+are worse than the run this replaced:
+
+| | 30 Ma | 60 Ma | 120 Ma |
+|---|---|---|---|
+| before | 178 km, 53% | 223 km, 44% | 548 km, 22% |
+| with all of the above | 245 km, 43% | 335 km, 31% | 707 km, 13% |
+
+Two things are worth separating in that. Ninety kilometres of it at 20 Ma was
+the previous attempt at the ridge departure, and turning that off is in this
+change; what is left is still a loss. And the pairs are read off these very
+paths, so a change to the paths changes the ruler and the thing measured
+together &mdash; the count at 20 Ma moved from 66 to 58, and at 120 Ma there are
+eight of them. That is a reason to distrust the comparison, not a reason to
+claim the loss away.
+
+It is deployed anyway, at a reader's explicit ask: they wanted to see what these
+lines do to the reconstruction whether the number likes them or not. The
+scorecard, which is the independent check, is mixed &mdash; Antarctica against
+Africa closes to 8 km where it was 14, South America against Africa opens to 31
+where it was 6, Australia against Antarctica to 47 where it was 50.
+
 
 ## Known weaknesses
 

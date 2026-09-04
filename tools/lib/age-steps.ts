@@ -121,6 +121,13 @@ export interface StepAnchorOptions {
   flankKm?: number
   /** Below this the regional climb says nothing, Ma per 100 km. */
   minClimb?: number
+  /**
+   * The most say an admitted cell may have, 0 to 1.
+   *
+   * These lines light far more of the field than the grooves do, so how loudly
+   * they speak against the other witness is a knob and not a given.
+   */
+  maxShare?: number
 }
 
 /** Why a cell says what it says, so a picture can show the reasoning. */
@@ -164,6 +171,7 @@ export function stepAnchors(ages: Raster, options: StepAnchorOptions = {}): Step
   // Far enough off the line that a disc read there does not reach across it.
   const flankKm = options.flankKm ?? regionalKm * 1.5
   const minClimb = options.minClimb ?? 0.5
+  const maxShare = options.maxShare ?? 1
 
   const steps = ageSteps(ages)
   // Thresholds by measurement rather than by taste: a jump worth calling one is
@@ -295,7 +303,7 @@ export function stepAnchors(ages: Raster, options: StepAnchorOptions = {}): Step
       axis[out] = lines.axis[bestAt]
       // How hard it holds: a jump at the threshold is barely a jump, one at
       // the ninety-ninth centile is an offset there is no arguing with.
-      const share = Math.min(1, Math.max(0.2,
+      const share = maxShare * Math.min(1, Math.max(0.2,
         (best - minStep) / Math.max(1e-6, fullStep - minStep)))
       ridgeness[out] = share
       coherence[out] = Math.round(255 * share)

@@ -232,8 +232,10 @@ export function Panel({ data }: { data: Dataset }) {
                     + 'of a nearly closed one means nothing. They string out '
                     + 'along the spreading axis because pairs of one age sit the '
                     + 'same distance either side of it.'}
-                {' '}One colour per pair, the same colour it has in{' '}
-                <code>tools/draw-pairs.ts</code>.
+                {' '}Coloured by the age of the crust: orange where it is
+                young, blue where it is old. Both ends of one pair are the same
+                age and so the same colour, and only every twenty-fifth million
+                years is marked, so a path reads as a ladder of ages.
               </p>
               <label className="toggle nested">
                 <input
@@ -246,13 +248,22 @@ export function Panel({ data }: { data: Dataset }) {
               <p className="caption">
                 In magenta: the path one piece of crust took away from its
                 ridge, from the flank it ended on, through the ridge, to the
-                flank it left. The red cross is the one point on it that is not
+                flank it left. The cross is the one point on it that is not
                 half of a pair &mdash; where the two halves were a single point.
                 A path should run square to the age bands, because that is what
                 spreading means, and two paths should not cross except on a
                 ridge: crossing anywhere else would be two pieces of crust
                 passing through each other, so a crossing is a fault in the
-                direction field showing itself. The same form as{' '}
+                direction field showing itself.
+              </p>
+              <p className="caption">
+                In orange: a one-sided path, over crust whose other flank is
+                gone &mdash; the Pacific off California, the Weddell Sea, the
+                sea west of Australia. There is no conjugate left to pair it
+                with, so its cross is not a ridge but the young end its crust
+                closed onto, and its pairs pull the reconstruction without ever
+                scoring it. A path with no other half could never be a test of
+                anything. The same form as{' '}
                 <code>tools/draw-paths.ts</code> draws flat.
               </p>
             </>
