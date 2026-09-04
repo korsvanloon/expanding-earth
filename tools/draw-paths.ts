@@ -98,7 +98,13 @@ async function main() {
     if (canvas.inside(ridge)) {
       inside++
       const at = canvas.at(ridge.lon, ridge.lat)
-      for (const radius of [0, 1, 2, 3, 4, 5]) canvas.ring(at, [255, 40, 40], [radius])
+      // Ringed in near-black and drawn larger, not merely red: the pair palette
+      // is a golden-angle sweep of hue and produces reds of its own, so colour
+      // alone had the one point that is *not* half of a pair looking like one
+      // -- and a reader would have read coincidence points as scattered off the
+      // ridges, which is the opposite of what the picture shows.
+      for (const radius of [7, 8, 9]) canvas.ring(at, [10, 10, 14], [radius])
+      for (const radius of [0, 1, 2, 3, 4, 5, 6]) canvas.ring(at, [255, 40, 40], [radius])
     }
   }
 
