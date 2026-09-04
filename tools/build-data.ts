@@ -32,7 +32,7 @@ import {
   AGE_SAMPLES, encodeAge, momentOf, olderShare,
 } from '../shared/age-samples.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
-import { directionToPixel, lonLatToDirection } from '../shared/sphere.js'
+import { directionToPixel, directionToUv, lonLatToDirection } from '../shared/sphere.js'
 import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
 import { gridValue, readGrid, type Grid } from './lib/grid.js'
 import {
@@ -685,6 +685,55 @@ async function main() {
   const conjugates = conjugatePairs(
     traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa, CONFIG.pairSpacingKm,
   )
+  /**
+   * What other spacings would have given, so the knob is chosen and not guessed.
+   *
+   * Cheap next to the tracing that produced the paths, and the two numbers it
+   * decides between pull against each other: a wide spacing evens the oceans
+   * out and leaves too few pairs to score on, a narrow one keeps the count and
+   * lets whichever ocean kept both flanks carry the answer.
+   */
+  if (Number(process.env.PAIR_SWEEP ?? 0) > 0) {
+    console.log('  spacing   pairs   Atlantic  Indian  Pacific  Southern')
+    for (const spacingKm of [0, 100, 150, 200, 300, 400]) {
+      const set = conjugatePairs(
+        traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa, spacingKm,
+      ).pairs
+      const basins = new Map<string, number>()
+      for (const pair of set) {
+        const place = (point: { v: number[]; w: number[] }) => {
+          let x = 0
+          let y = 0
+          let z = 0
+          for (let k = 0; k < 3; k++) {
+            const v = point.v[k] * 3
+            x += mesh.positions[v] * point.w[k]
+            y += mesh.positions[v + 1] * point.w[k]
+            z += mesh.positions[v + 2] * point.w[k]
+          }
+          const l = Math.hypot(x, y, z) || 1
+          const [u, w] = directionToUv(x / l, y / l, z / l)
+          return { lon: (u - 0.5) * 360, lat: (w - 0.5) * 180 }
+        }
+        const a = place(pair.a)
+        const b = place(pair.b)
+        const lon = (a.lon + b.lon) / 2
+        const lat = (a.lat + b.lat) / 2
+        const basin = lat < -60
+          ? 'Southern'
+          : lon > 20 && lon < 147
+            ? 'Indian'
+            : lon >= 147 || lon < -70 ? 'Pacific' : 'Atlantic'
+        basins.set(basin, (basins.get(basin) ?? 0) + 1)
+      }
+      const share = (name: string) =>
+        `${((100 * (basins.get(name) ?? 0)) / (set.length || 1)).toFixed(0)}%`.padStart(8)
+      console.log(
+        `  ${String(spacingKm).padStart(7)}   ${String(set.length).padStart(5)}   `
+          + `${share('Atlantic')}${share('Indian')}${share('Pacific')}${share('Southern')}`,
+      )
+    }
+  }
 
   /**
    * Throw away the pairs whose join does not run along the spreading direction.
