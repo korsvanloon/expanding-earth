@@ -61,9 +61,10 @@ import {
 import { cellBuckets, coverage, probeCells, probeDirections, type Tiling } from './coverage.js'
 import { newContactScratch, separateIslands, type IslandContacts } from './contact.js'
 import { distortion, shapePairs } from './shape.js'
-import { conjugateFit } from './flowlines.js'
+import { conjugateFit } from './conjugates.js'
 import { ONE_SIDED, pairPulls as pairIsHeldIn, readTracks } from '../../shared/tracks.js'
 import { unstretching } from './unstretching.js'
+import { ENV, setKnobs } from './knobs.js'
 
 
 /**
@@ -80,6 +81,15 @@ export interface Host {
   read(name: string): Uint8Array
   readText(name: string): string
   write(name: string, data: Uint8Array | string): void
+  /**
+   * How far the run has got, if the caller wants to know.
+   *
+   * The solve is one synchronous walk from the present into the past and it
+   * only returns at the end, so a caller watching it has nothing to show
+   * without this. A command line has its own line per frame and passes
+   * nothing; the browser draws a bar with it.
+   */
+  progress?(timeMa: number, endMa: number): void
 }
 
 let HOST: Host = {
@@ -88,9 +98,13 @@ let HOST: Host = {
   write: () => { throw new Error('the solver was given no host to write to') },
 }
 
+/** Whether anything is listening, so a run that is not pays nothing. */
+let TELL: Host['progress']
+
 /** Read and write through this instead. See `Host`. */
 export function setHost(host: Host): void {
   HOST = host
+  TELL = host.progress
 }
 
 /**
@@ -114,8 +128,12 @@ export function setHost(host: Host): void {
  * Nothing changes for a run from the command line -- `ENV` starts as the real
  * environment and the values are the same objects they were. The check on that
  * is not an argument, it is `frames.bin` coming out byte for byte identical.
+ *
+ * It lives in tools/lib/knobs.ts because the solver is not the only reader:
+ * two of the modules it calls have knobs of their own, and one of them read
+ * its own at import time, which is the version of this bug that throws before
+ * anything can be configured.
  */
-let ENV: Record<string, string | undefined> = process.env
 
 let CONTACT_KM = Number(ENV.CONTACT_KM ?? 200)
 
@@ -611,7 +629,7 @@ let CONFIG = readConfig()
  * run records about itself.
  */
 export function configure(env: Record<string, string | undefined>): void {
-  ENV = env
+  setKnobs(env)
   FOLDING = Number(ENV.FOLD_IN ?? 1) > 0
   CONFIG = readConfig()
   CONTACT_KM = Number(ENV.CONTACT_KM ?? 200)
@@ -2160,6 +2178,7 @@ export function solve(): void {
     }
     if (t % meta.frameStepMa === 0) {
       record(t)
+      TELL?.(t, endTimeMa)
       const d = diagnostics[diagnostics.length - 1]
       console.log(
         `  ${String(t).padStart(3)} Ma  R=${d.radiusKm.toFixed(0)} km  ` +

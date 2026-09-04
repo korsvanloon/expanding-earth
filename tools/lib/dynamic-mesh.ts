@@ -28,6 +28,7 @@
  */
 
 import { length3 } from '../../shared/sphere.js'
+import { knob } from './knobs.js'
 
 /** The most neighbours a point may end up with; a good triangulation averages six. */
 const MAX_NEIGHBOURS = 11
@@ -594,7 +595,7 @@ export function collapseVanished(
     // than into live crust, and another identical pass would refuse the same
     // ones again. Redrawing the dead crust's connectivity first gives the next
     // pass somewhere to put the neighbours.
-    if (refused > before) eased += easeDeadCrust(mesh, pos, restEdge, faceAge, timeMa, Number(process.env.EASE_PASSES ?? 2))
+    if (refused > before) eased += easeDeadCrust(mesh, pos, restEdge, faceAge, timeMa, knob('EASE_PASSES', 2))
     if (!did && refused === before) break
   }
   return { collapsed, refused, eased }

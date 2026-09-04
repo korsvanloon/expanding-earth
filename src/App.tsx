@@ -8,6 +8,15 @@ import { clock, useStore } from '@/store'
 export default function App() {
   const [data, setData] = useState<Dataset>()
   const [error, setError] = useState<string>()
+  /**
+   * The run the site shipped, kept aside while the explorer's is on screen.
+   *
+   * Swapping the dataset is all it takes to show a different run, because
+   * everything the globe draws hangs off that one object -- but the explorer's
+   * is a coarser mesh entirely, so there is no going back to the real one
+   * without having held on to it.
+   */
+  const [shipped, setShipped] = useState<Dataset>()
   // On a narrow screen the globe is the whole point, so the readouts start out
   // of the way and the reader opens them.
   const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 760)
@@ -53,7 +62,20 @@ export default function App() {
       >
         {panelOpen ? 'Hide' : 'Details'}
       </button>
-      {panelOpen && <Panel data={data} />}
+      {panelOpen && (
+        <Panel
+          data={data}
+          exploring={shipped !== undefined}
+          onExplore={(next) => {
+            setShipped(shipped ?? data)
+            setData(next)
+          }}
+          onRevert={() => {
+            if (shipped) setData(shipped)
+            setShipped(undefined)
+          }}
+        />
+      )}
       <Timeline endMa={data.meta.endTimeMa} />
     </div>
   )

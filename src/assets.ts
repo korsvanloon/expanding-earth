@@ -52,8 +52,9 @@ declare global {
  * last time, and the page quietly looks unchanged. See vite.config.ts.
  */
 export const asset = (path: string) => {
-  const inline = window.__ASSETS__?.[path]
+  // A worker is a browser without a `window`, and reading one there throws.
+  const inline = typeof window === 'undefined' ? undefined : window.__ASSETS__?.[path]
   if (inline) return inline
   return path.startsWith('data/') ? `${path}?v=${__DATA_VERSION__}` : path
 }
-export const inlineData = () => window.__DATA__
+export const inlineData = () => (typeof window === 'undefined' ? undefined : window.__DATA__)

@@ -52,10 +52,39 @@ import { R0_KM } from './model.js'
 export const SEAM_START_KM = 240
 export const SEAM_FULL_KM = 540
 
+/**
+ * The vertex count those two numbers were derived at, and the spacing there.
+ *
+ * Both thresholds are statements about the mesh rather than about the Earth:
+ * one edge, one flip, two flips. So on another mesh they are other numbers, and
+ * a coarse one shows it -- the viewer's explorer solves 2,562 points, whose
+ * ordinary edges are four times longer than the widest seam this ramp admits,
+ * and the whole globe came out painted as suture. It looked like a lighting bug
+ * for an hour.
+ *
+ * Held as multiples of the mesh spacing, `sqrt(4 pi R^2 / n)`, which at
+ * subdivision 6 is 111.6 km and reproduces 240 and 540 exactly.
+ */
+const SEAM_REFERENCE_POINTS = 40962
+const spacingKm = (points: number) =>
+  Math.sqrt((4 * Math.PI * R0_KM * R0_KM) / Math.max(4, points))
+const START_SPACINGS = SEAM_START_KM / spacingKm(SEAM_REFERENCE_POINTS)
+const FULL_SPACINGS = SEAM_FULL_KM / spacingKm(SEAM_REFERENCE_POINTS)
+
+/** Where the ramp starts and ends on a mesh of this many points, km. */
+export function seamThresholds(points = SEAM_REFERENCE_POINTS): {
+  startKm: number
+  fullKm: number
+} {
+  const spacing = spacingKm(points)
+  return { startKm: START_SPACINGS * spacing, fullKm: FULL_SPACINGS * spacing }
+}
+
 /** How much of a seam a triangle spanning `spanKm` of today's crust is, 0 to 1. */
-export function seamReach(spanKm: number): number {
-  if (spanKm <= SEAM_START_KM) return 0
-  return Math.min(1, (spanKm - SEAM_START_KM) / (SEAM_FULL_KM - SEAM_START_KM))
+export function seamReach(spanKm: number, points = SEAM_REFERENCE_POINTS): number {
+  const { startKm, fullKm } = seamThresholds(points)
+  if (spanKm <= startKm) return 0
+  return Math.min(1, (spanKm - startKm) / (fullKm - startKm))
 }
 
 /**
@@ -80,12 +109,23 @@ export function measureSeams(
   /** How many indices of `index` are live. */
   count: number,
   seam: Float32Array,
+  /**
+   * How many points the mesh has, which is what sets the scale.
+   *
+   * `seam` is one float per vertex, so the real callers need not say. A test
+   * on a mesh of four points does, or the spacing of a four-point sphere makes
+   * every threshold thousands of kilometres wide.
+   */
+  points = seam.length,
 ): void {
   seam.fill(0)
+  // The mesh this is being run on says what a wide span is; `seam` is one
+  // float per vertex, so it says how many there are without being asked.
+  const { startKm, fullKm } = seamThresholds(points)
   // Chord rather than arc: at these angles the two agree to under a percent,
   // and this runs over a quarter of a million corner pairs every frame.
-  const start = 2 * Math.sin(SEAM_START_KM / (2 * R0_KM))
-  const full = 2 * Math.sin(SEAM_FULL_KM / (2 * R0_KM))
+  const start = 2 * Math.sin(startKm / (2 * R0_KM))
+  const full = 2 * Math.sin(fullKm / (2 * R0_KM))
   for (let f = 0; f + 2 < count; f += 3) {
     const a = index[f] * 3
     const b = index[f + 1] * 3

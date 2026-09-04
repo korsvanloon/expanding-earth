@@ -107,8 +107,20 @@ export function buildIndex(
 
 export async function loadDataset(): Promise<Dataset> {
   const inline = inlineData()
-  const { meta, mesh, frames, strain, plates, topology, tracks, sink } =
-    inline ? await inline : await fetchDataset()
+  return buildDataset(inline ? await inline : await fetchDataset())
+}
+
+/**
+ * The same unpacking, over buffers from anywhere.
+ *
+ * Split out because the viewer now has a second run to draw: the explorer
+ * solves a coarser mesh in a worker and hands back the same set of buffers,
+ * and a second way of turning them into a dataset would be a second thing to
+ * keep right. See src/explore.ts.
+ */
+export function buildDataset(
+  { meta, mesh, frames, strain, plates, topology, tracks, sink }: InlineData,
+): Dataset {
 
   const [vertexCount, faceCount, , cutPairCount] = new Uint32Array(mesh, 0, 4)
   let offset = 16

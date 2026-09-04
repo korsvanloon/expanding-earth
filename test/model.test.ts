@@ -1707,7 +1707,10 @@ describe('telling crust from seam', () => {
     // Face 0 is the tight one; face 1 reaches out to the distant point.
     const index = Uint32Array.from([0, 1, 2, 1, 2, 3])
     const seam = new Float32Array(4)
-    measureSeams(dirs, index, index.length, seam)
+    // At the shipped mesh's scale, said out loud: the thresholds are multiples
+    // of the mesh spacing, and a four-point sphere's spacing is a quarter of
+    // the planet. This is a test of the ramp, not of a four-point mesh.
+    measureSeams(dirs, index, index.length, seam, 40962)
     // A degree is 111 km, so the tight triangle spans well under the threshold.
     expect(seam[0]).toBe(0)
     // The far corner and the two it reaches back to are all on the seam: eleven
@@ -1730,7 +1733,7 @@ describe('telling crust from seam', () => {
     // 132 km, well inside the 220 the ramp starts at.
     const dirs = Float32Array.from([...at(0, 0), ...at(1, 0), ...at(0.5, 1)])
     const seam = new Float32Array(3)
-    measureSeams(dirs, Uint32Array.from([0, 1, 2]), 3, seam)
+    measureSeams(dirs, Uint32Array.from([0, 1, 2]), 3, seam, 40962)
     expect([...seam]).toEqual([0, 0, 0])
   })
 })

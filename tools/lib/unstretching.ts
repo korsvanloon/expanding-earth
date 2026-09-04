@@ -1,5 +1,6 @@
 import { PERMANENT_MA } from '../../shared/model.js'
 import { CRUST_TYPES, type CrustType } from '../../shared/crust.js'
+import { knob } from './knobs.js'
 
 /**
  * The crust ECM1 reads as having been pulled out: extended crust and the
@@ -31,11 +32,16 @@ const STRETCHED: CrustType[] = ['EXCT', 'COMA']
  */
 const SHORTENED: CrustType[] = ['ORON', 'COAR']
 
-/** The most a mountain belt is believed to have been shortened. */
-const MAX_SHORTENING = Number(process.env.MAX_SHORTENING ?? 1.6)
-
-/** The most a piece of continental crust is believed to have been stretched. */
-const MAX_STRETCH = Number(process.env.MAX_STRETCH ?? 2.5)
+/**
+ * The most a mountain belt is believed to have been shortened, and the most a
+ * piece of continental crust is believed to have been stretched.
+ *
+ * Read when they are used rather than when this module loads. As constants
+ * they were `process.env` at import time, which throws in a browser and would
+ * anyway have captured the defaults before a caller could say otherwise.
+ */
+const maxShortening = () => knob('MAX_SHORTENING', 1.6)
+const maxStretch = () => knob('MAX_STRETCH', 2.5)
 
 /**
  * How much each piece of continental crust was stretched to reach its present
@@ -85,14 +91,14 @@ export function unstretching(
       // Thicker than unextended crust, so it covered more ground before it was
       // piled up. Capped, because the thickest cells in a one-degree grid are
       // as likely to be the grid as the rock.
-      stretch[f] = Math.max(1 / MAX_SHORTENING, Math.min(1, reference / thickness[f]))
+      stretch[f] = Math.max(1 / maxShortening(), Math.min(1, reference / thickness[f]))
       continue
     }
     if (type && !stretched.has(type)) continue
     // Capped: past about two and a half the crust is no longer a stretched
     // continent but the start of an ocean, and ECM1's thinnest cells are as
     // likely to be the grid being a degree across as they are to be real.
-    stretch[f] = Math.min(MAX_STRETCH, Math.max(1, reference / thickness[f]))
+    stretch[f] = Math.min(maxStretch(), Math.max(1, reference / thickness[f]))
   }
 
   // When the sea floor beside it opened, spread inland over the face graph.

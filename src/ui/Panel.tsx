@@ -8,6 +8,7 @@ import { radiusAt, type Dataset } from '@/data'
 import { PINNED } from '@/frames'
 import { describePicks, describeZones, useStore, ZONE_LIMIT, type ViewMode } from '@/store'
 import { Chart, valueAt } from './Chart'
+import { Explore } from './Explore'
 import { useClockTime } from './useClockTime'
 
 const MODES: { id: ViewMode; label: string; hint: string }[] = [
@@ -46,7 +47,13 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
 
 ]
 
-export function Panel({ data }: { data: Dataset }) {
+export function Panel({ data, exploring, onExplore, onRevert }: {
+  data: Dataset
+  /** Whether what is on screen is the explorer's run rather than the shipped one. */
+  exploring: boolean
+  onExplore: (data: Dataset) => void
+  onRevert: () => void
+}) {
   const timeMa = useClockTime(8)
   const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
     showSection, setShowSection,
@@ -463,6 +470,14 @@ export function Panel({ data }: { data: Dataset }) {
           have destroyed. The same number is the case for expansion or the measure of subduction,
           depending on which you already believe.
         </p>
+      </section>
+
+      <section>
+        <Explore
+          exploring={exploring}
+          onRun={(next) => onExplore(next)}
+          onRevert={onRevert}
+        />
       </section>
 
       <button className="method-toggle" onClick={() => setShowMethod(!showMethod)}>
