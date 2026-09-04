@@ -209,6 +209,42 @@ export function fabricWindow(
   return canvas
 }
 
+/**
+ * The size of an age jump, as a colour: quiet where the age slopes gently,
+ * cream where it steps.
+ *
+ * Scaled against a jump that is definitely one rather than against the
+ * biggest in the window, so the same brightness means the same jump in every
+ * picture and two windows can be compared.
+ */
+export function stepColour(size: number, full: number): Colour {
+  if (!(size > 0)) return [50, 50, 56]
+  const t = Math.min(1, size / Math.max(1e-6, full))
+  return [Math.round(20 + 230 * t), Math.round(30 + 200 * t), Math.round(60 + 120 * t)]
+}
+
+/** A canvas the size of the window's cells, with the age jump on it. */
+export function stepWindow(
+  window: Window,
+  steps: { width: number; height: number; size: Float32Array },
+  full: number,
+): Canvas {
+  const cellsX = Math.round(((window.lonTo - window.lonFrom) / 360) * steps.width)
+  const cellsY = Math.round(((window.latTo - window.latFrom) / 180) * steps.height)
+  const canvas = new Canvas(window, cellsX, cellsY)
+  for (let y = 0; y < canvas.height; y++) {
+    const lat = window.latTo - ((y + 0.5) / canvas.height) * (window.latTo - window.latFrom)
+    const row = Math.min(steps.height - 1, Math.floor(((90 - lat) / 180) * steps.height))
+    for (let x = 0; x < canvas.width; x++) {
+      const lon = window.lonFrom + ((x + 0.5) / canvas.width) * (window.lonTo - window.lonFrom)
+      const column = ((Math.floor(((lon + 180) / 360) * steps.width) % steps.width)
+        + steps.width) % steps.width
+      canvas.put(x, y, stepColour(steps.size[row * steps.width + column], full))
+    }
+  }
+  return canvas
+}
+
 /** A canvas the size of the window's cells, with the sea floor's age on it. */
 export function ageWindow(
   window: Window, ages: { width: number; height: number; at: (c: number, r: number) => number },

@@ -147,6 +147,59 @@ export const pairPulls = (tracks: Tracks, i: number) =>
   tracks.pairKind[i] === ONE_SIDED || tracks.pairTrack[i] % 2 === 0
 
 /**
+ * The interval along a path at which a pair is marked on a picture, Ma.
+ *
+ * A reader asked for the points on the paths at a fixed interval, and
+ * twenty-five is theirs. It is a rule about what is drawn and not about what
+ * the solver is given: reading the pairs themselves only every twenty-five
+ * million years thins the force by a factor of six, and measured at 25 Ma over
+ * a forty-million-year solve that cost 28 km of median residual on the pairs
+ * held back, 210 against 182, and fourteen points of the share reunited within
+ * two hundred kilometres. So every frame's pairs pull, and every twenty-fifth
+ * million years is what a reader sees.
+ */
+export const MARK_INTERVAL_MA = 25
+
+/** Whether a pair of this age is one of the marks a picture shows. */
+export const isMarked = (ageMa: number, interval = MARK_INTERVAL_MA) =>
+  interval <= 0 || (ageMa > 0 && ageMa % interval === 0)
+
+/**
+ * The age of a pair as a colour: orange when the crust is young, blue when it
+ * is old, a reader's own choice of the two ends.
+ *
+ * Both ends of one pair are the same age and so the same colour, which is what
+ * makes the ladder of ages along a path readable at a glance -- where a colour
+ * per pair made every claim a different hue and the ages illegible. It is a
+ * ramp of three stops rather than two because a straight run from orange to
+ * blue passes through mud in the middle, and because both ends have to stay
+ * visible against the age map underneath, which is itself pale blue where the
+ * crust is young and near-black where it is old.
+ *
+ * Returned as three channels from 0 to 1.
+ */
+export function pairAgeColour(ageMa: number, oldestMa = 200): [number, number, number] {
+  const stops: [number, [number, number, number]][] = [
+    [0, [1, 0.55, 0.12]],
+    [0.5, [0.9, 0.86, 0.47]],
+    [1, [0.27, 0.59, 1]],
+  ]
+  const t = Math.min(1, Math.max(0, ageMa / Math.max(1e-6, oldestMa)))
+  for (let k = 1; k < stops.length; k++) {
+    const [to, high] = stops[k]
+    if (t > to && k < stops.length - 1) continue
+    const [from, low] = stops[k - 1]
+    const f = (t - from) / Math.max(1e-6, to - from)
+    return [
+      low[0] + (high[0] - low[0]) * f,
+      low[1] + (high[1] - low[1]) * f,
+      low[2] + (high[2] - low[2]) * f,
+    ]
+  }
+  return stops[0][1]
+}
+
+/**
  * A colour per pair, so the two ends of one claim can be told from its
  * neighbour's.
  *
@@ -155,6 +208,11 @@ export const pairPulls = (tracks: Tracks, i: number) =>
  * from two different indices is two different pictures of the same data. The
  * golden angle is what keeps neighbouring pairs -- which sit a few tens of
  * kilometres apart along a ridge -- from coming out the same colour.
+ *
+ * Kept for the instruments whose job is to tell one pair from the pair beside
+ * it -- tools/draw-pairs.ts and the two windows that check a pair against the
+ * fabric. Where the question is which age a point belongs to rather than which
+ * pair, `pairAgeColour` above is what draws it.
  *
  * Returned as three channels from 0 to 1.
  */

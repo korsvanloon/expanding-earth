@@ -8,11 +8,10 @@ import { buildReferenceRotations } from '@/frames'
 import {
   clock, describePicks, onClockMoved, useStore, VIEW_MODES, ZONE_LIMIT, type Pick,
 } from '@/store'
-import { ONE_SIDED, pairPulls } from '@shared/tracks'
+import { ONE_SIDED, isMarked, pairAgeColour, pairPulls } from '@shared/tracks'
 import { directionToUv } from '@shared/sphere'
 import { PERMANENT_MA, R0_KM } from '@shared/model'
 import { measureSeams } from '@shared/seams'
-import { pairHue } from '@shared/tracks'
 import { fragmentShader, vertexShader } from './shaders'
 
 
@@ -290,7 +289,7 @@ export function Globe({ data }: { data: Dataset }) {
         toneMapped: false,
         // One hue per pair, so the two ends of one claim are findable among its
         // neighbours -- and are the same colour here as on the flat map, which
-        // is what sharing pairHue is for. The material colour multiplies these
+        // is what sharing the colour rule is for. The material colour multiplies these
         // and so stays white.
         vertexColors: true,
       })
@@ -390,7 +389,9 @@ export function Globe({ data }: { data: Dataset }) {
       if (!wanted(i)) continue
       place(a, t.pairAVerts, t.pairAWeights, i)
       place(b, t.pairBVerts, t.pairBWeights, i)
-      const [red, green, blue] = pairHue(i)
+      // Orange where the crust is young, blue where it is old, so the ladder
+      // of ages along a path reads at a glance.
+      const [red, green, blue] = pairAgeColour(t.pairAgeMa[i], data.meta.endTimeMa)
       const radius = (Math.hypot(a[0], a[1], a[2]) + Math.hypot(b[0], b[1], b[2])) / 2
       for (let piece = 0; piece < ARC; piece++) {
         for (const step of [piece, piece + 1]) {
@@ -560,7 +561,9 @@ export function Globe({ data }: { data: Dataset }) {
     const stride = allPairs ? Math.max(1, Math.round(data.tracks.pairAgeMa.length / 400)) : 1
     drawPairs(
       overlay.gapLine,
-      (i) => (allPairs ? i % stride === 0 : data.tracks!.pairAgeMa[i] === frameMa),
+      (i) => (allPairs
+        ? isMarked(data.tracks!.pairAgeMa[i]) && i % stride === 0
+        : data.tracks!.pairAgeMa[i] === frameMa),
     )
     if (showPaths) drawPaths()
     else {

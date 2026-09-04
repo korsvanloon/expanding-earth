@@ -66,6 +66,60 @@ export interface FlowOptions {
   /** How far apart the ridge seeds are, km. */
   seedSpacingKm?: number
   /**
+   * How far off the direction the field asks for a step may look for a way
+   * round a sharp contrast, degrees. Zero takes the field's direction as it
+   * comes.
+   *
+   * A reader named the error the short paths make: the line suddenly bends
+   * towards a sharper contrast between young and old where it should have
+   * carried straight on over the gentler gradient. So a step that would walk
+   * into a contrast far sharper than the one the path has been climbing looks
+   * within this cone for a direction that keeps to the path's own rate, and
+   * takes the one that turns least.
+   *
+   * Preferring the shallowest climb outright was tried first and is worse, not
+   * better. Every step then drifts a little towards the shallow side, the
+   * drift differs from one path to the next, and the family of lines that
+   * should never meet crosses itself all over the South Atlantic. What a
+   * reader asked for is not a shallower line, it is the same line without the
+   * bend, so this only ever acts where there is a bend to refuse.
+   */
+  jumpConeDeg?: number
+  /**
+   * How much steeper than the path's own climb counts as a sharp contrast.
+   *
+   * Measured against the path itself rather than against a figure in Ma per
+   * hundred kilometres, because a fast ridge and a slow one climb at rates
+   * that differ by more than this factor, and what the rule is about is the
+   * step where a line's own gradient suddenly changes.
+   */
+  jumpFactor?: number
+  /**
+   * How far a path may carry straight on over crust the survey never dated,
+   * km, before giving up.
+   *
+   * A reader asked for longer lines. The rule above corrects the direction of
+   * a line and does not lengthen it, because what ends most flanks is not a
+   * wrong turn: it is a hole. An aseismic ridge, a plateau of thickened crust,
+   * a stretch the survey could not date -- the age comes back as nothing, and
+   * the walk stopped there even though the same flow line carries on plainly
+   * on the other side. This steps over such a hole in the direction the path
+   * was already going and picks the line up again where the crust reappears,
+   * provided it reappears no younger than the crust the path left. Nothing is
+   * recorded inside the hole, so no pair is ever read off crust that was not
+   * dated; only the distance travelled counts it.
+   */
+  bridgeKm?: number
+  /**
+   * Whether the fitted field may carry a path where the age's own gradient is
+   * unreadable, and how sure it has to be to do it.
+   *
+   * See the walk: this is what makes the lines long, and it is also the change
+   * that lets a path run on evidence that is diffused rather than read, so it
+   * is a knob and gets measured.
+   */
+  carryOnField?: boolean
+  /**
    * Also trace one-sided paths over the crust no two-sided path reaches.
    *
    * A reader named the places: the Pacific off California, whose ridge went
@@ -302,6 +356,18 @@ export interface FlowResult {
   /** The one-sided paths, when asked for, and why the failed seeds failed. */
   oneSided: FlowTrack[]
   oneSidedRejected: Record<string, number>
+  /**
+   * How many steps were turned aside from a sharp contrast, and how many
+   * steps there were.
+   *
+   * Reported because the rule is meant to be rare: it is a refusal of one
+   * particular error, and if it fired everywhere it would be steering the
+   * paths rather than correcting them.
+   */
+  redirected: number
+  steps: number
+  /** Why the flanks stopped where they did. */
+  ends: Record<string, number>
 }
 
 export function traceFlowLines(
@@ -328,6 +394,20 @@ export function traceFlowLines(
   const structureWeight = options.structureWeight ?? 0.6
   const structureFloor = options.structureFloor ?? 0.15
   const structureFull = options.structureFull ?? 0.35
+  const jumpCone = ((options.jumpConeDeg ?? 0) * Math.PI) / 180
+  const jumpFactor = options.jumpFactor ?? 2.5
+  const bridgeKm = options.bridgeKm ?? 0
+  const carryOnField = options.carryOnField ?? true
+  let redirected = 0
+  let steps = 0
+  /** Why each flank stopped, so what to relax next is a measurement. */
+  const ends: Record<string, number> = {
+    'the crust ahead was never dated': 0,
+    'the age stopped rising': 0,
+    'no gradient to read': 0,
+    'as long as a path may be': 0,
+    'bridged a hole and went on': 0,
+  }
   const crestSteer = ((options.crestSteerDeg ?? 0) * Math.PI) / 180
   const crestReachKm = options.crestReachKm ?? 60
   const crest = options.crest ?? options.lineaments
@@ -398,6 +478,43 @@ export function traceFlowLines(
     }
   }
 
+  /**
+   * Step over undated crust in the direction the path was going.
+   *
+   * Straight, because a hole is exactly where there is nothing to steer by:
+   * the age has no gradient in it and the fitted field there is whatever its
+   * neighbours diffused into it. It resumes only where the crust on the far
+   * side is no younger than the crust the path left, so a hole is never used
+   * to hop onto a different piece of ocean -- which is the one thing the
+   * rising-age rule is there to prevent.
+   */
+  const bridge = (
+    x: number, y: number, z: number,
+    tx: number, ty: number, tz: number,
+    last: number,
+  ) => {
+    if (bridgeKm < stepKm) return null
+    let walkedKm = 0
+    let [ax, ay, az] = [x, y, z]
+    while (walkedKm < bridgeKm) {
+      const [px, py, pz] = advance(ax, ay, az, tx, ty, tz, stepAngle)
+      // Keep the heading tangent as the point moves, or a long bridge slowly
+      // leaves the sphere's surface and lands somewhere else entirely.
+      const drift = tx * px + ty * py + tz * pz
+      let hx = tx - px * drift, hy = ty - py * drift, hz = tz - pz * drift
+      const hl = length3(hx, hy, hz) || 1
+      hx /= hl; hy /= hl; hz /= hl
+      tx = hx; ty = hy; tz = hz
+      ax = px; ay = py; az = pz
+      walkedKm += stepKm
+      const a = field.at(ax, ay, az)
+      if (Number.isNaN(a)) continue
+      if (a < last - 1) return null
+      return { point: [ax, ay, az] as [number, number, number], ageMa: a, walkedKm }
+    }
+    return null
+  }
+
   /** Walk one flank outwards from the ridge. */
   const flank = (
     seed: [number, number, number],
@@ -408,23 +525,52 @@ export function traceFlowLines(
     let tx = tx0, ty = ty0, tz = tz0
     let last = startAge
     let walked = 0
+    /**
+     * How fast this path has been climbing, Ma per step, smoothed.
+     *
+     * The reference the rule above compares a step against. Smoothed rather
+     * than taken from the last step alone, because the grid is quantised and
+     * one step of a slow path can read zero; a quarter weight on each new step
+     * follows a real change in rate over a few hundred kilometres and ignores
+     * the quantisation.
+     */
+    let climbPerStep = 0
     const out: FlowPoint[] = []
     while (walked < maxLengthKm) {
+      /**
+       * The age's own gradient here, which may be unreadable.
+       *
+       * It is read over four points forty kilometres out, so one undated cell
+       * anywhere in that cross makes it nothing -- and a reader asking why the
+       * lines are short has the answer here: five hundred and twenty-eight of
+       * seven hundred and eighty-five flanks used to end on this, against
+       * thirty that ended on undated crust actually in their way. Near a
+       * plateau, an aseismic ridge, a coastline, or any of the holes the survey
+       * left, the cross catches a hole while the path itself has hundreds of
+       * kilometres of perfectly good sea floor in front of it.
+       *
+       * So it is no longer what decides whether to carry on. The fitted field
+       * covers the whole sphere and is the direction; the age ahead -- one
+       * sample, not four -- is the check, and the rule that the age must keep
+       * rising is what ends a flank. The gradient is still what steers where
+       * there is no field, and is still needed by the crest correction.
+       */
       const g = gradient(x, y, z)
-      if (!g) break
+      const lead = fitted ? flowAt(fitted, x, y, z, [tx, ty, tz]) : null
+      if (!g && !(carryOnField && lead && lead.confidence >= departureConfidence)) {
+        ends['no gradient to read']++
+        break
+      }
       // Where the gravity grid shows a clean line running the way the age grid
       // says the crust went, take the line: it is the same event recorded at a
       // tenth of a degree instead of at a grey level, and it does not go flat
       // over a stretch the survey dated all the same. Where the two disagree by
       // more than the guard, the line is not this crust's path -- an abyssal
       // hill fabric, a seamount chain, a ridge segment -- and it is dropped.
-      let wx = g.tx, wy = g.ty, wz = g.tz
-      if (fitted) {
-        // The field is an axis; the end wanted is the one the walk is already
-        // going, which at the first step is the direction it left the ridge on.
-        const flow = flowAt(fitted, x, y, z, [tx, ty, tz])
-        if (flow) { wx = flow.tx; wy = flow.ty; wz = flow.tz }
-      }
+      let wx = g ? g.tx : tx, wy = g ? g.ty : ty, wz = g ? g.tz : tz
+      // The field is an axis; the end wanted is the one the walk is already
+      // going, which at the first step is the direction it left the ridge on.
+      if (lead) { wx = lead.tx; wy = lead.ty; wz = lead.tz }
       if (structure && structureWeight > 0) {
         const line = lineamentAt(structure, x, y, z)
         if (line) {
@@ -453,6 +599,59 @@ export function traceFlowLines(
             const bz = wz + (sz - wz) * w
             const bl = length3(bx, by, bz)
             if (bl > 1e-9) { wx = bx / bl; wy = by / bl; wz = bz / bl }
+          }
+        }
+      }
+      // Having been told which way, refuse to bend into a sharp contrast.
+      //
+      // The step ahead is probed, and if the age there climbs no faster than
+      // this path has been climbing, nothing happens: the field's direction is
+      // the answer and the line carries on. If it climbs far faster, the step
+      // is about to cross something -- an offset, a front, the edge of another
+      // piece of crust -- and a reader watching those bends called them the
+      // error. Then a fan either side is probed and the direction that keeps
+      // to the path's own rate while turning least is taken instead.
+      if (jumpCone > 0 && climbPerStep > 0) {
+        const here = field.at(x, y, z)
+        const ahead = (dx: number, dy: number, dz: number) => {
+          const [px, py, pz] = advance(x, y, z, dx, dy, dz, stepAngle)
+          const a = field.at(px, py, pz)
+          return Number.isNaN(a) ? null : a - here
+        }
+        const straightClimb = Number.isNaN(here) ? null : ahead(wx, wy, wz)
+        if (straightClimb !== null && straightClimb > jumpFactor * climbPerStep) {
+          let cx = wy * z - wz * y
+          let cy = wz * x - wx * z
+          let cz = wx * y - wy * x
+          const cl = length3(cx, cy, cz)
+          if (cl > 1e-9) {
+            cx /= cl; cy /= cl; cz /= cl
+            const fan = 6
+            let best: { dx: number; dy: number; dz: number } | null = null
+            // Outwards from the middle, so the first candidate that keeps to
+            // the rate is also the one that turns least.
+            for (let step = 1; step <= fan && !best; step++) {
+              for (const side of [-1, 1]) {
+                const angle = ((step * side) / fan) * jumpCone
+                const cos = Math.cos(angle), sin = Math.sin(angle)
+                const dx = wx * cos + cx * sin
+                const dy = wy * cos + cy * sin
+                const dz = wz * cos + cz * sin
+                const climb = ahead(dx, dy, dz)
+                if (climb === null || climb <= 0) continue
+                if (climb > jumpFactor * climbPerStep) continue
+                best = { dx, dy, dz }
+                break
+              }
+            }
+            // Nothing round it: the path carries on into the contrast as it
+            // did before, and the rule that the age must keep rising decides
+            // whether that is the end of it.
+            if (best) {
+              const bl = length3(best.dx, best.dy, best.dz) || 1
+              wx = best.dx / bl; wy = best.dy / bl; wz = best.dz / bl
+              redirected++
+            }
           }
         }
       }
@@ -502,7 +701,15 @@ export function traceFlowLines(
       }
       let [px, py, pz] = advance(x, y, z, tx, ty, tz, stepAngle)
       let a = field.at(px, py, pz)
-      if (Number.isNaN(a)) break
+      if (Number.isNaN(a)) {
+        // A hole. Carry straight on and see whether the same line resumes.
+        const jumped = bridge(x, y, z, tx, ty, tz, last)
+        if (!jumped) { ends['the crust ahead was never dated']++; break }
+        ends['bridged a hole and went on']++
+        px = jumped.point[0]; py = jumped.point[1]; pz = jumped.point[2]
+        a = jumped.ageMa
+        walked += jumped.walkedKm
+      }
 
       // Having stepped, slide sideways onto the line. Measured across the new
       // heading at the new place, so what is corrected is where the path has
@@ -534,10 +741,14 @@ export function traceFlowLines(
       }
       // The age has to keep rising. Where it does not, the path has left the
       // flank it started on -- crossed a transform, or run into a piece of
-      // crust from another ridge entirely.
-      if (a < last - 1) break
+      // crust from another ridge entirely. A hole in the survey is not that,
+      // which is why it is bridged above rather than counted here.
+      if (a < last - 1) { ends['the age stopped rising']++; break }
       x = px; y = py; z = pz
       walked += stepKm
+      steps++
+      const climbed = Math.max(0, a - last)
+      climbPerStep = climbPerStep > 0 ? climbPerStep * 0.75 + climbed * 0.25 : climbed
       last = Math.max(last, a)
       out.push({ x, y, z, ageMa: a, fromRidgeKm: walked })
       // Keep the step direction tangent to the sphere at the new point.
@@ -546,6 +757,7 @@ export function traceFlowLines(
       const l = length3(tx, ty, tz) || 1
       tx /= l; ty /= l; tz /= l
     }
+    if (walked >= maxLengthKm) ends['as long as a path may be']++
     return out
   }
 
@@ -928,7 +1140,9 @@ export function traceFlowLines(
       })
     }
   }
-  return { tracks, seeds: seeds.length, rejected, oneSided, oneSidedRejected }
+  return {
+    tracks, seeds: seeds.length, rejected, oneSided, oneSidedRejected, redirected, steps, ends,
+  }
 }
 
 /**

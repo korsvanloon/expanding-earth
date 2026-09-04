@@ -23,7 +23,7 @@ import {
   Raster, areaQuantile, downsample, downsampleField, loadRaster,
 } from './lib/raster.js'
 import { loadAgeGrid } from './lib/agegrid.js'
-import { FlowKind, isochronFlow } from './lib/isochron-flow.js'
+import { stepAnchors } from './lib/age-steps.js'
 import { obliquityDeg, overDisc, spreadingDirection } from './lib/age-gradient.js'
 import {
   anchorGrooves, axisOf, grainConsensus, grainReference, grooveField, grooveLineaments,
@@ -335,27 +335,46 @@ export const CONFIG = {
    */
   grooveFlow: Number(process.env.GROOVE_FLOW ?? 1) > 0,
   /**
-   * Whether the age grid's own structure anchors the travelled-direction
-   * field, beside the grooves. See tools/lib/isochron-flow.ts: a reader's
-   * three rules for a good flow line, read off the isochron terraces and the
-   * fracture-zone offsets in the age grid itself, at every cell of the field.
-   * The grooves stay in as the second witness. ISOCHRON_FLOW=0 measures
-   * the alternative.
-   */
-  isochronFlow: Number(process.env.ISOCHRON_FLOW ?? 1) > 0,
-  /**
-   * The weight, as a share of an anchor's, of a cell where the age grid has
-   * no line and only the regional climb speaks. Rule 1 alone, weakly.
-   */
-  isochronGradientShare: Number(process.env.ISOCHRON_GRADIENT ?? 0.3),
-  /**
-   * The interval along a path at which pairs are read, Ma; 0 for every frame.
+   * Whether the lines in the age grid's *jumps* anchor the
+   * travelled-direction field, beside the grooves.
    *
-   * Twenty-five, so a path carries a handful of clear time marks rather than a
-   * pair at every five-million-year frame. PAIR_INTERVAL measures the
-   * alternative.
+   * See tools/lib/age-steps.ts. Where two strips of sea floor spread at
+   * different rates their isochrons are offset, and on the dividing line
+   * between the strips the age jumps -- a line the crust travelled along, from
+   * a survey independent of the gravity grid the grooves come from. A reader
+   * looked at that jump drawn over the world and named it: the dividing line
+   * between the gradient bands is a good indicator for a path.
+   * STEP_ANCHORS=0 measures the model without them.
    */
-  pairIntervalMa: Number(process.env.PAIR_INTERVAL ?? 25),
+  stepAnchors: Number(process.env.STEP_ANCHORS ?? 1) > 0,
+  /** Window of the structure tensor over the jump field, km. */
+  stepWindowKm: Number(process.env.STEP_WINDOW ?? 150),
+  /** How far a jump line may run off the regional climb and still be a path. */
+  stepMaxOffDeg: Number(process.env.STEP_OFF ?? 30),
+  /**
+   * The interval along a path at which conjugate pairs are read, Ma; 0 for
+   * every frame.
+   *
+   * Every frame, because these are the force. A reader asked for the points on
+   * a path at a fixed twenty-five million years, and that is what the pictures
+   * draw (see MARK_INTERVAL_MA in shared/tracks.ts) -- but reading the pairs
+   * themselves that way leaves 284 of them where every frame gives 1,765, and
+   * measured at 25 Ma over a forty-million-year solve the sparse ladder cost
+   * 28 km of median residual on the pairs held back, 210 against 182, with the
+   * share reunited within two hundred kilometres falling from 62% to 48%.
+   * PAIR_INTERVAL=25 is that measurement.
+   */
+  pairIntervalMa: Number(process.env.PAIR_INTERVAL ?? 0),
+  /**
+   * The same for the one-sided paths, which keep the reader's ladder.
+   *
+   * Every pair on a one-sided path shares one end -- the young end its crust
+   * closed onto -- so where a conjugate pair at every frame is forty-one
+   * separate claims about forty-one places, a one-sided path at every frame is
+   * forty-one claims pulling on one triangle. Eight is a firm hand; forty-one
+   * is leaning on it.
+   */
+  oneSidedIntervalMa: Number(process.env.ONE_SIDED_INTERVAL ?? 25),
   /**
    * One-sided paths over the crust no two-sided path reaches -- the Pacific
    * off California, the Weddell Sea, the sea west of Australia -- seeded where
@@ -367,6 +386,31 @@ export const CONFIG = {
   oneSidedCoverKm: Number(process.env.ONE_SIDED_COVER ?? 500),
   oneSidedSeedKm: Number(process.env.ONE_SIDED_SEED ?? 500),
   oneSidedMinAgeMa: Number(process.env.ONE_SIDED_MIN_AGE ?? 10),
+  /**
+   * How far off the field's direction a step may look for a way round a sharp
+   * contrast, degrees, and how much steeper than the path's own climb counts
+   * as one. See traceFlowLines: a reader asked for longer lines and named the
+   * error the short ones make -- a sudden bend towards a sharper contrast
+   * where the line should have carried straight on over the gentler gradient.
+   * Thirty degrees is inside the forty-five the pair filter allows, so a path
+   * bent this far still has pairs. JUMP_CONE=0 measures the alternative.
+   */
+  jumpConeDeg: Number(process.env.JUMP_CONE ?? 30),
+  jumpFactor: Number(process.env.JUMP_FACTOR ?? 2.5),
+  /**
+   * How far a path may carry on over crust the survey never dated, km.
+   *
+   * The other half of a reader's ask for longer lines, and the half that
+   * actually lengthens them: what ends most flanks is a hole in the age grid
+   * rather than a wrong turn. BRIDGE_KM=0 measures the alternative.
+   */
+  bridgeKm: Number(process.env.BRIDGE_KM ?? 400),
+  /**
+   * Whether the fitted field carries a path where the age's own gradient is
+   * unreadable. See traceFlowLines: this is what lengthened the lines by 44%.
+   * CARRY=0 measures the alternative.
+   */
+  carryOnField: Number(process.env.CARRY ?? 1) > 0,
   /**
    * What a groove has to be to anchor the travelled-direction field.
    *
@@ -769,23 +813,27 @@ async function main() {
       return field
     })()
     : zones
-  // The age grid's own structure as the first witness, the grooves as the
-  // second; where both speak for a cell their doubled angles are added.
-  const isochrons = CONFIG.isochronFlow
+  // The lines in the age grid's jumps as a second witness beside the grooves;
+  // where both speak for a cell their doubled angles are added.
+  const steps = CONFIG.stepAnchors
     ? (() => {
       const started = Date.now()
-      const read = isochronFlow(ageFull, { gradientShare: CONFIG.isochronGradientShare })
-      const kinds = [0, 0, 0, 0]
-      for (const k of read.kind) kinds[k]++
+      const read = stepAnchors(ageFull, {
+        windowKm: CONFIG.stepWindowKm,
+        maxOffDeg: CONFIG.stepMaxOffDeg,
+        regionalKm: CONFIG.spreadingDiscKm,
+      })
       console.log(
-        `[build-data] isochron flow: ${kinds[FlowKind.Along]} cells on a line of the age grid, `
-          + `${kinds[FlowKind.Across]} across one, ${kinds[FlowKind.Gradient]} on the climb alone `
+        `[build-data] age-jump lines: ${read.counts.along} cells anchor the flow field `
+          + `(a jump line within ${CONFIG.stepMaxOffDeg} degrees of the regional climb), `
+          + `${read.counts.across} run across the flow and are ignored, `
+          + `${read.counts.unread} sit where the climb is unreadable `
           + `(${((Date.now() - started) / 1000).toFixed(0)} s)`,
       )
       return read
     })()
     : undefined
-  const witnesses = [isochrons, anchors].filter((w): w is NonNullable<typeof w> => !!w)
+  const witnesses = [steps, anchors].filter((w): w is NonNullable<typeof w> => !!w)
   const field = CONFIG.useFlowField && witnesses.length && vgg
     ? flowField(witnesses, ageMa, ageFull.width, ageFull.height, vgg, R0_KM,
         { passes: CONFIG.flowPasses, anchorWeight: CONFIG.flowAnchorWeight })
@@ -815,6 +863,10 @@ async function main() {
       crestPull: CONFIG.crestPull,
       crestReachKm: CONFIG.crestReachKm,
       crestMaxShiftKm: CONFIG.crestMaxShiftKm,
+      jumpConeDeg: CONFIG.jumpConeDeg,
+      jumpFactor: CONFIG.jumpFactor,
+      bridgeKm: CONFIG.bridgeKm,
+      carryOnField: CONFIG.carryOnField,
       oneSided: CONFIG.oneSidedPaths
         ? {
           coverKm: CONFIG.oneSidedCoverKm,
@@ -828,6 +880,28 @@ async function main() {
     `  ${traced.tracks.length} tracks from ${traced.seeds} ridge seeds; ` +
       Object.entries(traced.rejected).map(([why, n]) => `${n} ${why}`).join(', '),
   )
+  {
+    // How long the paths are, which is what a reader asked to grow, and how
+    // often the refusal above had anything to refuse.
+    const lengths = [...traced.tracks, ...traced.oneSided]
+      .map((track) => {
+        const points = track.points
+        return points[0].fromRidgeKm + points[points.length - 1].fromRidgeKm
+      })
+      .sort((a, b) => a - b)
+    const at = (q: number) => lengths[Math.min(lengths.length - 1, Math.floor(q * lengths.length))]
+    console.log(
+      `  path length km: median ${at(0.5).toFixed(0)}, q10 ${at(0.1).toFixed(0)}, `
+        + `q90 ${at(0.9).toFixed(0)}, longest ${at(1).toFixed(0)}; `
+        + `${traced.redirected} of ${traced.steps} steps turned aside from a sharp contrast`,
+    )
+    console.log(
+      `  flanks stopped: ${Object.entries(traced.ends)
+        .filter(([, n]) => n)
+        .map(([why, n]) => `${n} ${why}`)
+        .join(', ')}`,
+    )
+  }
   if (CONFIG.oneSidedPaths) {
     console.log(
       `  ${traced.oneSided.length} one-sided paths over crust no two-sided path came within `
@@ -845,9 +919,11 @@ async function main() {
   // each one a clear point on the path's own timeline. A pair still pulls at
   // every frame up to its age (see closeConjugates in solve.ts), so the pull is
   // not thinned by this; only the marks are.
-  const pairAges = CONFIG.pairIntervalMa > 0
-    ? frameAges.filter((age) => age > 0 && age % CONFIG.pairIntervalMa === 0)
-    : frameAges
+  const ladder = (interval: number) => (interval > 0
+    ? frameAges.filter((age) => age > 0 && age % interval === 0)
+    : frameAges)
+  const pairAges = ladder(CONFIG.pairIntervalMa)
+  const oneSidedAges = ladder(CONFIG.oneSidedIntervalMa)
   const conjugates = conjugatePairs(
     traced.tracks, pairAges, snapToFace, CONFIG.conjugateToleranceMa, CONFIG.pairSpacingKm,
     CONFIG.pairsPerPath,
@@ -973,7 +1049,7 @@ async function main() {
   // force a reader asked for over the basins that have no conjugate left, and
   // never part of the score -- see pairPulls in shared/tracks.ts.
   const margins = marginPairs(
-    traced.oneSided, pairAges, snapToFace, CONFIG.conjugateToleranceMa, twoSided.length,
+    traced.oneSided, oneSidedAges, snapToFace, CONFIG.conjugateToleranceMa, twoSided.length,
   )
   if (CONFIG.oneSidedPaths) {
     console.log(

@@ -21,8 +21,8 @@ import { readChannel, readFrames, writeChannel, writeFrames } from '../shared/fr
 import { markCrust, measureFold, newFoldScratch, pullInward } from '../tools/lib/fold'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { flowAt, flowField } from '../tools/lib/flowfield'
-import { FlowKind, isochronFlow } from '../tools/lib/isochron-flow'
 import { Raster } from '../tools/lib/raster'
+import { StepKind, ageSteps, stepAnchors } from '../tools/lib/age-steps'
 import { grooveField, walkGrooves } from '../tools/lib/grooves'
 import { axisDiff, bearingDeg } from '../tools/lib/bearing'
 import jpeg from 'jpeg-js'
@@ -1893,11 +1893,19 @@ describe('fitting a direction to the whole ocean', () => {
   })
 })
 
-describe('reading the travelled direction off the age grid itself', () => {
-  // A ridge along longitude zero with the crust spreading east and west of it
-  // at two million years a degree, and a fracture zone along the equator
-  // across which the southern flank's isochrons are offset by twenty million
-  // years. Half a degree a cell, like a coarse copy of the real grid.
+describe('the lines in the age grid\'s jumps', () => {
+  // Half a degree a cell, a ridge along longitude zero spreading east and west
+  // at two million years a degree, with a six-million-year terrace every five
+  // degrees on top of the slope -- the compiled age grid's own banding -- and a
+  // fracture zone along the equator across which the southern flank is offset
+  // by twenty million years.
+  //
+  // That gives one of each kind of bright line in the jump field. The terraces
+  // put a north-south edge every five degrees, which the crust crosses; the
+  // offset puts an east-west line along the equator, which the crust runs
+  // along. Only the second is a path. The slope between the terraces is left
+  // in because it is the reference that tells the two apart, and a synthetic
+  // with flat bands would have nothing to read it from.
   const W = 720
   const H = 360
   const ages = new Raster(W, H, new Float32Array(W * H))
@@ -1905,36 +1913,54 @@ describe('reading the travelled direction off the age grid itself', () => {
     const lat = 90 - ((r + 0.5) / H) * 180
     for (let c = 0; c < W; c++) {
       const lon = ((c + 0.5) / W) * 360 - 180
-      ages.data[r * W + c] = 2 * Math.abs(lon) + (lat < 0 ? 20 : 0)
+      ages.data[r * W + c] = 2 * Math.abs(lon)
+        + 6 * Math.floor(Math.abs(lon) / 5)
+        + (lat < 0 ? 20 : 0)
     }
   }
-  const flow = isochronFlow(ages, { width: 180, height: 90 })
+  // The threshold is given rather than measured from this field: a tenth of
+  // these cells are terrace edges, so the ninetieth centile lands on the
+  // edges themselves. What the real grid's own distribution says is the third
+  // test below. Four is above the two Ma per hundred km the slope reads and
+  // well below the eight an edge reads.
+  const field = stepAnchors(ages, { width: 180, height: 90, windowKm: 200, minStep: 4 })
   const at = (lonDeg: number, latDeg: number) => {
-    const i = Math.floor(((90 - latDeg) / 180) * 90) * 180 + Math.floor(((lonDeg + 180) / 360) * 180)
-    return { bearing: (flow.axis[i] / 256) * 180, kind: flow.kind[i], share: flow.ridgeness[i] }
+    const i = Math.floor(((90 - latDeg) / 180) * 90) * 180
+      + Math.floor(((lonDeg + 180) / 360) * 180)
+    return { kind: field.kind[i], bearing: (field.axis[i] / 256) * 180, share: field.ridgeness[i] }
   }
 
-  // Rule 2: the jump along the equator is a line in the age grid, and the flow
-  // runs *along* it, not across it -- which is the case a regional gradient
-  // gets wrong, since across the jump is where the age changes most.
-  it('runs along a fracture-zone jump rather than across it', () => {
-    const on = at(30, 0.5)
-    expect(on.kind).toBe(FlowKind.Along)
-    expect(Math.min(on.bearing % 180, 180 - (on.bearing % 180))).toBeGreaterThan(80)
-    expect(on.share).toBe(1)
+  it('anchors the flow along an offset of the isochrons', () => {
+    const on = at(30, 0)
+    expect(on.kind).toBe(StepKind.Along)
+    // East-west, which is the way the crust travelled here.
+    expect(Math.min(on.bearing, 180 - on.bearing)).toBeGreaterThan(75)
+    expect(on.share).toBeGreaterThan(0)
   })
 
-  // Rule 1: away from the jump the isochrons are the only lines, and the flow
-  // crosses them, climbing steadily from young to old.
-  it('crosses the isochrons where the age climbs neatly', () => {
-    const off = at(30, 30)
-    expect(off.kind).toBe(FlowKind.Across)
-    expect(Math.abs(off.bearing - 90)).toBeLessThan(10)
+  // The discriminator, and the reason it reads the climb off the line rather
+  // than on it: a disc centred on the offset averages both sides and reports
+  // the offset, which would refuse this very anchor.
+  it('ignores the terrace edges between the age bands', () => {
+    let along = 0
+    let across = 0
+    for (let lon = 10; lon <= 60; lon += 2) {
+      const kind = at(lon, 30).kind
+      if (kind === StepKind.Along) along++
+      if (kind === StepKind.Across) across++
+    }
+    expect(across).toBeGreaterThan(0)
+    expect(along).toBe(0)
   })
 
-  // The two answers agree, which is the point: one direction, two reasons.
-  it('gives the same direction on the jump as beside it', () => {
-    expect(Math.abs(at(30, 0.5).bearing - at(30, 30).bearing)).toBeLessThan(10)
+  it('finds a jump far above a spreading gradient and calls the slope nothing', () => {
+    const steps = ageSteps(ages)
+    // A terrace edge steps six million years over a cell of fifty-five km, so
+    // it is worth about ten Ma per hundred km, where the slope between the
+    // edges reads two -- so the top of the distribution is a jump and the
+    // middle of it is a slope.
+    expect(steps.quantile(0.99)).toBeGreaterThan(10)
+    expect(steps.quantile(0.5)).toBeLessThan(steps.quantile(0.99))
   })
 })
 

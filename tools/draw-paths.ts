@@ -21,7 +21,9 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import jpeg from 'jpeg-js'
 import { directionToUv } from '../shared/sphere.js'
-import { ONE_SIDED, pairHue, readTracks } from '../shared/tracks.js'
+import {
+  MARK_INTERVAL_MA, ONE_SIDED, isMarked, pairAgeColour, readTracks,
+} from '../shared/tracks.js'
 import { loadAgeGrid } from './lib/agegrid.js'
 import { ageWindow, fabricWindow, windowFromEnv, type Canvas, type Colour } from './lib/window-map.js'
 
@@ -111,18 +113,28 @@ async function main() {
     }
   }
 
-  // Then the pairs, both ends of one pair in one colour, as the sketch had them.
+  // Then the pairs, coloured by the age of their crust -- orange young, blue
+  // old -- and only the ones on the reader's ladder, since a pair at every
+  // frame is a mat of dots rather than a ladder of ages.
+  const interval = Number(process.env.MARK_INTERVAL ?? MARK_INTERVAL_MA)
   let pairs = 0
   for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+    if (!isMarked(tracks.pairAgeMa[i], interval)) continue
     const a = place(tracks.pairAVerts, tracks.pairAWeights, i)
     const b = place(tracks.pairBVerts, tracks.pairBWeights, i)
     if (!canvas.inside(a) && !canvas.inside(b)) continue
     pairs++
-    const colour = pairHue(i).map((c) => Math.round(255 * c)) as unknown as Colour
+    // The ramp spans the whole record rather than this window's oldest pair,
+    // so a colour means the same age in every picture and on the globe.
+    const colour = pairAgeColour(tracks.pairAgeMa[i])
+      .map((c) => Math.round(255 * c)) as unknown as Colour
     for (const point of [a, b]) {
       if (!canvas.inside(point)) continue
       const at = canvas.at(point.lon, point.lat)
-      for (const radius of [0, 1, 2, 3, 4]) canvas.ring(at, colour, [radius])
+      // Ringed in near-black, because a young point is orange and so is a
+      // one-sided path's line, and a dot has to read on top of its own line.
+      canvas.ring(at, [10, 10, 14], [4, 5])
+      for (const radius of [0, 1, 2, 3]) canvas.ring(at, colour, [radius])
     }
   }
 
@@ -130,7 +142,7 @@ async function main() {
   for (const kind of tracks.trackKind) if (kind === ONE_SIDED) oneSided++
   console.log(
     `[paths] ${drawn} of ${tracks.offsets.length - 1} paths (${oneSided} one-sided) cross the window, `
-      + `${inside} coincidence points in it, ${pairs} pairs`,
+      + `${inside} coincidence points in it, ${pairs} pairs marked every ${interval} Ma`,
   )
   console.log(`[paths] ${canvas.write(resolve(OUT, 'paths.png'))}`)
 }
