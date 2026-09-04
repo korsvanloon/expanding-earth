@@ -49,6 +49,8 @@ export interface FlowTrack {
 export interface FlowOptions {
   /** How far apart the ridge seeds are, km. */
   seedSpacingKm?: number
+  /** How sure the field must be to choose the direction out of the ridge. */
+  departureConfidence?: number
   /** How far each step walks, km. */
   stepKm?: number
   /** Crust younger than this counts as the ridge axis, Ma. */
@@ -268,6 +270,11 @@ export function traceFlowLines(
   options: FlowOptions = {},
 ): FlowResult {
   const seedSpacingKm = options.seedSpacingKm ?? 500
+  /**
+   * How sure the fitted field has to be before it, rather than the age ring,
+   * picks the line a path leaves the ridge on.
+   */
+  const departureConfidence = options.departureConfidence ?? 0.2
   const stepKm = options.stepKm ?? 40
   const ridgeAgeMa = options.ridgeAgeMa ?? 3
   const maxTurn = ((options.maxTurnDeg ?? 6) * Math.PI) / 180
@@ -527,6 +534,56 @@ export function traceFlowLines(
    * question the fracture zone answers: which way does the crust get older.
    */
   const departures = (axis: [number, number, number]) => {
+    /**
+     * The fitted field decides which line to leave on, where it has an opinion.
+     *
+     * The ring below asks the age grid which way the crust gets older, and on
+     * a ridge axis that is the one question the age grid cannot answer. The age
+     * is at a *minimum* there, so what is left of the gradient is noise, and
+     * over a staircase of ridge segments offset by transforms the oldest
+     * direction on a ring is the staircase's diagonal. Measured in the
+     * equatorial Atlantic: paths left the ridge on bearings of 31, 31, 37, 4,
+     * 31, 29, 28, 9 and 31 degrees where the answer is about 90, so paths
+     * leaving Brazil went north-east instead of east and never reached the
+     * coast they came from.
+     *
+     * The fabric does answer it: a transform runs along the spreading
+     * direction, and it is the strongest thing in the gravity grid at a ridge.
+     * That is what the fitted field carries. Reaching for it here is not an
+     * extra refinement -- until now the field was consulted only from the
+     * second step onwards, so the grooves had no say in the one step that sets
+     * the whole path, and adding 27 anchors in that region changed the paths by
+     * exactly nothing.
+     *
+     * The ring is still what decides *which end* of the line is the older way,
+     * because a line has no direction and the age grid, useless about the axis
+     * here, is perfectly good about which side is older a few hundred
+     * kilometres out.
+     */
+    if (fitted) {
+      const line = flowAt(fitted, axis[0], axis[1], axis[2], [1, 0, 0])
+      if (line && line.confidence >= departureConfidence) {
+        const look = departureKm / r
+        const ageAlong = (sign: number) => {
+          const [px, py, pz] = advance(
+            axis[0], axis[1], axis[2], line.tx * sign, line.ty * sign, line.tz * sign, look,
+          )
+          return field.at(px, py, pz)
+        }
+        const plus = ageAlong(1)
+        const minus = ageAlong(-1)
+        if (!Number.isNaN(plus) || !Number.isNaN(minus)) {
+          const sign = (Number.isNaN(minus) || (!Number.isNaN(plus) && plus >= minus)) ? 1 : -1
+          const older = sign > 0 ? plus : minus
+          return {
+            first: { tx: line.tx * sign, ty: line.ty * sign, tz: line.tz * sign, ageMa: older },
+            second: {
+              tx: -line.tx * sign, ty: -line.ty * sign, tz: -line.tz * sign, ageMa: older,
+            },
+          }
+        }
+      }
+    }
     const { ax, ay, az, bx, by, bz } = basis(axis[0], axis[1], axis[2])
     const ring = 16
     const look = departureKm / r
