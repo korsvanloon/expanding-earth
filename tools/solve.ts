@@ -121,7 +121,8 @@ export const KNOBS = [
   'COHERE_ROUNDS', 'COMPRESS_K', 'CONTACT_K', 'CONTACT_KM', 'CURTAIN_K', 'DRAG',
   'DRAG_FREE',
   'EDGE_AGE', 'END_MA', 'FLAT_K', 'FLIP_PASSES', 'FLIP_TRUTH', 'FLOW_SMOOTH',
-  'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'ISLAND_HOLD',
+  'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'HOLD_STRENGTH',
+  'ISLAND_HOLD',
   'LAND_MARGIN', 'LIP_KM', 'MAX_RATE', 'OCEAN_K', 'PLATE_TOL', 'POLE_MEMORY',
   'PROBES', 'RADIAL_K', 'SHORE_SHARE', 'SMALLEST_PLATE', 'STEP_TRACE',
   'FRAME_STEP', 'PAIR_K', 'STRENGTH', 'STRETCH_TRACE', 'SWEEPS', 'TRACK_K',
@@ -183,6 +184,26 @@ const CONFIG = {
   smallestPlate: Number(process.env.SMALLEST_PLATE ?? 60),
   /** How hard an island is pulled back to its own shape, per sweep. */
   islandHold: Number(process.env.ISLAND_HOLD ?? 0.35),
+  /**
+   * How much of that hold follows the crust's own strength, 0 to 1.
+   *
+   * At zero every point of an island is held equally, and an island then moves
+   * as one rotation with no shape of its own to give: a shield and the thinned
+   * sliver hanging off it are equally forbidden to bend. A reader named what
+   * that costs -- Patagonia and the Antarctic Peninsula cannot turn relative to
+   * the continents they hang from, and on this hypothesis they have to.
+   *
+   * At one the hold is ramped from nothing at `breaksBelow`, where crust is
+   * only just strong enough to be island at all, to the whole of it at a
+   * shield. Deformation then belongs to the thin crust, which is where a
+   * reader has been saying it belongs since the rigidity field went in, and
+   * the cratons still carry their shape.
+   *
+   * This is not a licence to squash: `areaHold` and `compressResist` below say
+   * a triangle keeps its area, and they are what stop shape freedom becoming
+   * compression. Bending and turning are allowed; losing ground is not.
+   */
+  islandHoldByStrength: Number(process.env.HOLD_STRENGTH ?? 1),
   /**
    * How much of its proper size a triangle must keep, wound the right way,
    * before the orientation barrier stops pushing. A barrier, not a shape: the
@@ -845,6 +866,35 @@ function main() {
       }
     }
     for (let v = 0; v < vertexCount; v++) if (share[v]) vertexRigidity[v] /= share[v]
+  }
+
+  /**
+   * How much of the island hold each point gets, from its own strength.
+   *
+   * Ramped from nothing at `breaksBelow`, where crust is only just strong
+   * enough to be part of an island, to all of it at a shield. See
+   * `islandHoldByStrength`: at zero this is flat and an island is one rigid
+   * cap, which is what forbids a peninsula turning relative to the continent
+   * it hangs off.
+   */
+  const holdShare = new Float64Array(vertexCount).fill(1)
+  {
+    const by = CONFIG.islandHoldByStrength
+    const floor = CONFIG.breaksBelow
+    let sum = 0
+    let held = 0
+    for (let v = 0; v < vertexCount; v++) {
+      const ramp = Math.min(1, Math.max(0, (vertexRigidity[v] - floor) / Math.max(1e-6, 1 - floor)))
+      holdShare[v] = 1 - by + by * ramp
+      if (islands.vertexIsland[v] >= 0) { sum += holdShare[v]; held++ }
+    }
+    if (by > 0 && held) {
+      console.log(
+        `[solve] an island point is held to its shape at ${
+          (CONFIG.islandHold * (sum / held)).toFixed(3)} per sweep on average, `
+          + `against ${CONFIG.islandHold} flat; the weakest crust in an island is free to bend`,
+      )
+    }
   }
 
   /**
@@ -1934,7 +1984,7 @@ function main() {
       // composed into the orientation holdIslands then places it by.
       holdIslands(
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
-        rNext, islandFacing,
+        rNext, islandFacing, holdShare,
       )
       // After the hold, not before it. Composing the turn into the island's
       // carried orientation and letting holdIslands run does nothing at all:
@@ -2418,6 +2468,8 @@ function holdIslands(
   radiusKm: number,
   /** The island's orientation carried forward between steps. */
   carried: Float64Array,
+  /** How much of the hold each point gets; see `islandHoldByStrength`. */
+  share: Float64Array,
 ) {
   if (count === 0) return
   // Where the island is pointing now, refined from where it was pointing last
@@ -2467,10 +2519,11 @@ function holdIslands(
     }
   }
 
-  const hold = CONFIG.islandHold
   for (let i = 0; i < vertexCount; i++) {
     const c = island[i]
     if (c < 0 || !alive[i]) continue
+    const hold = CONFIG.islandHold * share[i]
+    if (hold <= 0) continue
     const r = c * 9
     const cx0 = shape.centre[c * 3], cy0 = shape.centre[c * 3 + 1], cz0 = shape.centre[c * 3 + 2]
     const bx0 = shape.bearing[i * 3], by0 = shape.bearing[i * 3 + 1], bz0 = shape.bearing[i * 3 + 2]
