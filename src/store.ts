@@ -141,6 +141,17 @@ interface State {
    */
   allPairs: boolean
   /**
+   * Whether the whole path each pair sits on is drawn, with its ridge point.
+   *
+   * These were taken off the globe once, on a reader's own observation that a
+   * path and its pairs were one claim told twice. A path carries more now --
+   * the point where its two halves were one point, and a run of pairs along it
+   * in their own colours -- and it is the form the paths are being read and
+   * corrected in, so it is worth having back. Off by default: the pairs are
+   * the measurement and the paths are the context for it.
+   */
+  showPaths: boolean
+  /**
    * Paint the fracture zones the gravity grid was searched for.
    *
    * Not the same thing as showTracks, and the pair of them is the point. Those
@@ -177,6 +188,7 @@ interface State {
   setShowSection: (showSection: boolean) => void
   setShowTracks: (showTracks: boolean) => void
   setAllPairs: (allPairs: boolean) => void
+  setShowPaths: (showPaths: boolean) => void
   setShowZones: (showZones: boolean) => void
   toggleZone: (id: number) => void
   clearZones: () => void
@@ -327,7 +339,8 @@ export function remembered(stored: unknown): Partial<Remembered> {
   if (!stored || typeof stored !== 'object') return {}
   const s = stored as Record<string, unknown>
   const flag = (
-    key: 'showGrid' | 'showMesh' | 'showSection' | 'showTracks' | 'showZones' | 'allPairs',
+    key: 'showGrid' | 'showMesh' | 'showSection' | 'showTracks' | 'showZones' | 'allPairs'
+      | 'showPaths',
   ) =>
     (typeof s[key] === 'boolean' ? { [key]: s[key] as boolean } : {})
   return {
@@ -346,6 +359,7 @@ export function remembered(stored: unknown): Partial<Remembered> {
     ...flag('showSection'),
     ...flag('showTracks'),
     ...flag('allPairs'),
+    ...flag('showPaths'),
     ...flag('showZones'),
   }
 }
@@ -396,6 +410,7 @@ export const useStore = create<State>()(persist((set) => ({
   showSection: false,
   showTracks: false,
   allPairs: false,
+  showPaths: false,
   showZones: false,
   pickedZones: [],
   endTimeMa: 200,
@@ -415,6 +430,7 @@ export const useStore = create<State>()(persist((set) => ({
   setShowSection: (showSection) => set({ showSection }),
   setShowTracks: (showTracks) => set({ showTracks }),
   setAllPairs: (allPairs) => set({ allPairs }),
+  setShowPaths: (showPaths) => set({ showPaths }),
   setShowZones: (showZones) => set({ showZones }),
   // Clicking a picked zone again lets it go. The cap is ZONE_LIMIT rather
   // than a handful because judging the detector means working across a whole

@@ -51,6 +51,7 @@ export function Globe({ data }: { data: Dataset }) {
   const showSection = useStore((s) => s.showSection)
   const showTracks = useStore((s) => s.showTracks)
   const allPairs = useStore((s) => s.allPairs)
+  const showPaths = useStore((s) => s.showPaths)
   const showZones = useStore((s) => s.showZones)
   const pickedZones = useStore((s) => s.pickedZones)
   const toggleZone = useStore((s) => s.toggleZone)
@@ -316,17 +317,29 @@ export function Globe({ data }: { data: Dataset }) {
     }
     // Every pair gets room; only the ones due at the drawn frame are written.
     //
-    // The flow lines used to be drawn here too, in pink, and are gone. They
-    // were the same claim told less directly: a track is the path one piece of
-    // crust took away from its ridge, and the pairs *are* the two ends of that
-    // path at a given age. Drawing both said one thing twice, and the pink was
-    // the half that cannot be checked -- a line has no partner to fail to meet.
-    // The reader who asked for the pairs on the globe also spotted that.
-    return { gapLine: line(t.pairAgeMa.length * 2 * (ARC + TICK), '#ffffff') }
+    // The paths were taken out of here once, on the reader's own observation
+    // that they told the same claim twice: a track is the path one piece of
+    // crust took away from its ridge, and the pairs *are* two ends of that
+    // path at an age, so the line was the half with no partner to fail to
+    // meet. That was true of what a track was then. It is not true now -- a
+    // path carries the point where its two halves were one point, and a run of
+    // pairs along it in their own colours, and the reader has been reading and
+    // correcting them in that form. So they are back, deliberately, and this
+    // note is here so the reversal reads as a decision rather than as having
+    // forgotten what they said.
+    let segments = 0
+    for (let k = 0; k + 1 < t.offsets.length; k++) {
+      segments += Math.max(0, t.offsets[k + 1] - t.offsets[k] - 1)
+    }
+    return {
+      gapLine: line(t.pairAgeMa.length * 2 * (ARC + TICK), '#ffffff'),
+      pathLine: line(segments * 2, '#ffffff'),
+      ridgeLine: line((t.offsets.length - 1) * 4, '#ffffff'),
+    }
   }, [data])
 
   useEffect(() => () => {
-    for (const l of [overlay?.gapLine]) {
+    for (const l of [overlay?.gapLine, overlay?.pathLine, overlay?.ridgeLine]) {
       l?.geometry.dispose()
       l?.material.dispose()
     }
@@ -433,6 +446,103 @@ export function Globe({ data }: { data: Dataset }) {
     line.geometry.setDrawRange(0, at)
   }
 
+  /**
+   * Draw every path, and mark the point on each where its halves were one.
+   *
+   * The same mixing as the pairs -- a point inside a triangle, carried by that
+   * triangle's three corners -- so a path deforms with the crust it is drawn
+   * on rather than sliding over it. A path is one line of magenta; the
+   * coincidence point is a red cross, because a ring cannot be had from line
+   * segments and a cross reads at one pixel where a ring would not.
+   */
+  const drawPaths = () => {
+    const t = data.tracks
+    if (!overlay?.pathLine || !overlay.ridgeLine || !t) return
+    const at: [number, number, number] = [0, 0, 0]
+    const on: [number, number, number] = [0, 0, 0]
+    const place = (into: [number, number, number], i: number) => {
+      let x = 0
+      let y = 0
+      let z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = t.pointVerts[i * 3 + k] * 3
+        const w = t.pointWeights[i * 3 + k]
+        x += buffers.positions[v] * w
+        y += buffers.positions[v + 1] * w
+        z += buffers.positions[v + 2] * w
+      }
+      const corner = t.pointVerts[i * 3] * 3
+      const shell = Math.hypot(
+        buffers.positions[corner], buffers.positions[corner + 1], buffers.positions[corner + 2],
+      )
+      const scale = (LIFT * shell) / (Math.hypot(x, y, z) || 1)
+      into[0] = x * scale
+      into[1] = y * scale
+      into[2] = z * scale
+    }
+    const path = overlay.pathLine
+    let n = 0
+    for (let k = 0; k + 1 < t.offsets.length; k++) {
+      for (let i = t.offsets[k] + 1; i < t.offsets[k + 1]; i++) {
+        place(at, i - 1)
+        place(on, i)
+        for (const end of [at, on]) {
+          path.points[n * 3] = end[0]
+          path.points[n * 3 + 1] = end[1]
+          path.points[n * 3 + 2] = end[2]
+          path.colours[n * 3] = 0.85
+          path.colours[n * 3 + 1] = 0.25
+          path.colours[n * 3 + 2] = 0.72
+          n++
+        }
+      }
+    }
+    path.geometry.getAttribute('position').needsUpdate = true
+    path.geometry.getAttribute('color').needsUpdate = true
+    path.geometry.setDrawRange(0, n)
+
+    const marks = overlay.ridgeLine
+    let m = 0
+    for (let k = 0; k + 1 < t.offsets.length; k++) {
+      place(at, t.ridge[k])
+      const radius = Math.hypot(at[0], at[1], at[2]) || 1
+      // Two strokes square to each other and to the radius here, which is what
+      // a cross on a sphere is.
+      const up: [number, number, number] = Math.abs(at[1] / radius) < 0.9
+        ? [0, 1, 0]
+        : [1, 0, 0]
+      const across: [number, number, number] = [
+        up[1] * at[2] - up[2] * at[1],
+        up[2] * at[0] - up[0] * at[2],
+        up[0] * at[1] - up[1] * at[0],
+      ]
+      const acrossLength = Math.hypot(across[0], across[1], across[2]) || 1
+      const along: [number, number, number] = [
+        at[1] * across[2] - at[2] * across[1],
+        at[2] * across[0] - at[0] * across[2],
+        at[0] * across[1] - at[1] * across[0],
+      ]
+      const alongLength = Math.hypot(along[0], along[1], along[2]) || 1
+      for (const axis of [
+        [across[0] / acrossLength, across[1] / acrossLength, across[2] / acrossLength],
+        [along[0] / alongLength, along[1] / alongLength, along[2] / alongLength],
+      ]) {
+        for (const side of [-1, 1]) {
+          marks.points[m * 3] = at[0] + axis[0] * side * TICK_SIZE * radius * 1.6
+          marks.points[m * 3 + 1] = at[1] + axis[1] * side * TICK_SIZE * radius * 1.6
+          marks.points[m * 3 + 2] = at[2] + axis[2] * side * TICK_SIZE * radius * 1.6
+          marks.colours[m * 3] = 1
+          marks.colours[m * 3 + 1] = 0.16
+          marks.colours[m * 3 + 2] = 0.16
+          m++
+        }
+      }
+    }
+    marks.geometry.getAttribute('position').needsUpdate = true
+    marks.geometry.getAttribute('color').needsUpdate = true
+    marks.geometry.setDrawRange(0, m)
+  }
+
   const refreshOverlay = () => {
     if (!overlay || !data.tracks) return
     const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
@@ -449,6 +559,11 @@ export function Globe({ data }: { data: Dataset }) {
       overlay.gapLine,
       (i) => (allPairs ? i % stride === 0 : data.tracks!.pairAgeMa[i] === frameMa),
     )
+    if (showPaths) drawPaths()
+    else {
+      overlay.pathLine?.geometry.setDrawRange(0, 0)
+      overlay.ridgeLine?.geometry.setDrawRange(0, 0)
+    }
   }
 
   // Built here rather than declared in JSX so the wireframe overlay can draw
@@ -514,7 +629,7 @@ export function Globe({ data }: { data: Dataset }) {
   useEffect(() => invalidate(), [overlay, size, invalidate])
   useEffect(
     () => invalidate(),
-    [invalidate, mode, showGrid, showMesh, showTracks, allPairs,
+    [invalidate, mode, showGrid, showMesh, showTracks, allPairs, showPaths,
       surfaceMap, referenceFrame, data],
   )
   // Turning the overlay on has to fill it: the positions are only rewritten
@@ -522,7 +637,7 @@ export function Globe({ data }: { data: Dataset }) {
   useEffect(() => {
     if (showTracks) refreshOverlay()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads live buffers
-  }, [showTracks, allPairs, overlay, rotations])
+  }, [showTracks, allPairs, showPaths, overlay, rotations])
 
   const drawnFrame = useRef(-1)
   /** The clock reading the vertex buffers currently hold. */
@@ -788,8 +903,12 @@ export function Globe({ data }: { data: Dataset }) {
       </mesh>
       {showTracks && overlay && (
         <>
-          {/* The paths the crust took away from the ridges, in magenta because
-              nothing in the age ramp or the satellite imagery is. */}
+          {/* The whole path each pair sits on, in magenta because nothing in
+              the age ramp or the satellite imagery is, with a red cross where
+              its two halves were one point. Drawn under the pairs, which are
+              the measurement. */}
+          <primitive object={overlay.pathLine.object} />
+          <primitive object={overlay.ridgeLine.object} />
           {/* One segment per pair that was a single point at this moment, so its
               length is the model's error, drawn. */}
           <primitive object={overlay.gapLine.object} />

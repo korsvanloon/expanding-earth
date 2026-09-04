@@ -50,7 +50,7 @@ export function Panel({ data }: { data: Dataset }) {
   const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
     showSection, setShowSection,
     surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame,
-    showTracks, setShowTracks, allPairs, setAllPairs,
+    showTracks, setShowTracks, allPairs, setAllPairs, showPaths, setShowPaths,
     showZones, setShowZones } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
@@ -234,6 +234,26 @@ export function Panel({ data }: { data: Dataset }) {
                     + 'same distance either side of it.'}
                 {' '}One colour per pair, the same colour it has in{' '}
                 <code>tools/draw-pairs.ts</code>.
+              </p>
+              <label className="toggle nested">
+                <input
+                  type="checkbox"
+                  checked={showPaths}
+                  onChange={(e) => setShowPaths(e.target.checked)}
+                />
+                The whole path each pair sits on
+              </label>
+              <p className="caption">
+                In magenta: the path one piece of crust took away from its
+                ridge, from the flank it ended on, through the ridge, to the
+                flank it left. The red cross is the one point on it that is not
+                half of a pair &mdash; where the two halves were a single point.
+                A path should run square to the age bands, because that is what
+                spreading means, and two paths should not cross except on a
+                ridge: crossing anywhere else would be two pieces of crust
+                passing through each other, so a crossing is a fault in the
+                direction field showing itself. The same form as{' '}
+                <code>tools/draw-paths.ts</code> draws flat.
               </p>
             </>
           )}
