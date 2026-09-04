@@ -349,8 +349,27 @@ export const CONFIG = {
   stepAnchors: Number(process.env.STEP_ANCHORS ?? 1) > 0,
   /** Window of the structure tensor over the jump field, km. */
   stepWindowKm: Number(process.env.STEP_WINDOW ?? 150),
-  /** How far a jump line may run off the regional climb and still be a path. */
-  stepMaxOffDeg: Number(process.env.STEP_OFF ?? 30),
+  /**
+   * How far a jump line may run off the regional climb and still be a path.
+   *
+   * Fifteen, measured. A jump line fifteen degrees off the climb still drags
+   * the field fifteen degrees off, and the loose gate let in the lines that
+   * are only roughly with the flow along with the ones that are the flow.
+   * Over a forty-million-year solve, pooled across its frames:
+   *
+   * | gate | anchor cells | pairs scored | mean median | within 200 km |
+   * |---|---|---|---|---|
+   * | 30 deg | 7,261 | 464 | 162 km | 63% |
+   * | 20 deg | 5,141 | 494 | 132 km | 69% |
+   * | 15 deg | 3,946 | 507 | 132 km | 70% |
+   * | 10 deg | 2,756 | 483 | 147 km | 69% |
+   *
+   * Tighter is better until it is not: at ten degrees the field loses lines it
+   * needs and both the count and the residual go back. Note the count moving
+   * the right way with the residual, which is what says this is the field
+   * getting better rather than the sample getting smaller.
+   */
+  stepMaxOffDeg: Number(process.env.STEP_OFF ?? 15),
   /** The most say one admitted jump line may have against the grooves', 0 to 1. */
   stepShare: Number(process.env.STEP_SHARE ?? 1),
   /**
