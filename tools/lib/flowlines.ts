@@ -734,18 +734,34 @@ export function conjugatePairs(
    * repetition of a claim rather than a new one.
    */
   const taken = new Map<string, [number, number, number][]>()
-  const cell = (x: number, y: number, z: number) => {
+  const cell = (age: number, x: number, y: number, z: number) => {
     const size = Math.max(1e-6, spacingKm / RADIUS_KM)
-    return `${Math.round(x / size)},${Math.round(y / size)},${Math.round(z / size)}`
+    return `${age},${Math.round(x / size)},${Math.round(y / size)},${Math.round(z / size)}`
   }
-  const clear = (p: FlowPoint) => {
+  /**
+   * Pairs compete only against others of their own age, and that took getting
+   * wrong to see.
+   *
+   * Across every age at once, this left four pairs at 120 Ma out of fifteen
+   * and thinned every band: a pair at 120 Ma and one at 20 Ma in the same
+   * stretch of ocean were treated as one claim made twice. They are not. They
+   * are different claims about different moments, and the deep ones are the
+   * rarest and the most telling. What a reader called redundant -- many points
+   * close together -- is redundant within an age and is time coverage between
+   * ages, and the first version of this rule spent the second to buy the first.
+   *
+   * Ordering the ages oldest-first was the obvious repair and it is not the
+   * repair: it moved 120 Ma from three pairs to four. The competition was
+   * never between ages, so no ordering of them could fix it.
+   */
+  const clear = (age: number, p: FlowPoint) => {
     if (!spacingKm) return true
     const size = Math.max(1e-6, spacingKm / RADIUS_KM)
     const near = Math.cos(spacingKm / RADIUS_KM)
     for (let dx = -1; dx <= 1; dx++) {
       for (let dy = -1; dy <= 1; dy++) {
         for (let dz = -1; dz <= 1; dz++) {
-          const there = taken.get(cell(p.x + dx * size, p.y + dy * size, p.z + dz * size))
+          const there = taken.get(cell(age, p.x + dx * size, p.y + dy * size, p.z + dz * size))
           if (!there) continue
           for (const [x, y, z] of there) {
             if (p.x * x + p.y * y + p.z * z > near) return false
@@ -755,28 +771,32 @@ export function conjugatePairs(
     }
     return true
   }
-  const claim = (p: FlowPoint) => {
+  const claim = (age: number, p: FlowPoint) => {
     if (!spacingKm) return
-    const key = cell(p.x, p.y, p.z)
+    const key = cell(age, p.x, p.y, p.z)
     const there = taken.get(key)
     if (there) there.push([p.x, p.y, p.z])
     else taken.set(key, [[p.x, p.y, p.z]])
   }
 
   /**
-   * Age by age across every path, rather than path by path.
+   * Age by age across every path, oldest age first.
    *
    * The spacing rule is greedy, so the order it considers candidates in is the
-   * order of preference, and path by path would hand one ocean everything it
-   * asked for before the next ocean was looked at. Age by age, every path gets
-   * its young pair before any path gets its old one, so the spread is even in
-   * time as well as in place and no basin is served first.
+   * order of preference. Path by path would hand one ocean everything it asked
+   * for before the next was looked at, so it goes age by age. And oldest
+   * first, which is the opposite of the obvious way round and was learnt from
+   * getting it wrong: youngest first left three pairs at 120 Ma out of
+   * fifteen, because on a slow path 100 and 120 Ma sit less than a spacing
+   * apart and the young one had already claimed the crust. Old pairs are rare
+   * and are the deep test; young ones are plentiful and can fill in around
+   * them.
    */
   const flanks = tracks.map((track) => ({
     left: track.points.slice(0, track.ridge).reverse(),
     right: track.points.slice(track.ridge + 1),
   }))
-  for (const age of ages) {
+  for (const age of [...ages].sort((p, q) => q - p)) {
     for (const [index] of tracks.entries()) {
       const { left, right } = flanks[index]
       const nearest = (side: FlowPoint[]) => {
@@ -805,12 +825,12 @@ export function conjugatePairs(
         rejected['both halves are the same mesh point']++
         continue
       }
-      if (!clear(pa) || !clear(pb)) {
+      if (!clear(age, pa) || !clear(age, pb)) {
         rejected['another pair already covers this crust']++
         continue
       }
-      claim(pa)
-      claim(pb)
+      claim(age, pa)
+      claim(age, pb)
       pairs.push({
         a, b, ageMa: age, fromRidgeAKm: pa.fromRidgeKm, fromRidgeBKm: pb.fromRidgeKm,
         track: index,
