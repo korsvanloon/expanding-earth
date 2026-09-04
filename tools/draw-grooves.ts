@@ -25,7 +25,8 @@ import { loadAgeGrid } from './lib/agegrid.js'
 import { overDisc, spreadingDirection } from './lib/age-gradient.js'
 import { loadRaster } from './lib/raster.js'
 import {
-  anchorGrooves, axisOf, grainReference, grooveField, linkGrooves, readKm, trimEither,
+  anchorGrooves, axisOf, grainConsensus, grainReference, grooveField, linkGrooves, readKm,
+  trimEither,
   walkGrooves, type Fabric, type Groove, type GroovePoint,
 } from './lib/grooves.js'
 import { ageWindow, fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
@@ -384,6 +385,9 @@ async function main() {
    */
   if (Number(process.env.ANCHORS ?? 1) > 0) {
     const anchors = anchorGrooves(grooves, spreading, {
+      grain: grainConsensus(grooves, Number(process.env.GRAIN ?? 800)),
+      grainSpreadDeg: Number(process.env.GRAIN_SPREAD ?? 15),
+      grainOffDeg: Number(process.env.GRAIN_OFF ?? 15),
       minReadKm: Number(process.env.ANCHOR_KM ?? 200),
       maxOffDeg: Number(process.env.ANCHOR_OFF ?? 20),
       keenReadKm: Number(process.env.ANCHOR_KEEN_KM ?? 100),

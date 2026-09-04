@@ -898,6 +898,49 @@ export function trimEither(
  * Null where a segment has too few neighbours to have a grain: nothing to have
  * run across, and a lone groove is not evidence against itself.
  */
+/**
+ * The grain near a place, with how tightly its members agree.
+ *
+ * The spread is the point. A median alone is a majority, and a majority of
+ * abyssal-hill fabric outvoted the fracture zones in the Pacific, which is why
+ * the grain was refused as a referee. A *tight* grain is a different claim: a
+ * dozen lines within a few degrees of each other did not arrive there by
+ * accident, and in the equatorial Atlantic -- where the age grid's own
+ * spreading direction is broken and rejects them all -- it is the only witness
+ * there is.
+ */
+export function grainConsensus(
+  grooves: Groove[], radiusKm = 800,
+): (at: GroovePoint) => { axis: number; spreadDeg: number; count: number } | null {
+  const each = grooves.map(axisOf)
+  const SIZE = 10
+  const key = (lon: number, lat: number) =>
+    `${Math.floor(lon / SIZE)},${Math.floor(lat / SIZE)}`
+  const buckets = new Map<string, { axis: number; at: GroovePoint }[]>()
+  for (const one of each) {
+    const at = key(one.at.lon, one.at.lat)
+    const there = buckets.get(at)
+    if (there) there.push(one)
+    else buckets.set(at, [one])
+  }
+  return (at: GroovePoint) => {
+    const near: number[] = []
+    const rings = Math.ceil(radiusKm / 100 / SIZE)
+    for (let dLon = -rings; dLon <= rings; dLon++) {
+      for (let dLat = -rings; dLat <= rings; dLat++) {
+        for (const one of buckets.get(key(at.lon + dLon * SIZE, at.lat + dLat * SIZE)) ?? []) {
+          const awayKm = apartKm(at, one.at)
+          if (awayKm > 1 && awayKm < radiusKm) near.push(one.axis)
+        }
+      }
+    }
+    if (near.length < 6) return null
+    const axis = axisMedian(near)
+    const offs = near.map((a) => axisDiff(a, axis)).sort((p, q) => p - q)
+    return { axis, spreadDeg: offs[Math.floor(offs.length / 2)], count: near.length }
+  }
+}
+
 export function grainReference(
   grooves: Groove[], radiusKm = 800, least = 8, capKm = 2500,
 ): (at: GroovePoint) => number | null {
@@ -1168,22 +1211,51 @@ export function anchorGrooves(
     keenReadKm?: number
     keenOffDeg?: number
     stepKm?: number
+    /** The local grain, where a tight one may admit a groove on its own. */
+    grain?: (at: GroovePoint) => { axis: number; spreadDeg: number; count: number } | null
+    /** How tight that grain has to be, in degrees, to count as a witness. */
+    grainSpreadDeg?: number
+    /** How near the grain a groove has to run, in degrees. */
+    grainOffDeg?: number
   } = {},
 ): Groove[] {
   const minReadKm = options.minReadKm ?? 200
   const maxOffDeg = options.maxOffDeg ?? 20
   const keenReadKm = options.keenReadKm ?? 100
   const keenOffDeg = options.keenOffDeg ?? 10
+  const grainSpreadDeg = options.grainSpreadDeg ?? 15
+  const grainOffDeg = options.grainOffDeg ?? 15
   return grooves.filter((groove) => {
     const read = readKm(groove, options.stepKm)
     if (read < keenReadKm) return false
     const mine = axisOf(groove)
     const should = reference(mine.at)
-    // No opinion available: not admitted. Elsewhere an unreadable reference
-    // means a groove is not condemned, but a vote is a positive claim and
-    // wants positive evidence.
-    if (should === null) return false
-    const off = axisDiff(mine.axis, should)
-    return (read >= minReadKm && off <= maxOffDeg) || off <= keenOffDeg
+    if (should !== null) {
+      const off = axisDiff(mine.axis, should)
+      if ((read >= minReadKm && off <= maxOffDeg) || off <= keenOffDeg) return true
+    }
+    /**
+     * Or a tight local grain, which breaks a circle the age grid cannot.
+     *
+     * Every gate above measures a groove against the spreading direction read
+     * off the age grid, and at a ridge that reading is the thing being
+     * corrected: over a staircase of segments offset by transforms the age
+     * gradient points along the staircase's diagonal. In the equatorial
+     * Atlantic it reads 30 to 40 degrees, the grooves under it read 84 with
+     * half of them within 11, and so 90% of the cleanest direction evidence on
+     * Earth was rejected for disagreeing with what it was there to fix. Five
+     * repairs aimed at other parts of the pipeline moved the paths' departure
+     * bearing from 31 degrees to 36 on a target of 90, because none of them was
+     * the circle.
+     *
+     * A tight grain is not a majority. It is a dozen lines within a few degrees
+     * of one another, which is not something noise does, and it is refused as a
+     * *referee* elsewhere for a good reason -- in the Pacific the majority is
+     * abyssal-hill fabric -- but that is a majority, not a consensus.
+     */
+    const grain = options.grain?.(mine.at)
+    return !!grain
+      && grain.spreadDeg <= grainSpreadDeg
+      && axisDiff(mine.axis, grain.axis) <= grainOffDeg
   })
 }

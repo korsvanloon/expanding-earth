@@ -51,6 +51,16 @@ export interface FlowOptions {
   seedSpacingKm?: number
   /** How sure the field must be to choose the direction out of the ridge. */
   departureConfidence?: number
+  /**
+   * The grooves themselves, as a direction field, for the ridge departure.
+   *
+   * Not the fitted field, which is what `field` is. The fit smooths over
+   * hundreds of kilometres and washes out exactly the local evidence that
+   * settles this: in the equatorial Atlantic the grooves read 84 degrees with
+   * half of them within 11, and the fit over the same window reads 30 to 47.
+   * Where a groove is near enough to have seen this crust, it is asked first.
+   */
+  ridgeAxis?: Lineaments
   /** How far each step walks, km. */
   stepKm?: number
   /** Crust younger than this counts as the ridge axis, Ma. */
@@ -275,6 +285,7 @@ export function traceFlowLines(
    * picks the line a path leaves the ridge on.
    */
   const departureConfidence = options.departureConfidence ?? 0.2
+  const ridgeAxis = options.ridgeAxis
   const stepKm = options.stepKm ?? 40
   const ridgeAgeMa = options.ridgeAgeMa ?? 3
   const maxTurn = ((options.maxTurnDeg ?? 6) * Math.PI) / 180
@@ -390,13 +401,25 @@ export function traceFlowLines(
           // where the crust is already going.
           const sign = line.tx * tx + line.ty * ty + line.tz * tz < 0 ? -1 : 1
           const sx = line.tx * sign, sy = line.ty * sign, sz = line.tz * sign
-          if (sx * g.tx + sy * g.ty + sz * g.tz >= structureMaxCos) {
+          // Blended from where the step already points, not from the age
+          // gradient, and gated against the same.
+          //
+          // From the gradient it discarded the fitted field outright: the
+          // field had just overridden the gradient two lines up, and then this
+          // went back to the gradient and blended forty per cent of the way to
+          // the lineament, so wherever a lineament had an opinion -- which
+          // along a ridge is nearly everywhere -- the field was not in the
+          // answer at all. Every improvement to the grooves, the anchors and
+          // the direction out of the ridge landed on a step that then threw
+          // the field away, which is why two successive maps came out
+          // identical to the degree and a reader had to point it out.
+          if (sx * wx + sy * wy + sz * wz >= structureMaxCos) {
             const ramp = Math.min(1, Math.max(0,
               (line.coherence - structureFloor) / Math.max(1e-6, structureFull - structureFloor)))
             const w = structureWeight * ramp
-            const bx = g.tx + (sx - g.tx) * w
-            const by = g.ty + (sy - g.ty) * w
-            const bz = g.tz + (sz - g.tz) * w
+            const bx = wx + (sx - wx) * w
+            const by = wy + (sy - wy) * w
+            const bz = wz + (sz - wz) * w
             const bl = length3(bx, by, bz)
             if (bl > 1e-9) { wx = bx / bl; wy = by / bl; wz = bz / bl }
           }
@@ -560,9 +583,77 @@ export function traceFlowLines(
      * here, is perfectly good about which side is older a few hundred
      * kilometres out.
      */
-    if (fitted) {
+    /**
+     * The line to leave on, from the grooves if one is near, else from the fit.
+     *
+     * A groove *is* the evidence; the fit is a smoothing of it over a region
+     * far wider than the evidence reaches, and a reader watching two maps come
+     * out identical is how that got found. Asking the grooves first is not a
+     * refinement of the fit, it is preferring a reading to an average of
+     * readings and absences.
+     */
+    const leaveOn = (() => {
+      if (ridgeAxis) {
+        const near = lineamentAt(ridgeAxis, axis[0], axis[1], axis[2])
+        if (near && near.coherence > 0) return { tx: near.tx, ty: near.ty, tz: near.tz }
+      }
+      if (!fitted) return null
       const line = flowAt(fitted, axis[0], axis[1], axis[2], [1, 0, 0])
-      if (line && line.confidence >= departureConfidence) {
+      return line && line.confidence >= departureConfidence ? line : null
+    })()
+    /**
+     * What each candidate says, when asked for.
+     *
+     * Four attempts at this one step moved the equatorial Atlantic's departure
+     * bearing from 31 degrees to 36, on a target of 90, each attempt reasoned
+     * from a plausible story about which input was at fault. None of them was
+     * measured first. TRACE_DEPARTURE=1 prints every candidate at every seed
+     * so the question is settled by reading rather than by another twelve
+     * minutes and another story.
+     */
+    if (process.env.TRACE_DEPARTURE) {
+      const lat = Math.asin(Math.max(-1, Math.min(1, axis[1]))) * (180 / Math.PI)
+      const lon = Math.atan2(-axis[2], axis[0]) * (180 / Math.PI)
+      const bearingOf = (t: { tx: number; ty: number; tz: number } | null) => {
+        if (!t) return '  --'
+        // North and east at the seed, then the angle between.
+        const nl = Math.hypot(-axis[1] * axis[0], 1 - axis[1] * axis[1], -axis[1] * axis[2]) || 1
+        const nx = (-axis[1] * axis[0]) / nl
+        const ny = (1 - axis[1] * axis[1]) / nl
+        const nz = (-axis[1] * axis[2]) / nl
+        const ex = ny * axis[2] - nz * axis[1]
+        const ey = nz * axis[0] - nx * axis[2]
+        const ez = nx * axis[1] - ny * axis[0]
+        const north = t.tx * nx + t.ty * ny + t.tz * nz
+        const east = t.tx * ex + t.ty * ey + t.tz * ez
+        return `${((((Math.atan2(east, north) * 180) / Math.PI) % 180 + 180) % 180).toFixed(0).padStart(4)}`
+      }
+      const ring = (() => {
+        const { ax, ay, az, bx, by, bz } = basis(axis[0], axis[1], axis[2])
+        let best: { tx: number; ty: number; tz: number; ageMa: number } | null = null
+        for (let i = 0; i < 16; i++) {
+          const angle = (2 * Math.PI * i) / 16
+          const tx = ax * Math.cos(angle) + bx * Math.sin(angle)
+          const ty = ay * Math.cos(angle) + by * Math.sin(angle)
+          const tz = az * Math.cos(angle) + bz * Math.sin(angle)
+          const [px, py, pz] = advance(axis[0], axis[1], axis[2], tx, ty, tz, departureKm / r)
+          const a = field.at(px, py, pz)
+          if (!Number.isNaN(a) && (!best || a > best.ageMa)) best = { tx, ty, tz, ageMa: a }
+        }
+        return best
+      })()
+      const fit = fitted ? flowAt(fitted, axis[0], axis[1], axis[2], [1, 0, 0]) : null
+      const groove = ridgeAxis ? lineamentAt(ridgeAxis, axis[0], axis[1], axis[2]) : null
+      console.log(
+        `  [departure] ${lon.toFixed(1).padStart(7)},${lat.toFixed(1).padStart(6)}  `
+          + `age ring ${bearingOf(ring)}   fitted field ${bearingOf(fit)}`
+          + ` (confidence ${fit ? fit.confidence.toFixed(2) : '--'})   `
+          + `groove ${bearingOf(groove)}   used ${bearingOf(leaveOn)}`,
+      )
+    }
+    if (leaveOn) {
+      const line = leaveOn
+      {
         const look = departureKm / r
         const ageAlong = (sign: number) => {
           const [px, py, pz] = advance(

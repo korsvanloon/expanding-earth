@@ -25,7 +25,8 @@ import {
 import { loadAgeGrid } from './lib/agegrid.js'
 import { obliquityDeg, overDisc, spreadingDirection } from './lib/age-gradient.js'
 import {
-  anchorGrooves, axisOf, grainReference, grooveField, grooveLineaments, grooveRaster,
+  anchorGrooves, axisOf, grainConsensus, grainReference, grooveField, grooveLineaments,
+  grooveRaster,
   linkGrooves, readKm, trimEither, walkGrooves, type Groove,
 } from './lib/grooves.js'
 import {
@@ -375,6 +376,28 @@ export const CONFIG = {
    */
   anchorKeenReadKm: Number(process.env.ANCHOR_KEEN_KM ?? 100),
   anchorKeenOffDeg: Number(process.env.ANCHOR_KEEN_OFF ?? 10),
+  /**
+   * How far from a ridge seed a groove may be and still say which way to leave.
+   *
+   * The fitted field is the wrong instrument for that one step -- it smooths
+   * over hundreds of kilometres, and in the equatorial Atlantic it reads 30 to
+   * 47 degrees where the grooves under it read 84 with half within 11. So the
+   * grooves are asked directly, spread this far so a seed on the axis finds
+   * the transform beside it rather than having to sit on it.
+   */
+  ridgeAxisReachKm: Number(process.env.RIDGE_AXIS_KM ?? 150),
+  /**
+   * The second way a groove earns a vote, when the age grid cannot judge it.
+   *
+   * See anchorGrooves: every other gate measures a groove against the
+   * spreading direction read off the age grid, and at a ridge that reading is
+   * the very thing being corrected. A tight local grain -- a dozen lines
+   * within a few degrees of one another over this radius -- is evidence the age
+   * grid has no part in.
+   */
+  grainRadiusKm: Number(process.env.GRAIN_KM ?? 800),
+  grainSpreadDeg: Number(process.env.GRAIN_SPREAD ?? 15),
+  grainOffDeg: Number(process.env.GRAIN_OFF ?? 15),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: Number(process.env.DRAWN_TRACKS ?? 60),
   /**
@@ -676,9 +699,14 @@ async function main() {
    * between the held-back pairs, and it is measured on pairs the solver never
    * saw either way.
    */
+  /** The grooves as a wide direction field, for the ridge departure only. */
+  let anchorSpread: ReturnType<typeof grooveLineaments> | undefined
   const anchors = CONFIG.grooveFlow
     ? (() => {
       const kept = anchorGrooves(grooves.grooves, grooves.spreading, {
+        grain: grainConsensus(grooves.grooves, CONFIG.grainRadiusKm),
+        grainSpreadDeg: CONFIG.grainSpreadDeg,
+        grainOffDeg: CONFIG.grainOffDeg,
         minReadKm: CONFIG.anchorMinReadKm,
         maxOffDeg: CONFIG.anchorMaxOffDeg,
         keenReadKm: CONFIG.anchorKeenReadKm,
@@ -686,6 +714,14 @@ async function main() {
       })
       const field = grooveLineaments(
         kept, structure.gravity.width, structure.gravity.height,
+      )
+      // A second, wide copy, for the one question the fit is worst at: which
+      // line a path leaves the ridge on. Spread so that a seed on the axis
+      // finds the transform beside it rather than needing to sit on it. The
+      // narrow copy above still feeds the fit, which wants sparse anchors.
+      anchorSpread = grooveLineaments(
+        kept, structure.gravity.width, structure.gravity.height,
+        Math.max(1, Math.round(CONFIG.ridgeAxisReachKm / ((180 / structure.gravity.height) * 111.2))),
       )
       let lit = 0
       for (const value of field.ridgeness) if (value > 0) lit++
@@ -723,6 +759,7 @@ async function main() {
       structureFull: CONFIG.structureFull,
       structureMaxDeg: CONFIG.structureMaxDeg,
       field,
+      ridgeAxis: anchorSpread,
       crest,
       crestPull: CONFIG.crestPull,
       crestReachKm: CONFIG.crestReachKm,
