@@ -143,6 +143,32 @@ export const CONFIG = {
    */
   pairSpacingKm: Number(process.env.PAIR_SPACING ?? 150),
   /**
+   * The most pairs one path may contribute, spread over its own age range.
+   *
+   * Off, and it is off having been measured rather than not tried.
+   *
+   * The cross-age half of a reader's request for an even spread over the whole
+   * world. The imbalance is real and is in how many ages a path offers -- 36
+   * where both flanks survive against 7 where one is gone -- so a limit per
+   * path is the right shape of instrument. It is the wrong instrument anyway,
+   * because of what it costs somewhere the request did not look: the score and
+   * the viewer are read frame by frame, and eight pairs per path is eight
+   * frames with pairs out of forty-one.
+   *
+   * Two ways of choosing those eight were tried. Spread over each path's own
+   * age range, the paths pick different ages, so the total looked healthy at
+   * 1,025 pairs while 120 Ma had three. On one ladder shared by every path,
+   * the ladder ages are populated and every other frame is empty: 0, 10, 25,
+   * 50, 80, 115 and 155 Ma had pairs and the remaining thirty-four frames had
+   * none at all. Better basins both times -- 41% Atlantic against 50 -- and a
+   * timeline with holes in it, which is a worse thing to have.
+   *
+   * So the spatial spacing above stands on its own, and the basin shares stay
+   * as the data leaves them: 50% Atlantic, 17% Pacific, because that is where
+   * crust with a surviving conjugate is, not because anything here prefers it.
+   */
+  pairsPerPath: Number(process.env.PAIRS_PER_PATH ?? 0),
+  /**
    * How far the gravity grid's lineaments may pull a traced step away from the
    * age gradient, at full coherence. Zero reads the age grid alone.
    *
@@ -714,6 +740,7 @@ async function main() {
   )
   const conjugates = conjugatePairs(
     traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa, CONFIG.pairSpacingKm,
+    CONFIG.pairsPerPath,
   )
   /**
    * What other spacings would have given, so the knob is chosen and not guessed.
@@ -728,6 +755,7 @@ async function main() {
     for (const spacingKm of [0, 100, 150, 200, 300, 400]) {
       const set = conjugatePairs(
         traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa, spacingKm,
+        CONFIG.pairsPerPath,
       ).pairs
       const basins = new Map<string, number>()
       for (const pair of set) {

@@ -718,6 +718,28 @@ export function conjugatePairs(
    * that points end up far apart.
    */
   spacingKm = 0,
+  /**
+   * The most pairs one path may contribute. Zero for no limit.
+   *
+   * This is the cross-age control, and it has to be a limit per path rather
+   * than a spacing, because that is the shape of the imbalance. Pairs are
+   * taken wherever both flanks of a path survive: an Atlantic path, whose two
+   * flanks both reach back to 180 Ma, offers 36 of them, and the same path in
+   * the Pacific offers seven. Spacing them against each other across ages
+   * evens the oceans and destroys the deep coverage, because a 120 Ma pair
+   * then loses to a 20 Ma one in the same water. Limiting the count per path
+   * costs the ocean that has too many and nothing at all to the ocean that has
+   * few, which is exactly where the correction belongs.
+   *
+   * The ages kept come from one ladder shared by every path, not from each
+   * path's own range, and that distinction cost a run to find. Spread over its
+   * own range, each path picks a different eight, so at any one frame age only
+   * a fraction of the paths have anything to say -- the total was fine at
+   * 1,025 pairs and the score at 120 Ma was three, because the score is read
+   * frame by frame. On a shared ladder every path that can speak at an age
+   * does, and each frame is populated.
+   */
+  perPath = 0,
 ): ConjugateResult {
   const pairs: Conjugate[] = []
   const rejected: Record<string, number> = {
@@ -796,8 +818,34 @@ export function conjugatePairs(
     left: track.points.slice(0, track.ridge).reverse(),
     right: track.points.slice(track.ridge + 1),
   }))
+
+  /**
+   * Which ages each path is allowed to offer, before any of them compete.
+   *
+   * Worked out per path and in advance, because a limit applied as the ages go
+   * by would be spent on whichever ages came first however they were ordered.
+   */
+  /**
+   * The ladder: `perPath` ages spread over every age there is, once, for all.
+   *
+   * Wider apart at the old end, because that is where the crust travels
+   * further per million years of the record and where the pairs are scarce
+   * enough that two adjacent frames say almost the same thing.
+   */
+  const ladder = perPath
+    ? new Set(
+      Array.from({ length: perPath }, (_, k) => {
+        const t = k / Math.max(1, perPath - 1)
+        const want = Math.min(...ages) + (Math.max(...ages) - Math.min(...ages)) * (t ** 1.6)
+        return ages.reduce((p, q) => (Math.abs(q - want) < Math.abs(p - want) ? q : p), ages[0])
+      }),
+    )
+    : null
+  const allowed = tracks.map(() => ladder)
+
   for (const age of [...ages].sort((p, q) => q - p)) {
     for (const [index] of tracks.entries()) {
+      if (allowed[index] && !allowed[index]!.has(age)) continue
       const { left, right } = flanks[index]
       const nearest = (side: FlowPoint[]) => {
         let best: FlowPoint | null = null
