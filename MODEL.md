@@ -455,11 +455,11 @@ construction, so the lines come out as lines.
 <!-- from-the-run: pairs -->
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
-| 0 Ma | 29 | 80 km | 100% | 0% |
-| 5 Ma | 70 | 60 km | 96% | 0% |
-| 30 Ma | 49 | 245 km | 43% | 0% |
-| 60 Ma | 29 | 335 km | 31% | 0% |
-| 120 Ma | 8 | 707 km | 13% | 0% |
+| 0 Ma | 34 | 80 km | 100% | 0% |
+| 5 Ma | 75 | 64 km | 96% | 0% |
+| 30 Ma | 57 | 209 km | 49% | 0% |
+| 60 Ma | 30 | 283 km | 23% | 0% |
+| 120 Ma | 7 | 543 km | 14% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -548,7 +548,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 164 blocks at its most divided and 6 at 200 Ma.
+The run finds 165 blocks at its most divided and 1 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -561,7 +561,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 23 km/Myr to 3.0, the block count from as many as 164 to 6, and the biggest block grows to 76% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 23 km/Myr to 2.3, the block count from as many as 165 to 1, and the biggest block grows to 100% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -588,11 +588,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 1.019%/Myr | 15.0 km/Myr | 163 | 2% | 0.5% |
-| 30 Ma | 0.617%/Myr | 22.1 km/Myr | 161 | 2% | 1.0% |
-| 60 Ma | 0.408%/Myr | 15.1 km/Myr | 118 | 8% | 1.6% |
-| 120 Ma | 0.284%/Myr | 17.2 km/Myr | 89 | 11% | 2.4% |
-| 200 Ma | 0.000%/Myr | 3.0 km/Myr | 6 | 76% | 3.0% |
+| 5 Ma | 1.019%/Myr | 15.0 km/Myr | 165 | 2% | 0.5% |
+| 30 Ma | 0.617%/Myr | 22.2 km/Myr | 153 | 3% | 1.0% |
+| 60 Ma | 0.408%/Myr | 15.4 km/Myr | 124 | 6% | 1.7% |
+| 120 Ma | 0.284%/Myr | 17.5 km/Myr | 84 | 13% | 2.4% |
+| 200 Ma | 0.000%/Myr | 2.3 km/Myr | 1 | 100% | 3.1% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -785,11 +785,11 @@ Then the detail. Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6207 km | 0.63% | 0.04% | 0.000% | 0.00% | 0.07% | 1.1% |
-| 30 Ma | 5673 km | 2.23% | 0.15% | 0.000% | 0.00% | 0.19% | 2.7% |
-| 60 Ma | 5152 km | 4.65% | 0.39% | 0.000% | 0.03% | 0.29% | 4.0% |
-| 120 Ma | 4315 km | 10.40% | 1.52% | 0.207% | 0.51% | 0.58% | 7.4% |
-| 200 Ma | 3926 km | 13.08% | 3.51% | 1.360% | 0.96% | 0.93% | 10.7% |
+| 5 Ma | 6207 km | 0.62% | 0.04% | 0.000% | 0.00% | 0.07% | 1.1% |
+| 30 Ma | 5673 km | 2.24% | 0.15% | 0.000% | 0.00% | 0.19% | 2.6% |
+| 60 Ma | 5152 km | 4.57% | 0.35% | 0.000% | 0.03% | 0.29% | 3.9% |
+| 120 Ma | 4315 km | 10.32% | 1.57% | 0.227% | 0.50% | 0.58% | 7.5% |
+| 200 Ma | 3926 km | 13.19% | 3.47% | 1.344% | 0.98% | 0.94% | 10.9% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -803,14 +803,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 8% | +8 | 31 km | 5 km at 135 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 19% | +19 | 47 km | 3 km at 175 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1198 km | 1157 km at 200 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 27 km | 5 km at 145 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 20% | +20 | 42 km | 3 km at 110 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1208 km | 1152 km at 200 Ma |
 | Greenland &ndash; North America | 60 Ma | 20% | 20% | +0 | 0 km | 0 km at 0 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 906 km | 695 km at 175 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 8 km | 6 km at 135 Ma |
-| Antarctica &ndash; South America | watched | 0% | 14% | +14 | 5 km | 1 km at 80 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2130 km | 1891 km at 175 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1252 km | 815 km at 175 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 26 km | 5 km at 160 Ma |
+| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 4 km | 0 km at 195 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 2089 km | 1821 km at 175 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -2227,18 +2227,20 @@ instead of at 45 degrees, the Pacific off California has paths where it had
 none, and south of Africa and west of Australia are covered. The held-back pairs
 are worse than the run this replaced:
 
-| | 30 Ma | 60 Ma | 120 Ma |
-|---|---|---|---|
-| before | 178 km, 53% | 223 km, 44% | 548 km, 22% |
-| with all of the above | 245 km, 43% | 335 km, 31% | 707 km, 13% |
+| | 20 Ma | 30 Ma | 60 Ma | 120 Ma |
+|---|---|---|---|---|
+| before | 127 km, 72% | 178 km, 53% | 223 km, 44% | 548 km, 22% |
+| the loose jump gate | 138 km, 59% | 245 km, 43% | 335 km, 31% | 707 km, 13% |
+| **at fifteen degrees** | **126 km, 62%** | 209 km, 49% | 283 km, 23% | **543 km, 14%** |
 
-Two things are worth separating in that. Ninety kilometres of it at 20 Ma was
-the previous attempt at the ridge departure, and turning that off is in this
-change; what is left is still a loss. And the pairs are read off these very
-paths, so a change to the paths changes the ruler and the thing measured
-together &mdash; the count at 20 Ma moved from 66 to 58, and at 120 Ma there are
-eight of them. That is a reason to distrust the comparison, not a reason to
-claim the loss away.
+Level with the run this replaces at 20 Ma and at 120, and still worse in
+between. Two things are worth separating in what is left. The pairs are read
+off these very paths, so a change to the paths changes the ruler and the thing
+measured together: the count at 20 Ma went the right way, 58 to 68, which is
+why the tighter gate is believable, but at 120 Ma there are seven pairs and a
+median of seven numbers is not a measurement to lean on. And the share reunited
+within two hundred kilometres is down at every depth even where the median is
+level, which says the tail is worse rather than the middle.
 
 It is deployed anyway, at a reader's explicit ask: they wanted to see what these
 lines do to the reconstruction whether the number likes them or not. The

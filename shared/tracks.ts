@@ -180,11 +180,17 @@ export const isMarked = (ageMa: number, interval = MARK_INTERVAL_MA) =>
  */
 export function pairAgeColour(ageMa: number, oldestMa = 200): [number, number, number] {
   const stops: [number, [number, number, number]][] = [
-    [0, [1, 0.55, 0.12]],
-    [0.5, [0.9, 0.86, 0.47]],
-    [1, [0.27, 0.59, 1]],
+    [0, [1, 0.52, 0.1]],
+    [0.45, [0.93, 0.84, 0.42]],
+    [1, [0.24, 0.55, 1]],
   ]
-  const t = Math.min(1, Math.max(0, ageMa / Math.max(1e-6, oldestMa)))
+  // Bent towards the old end, because a straight ramp never gets there: most
+  // crust a pair can be read off is young, so on a linear scale over two
+  // hundred million years nearly every mark came out orange and the blue half
+  // of the ramp was decoration. At three quarters, seventy-five million years
+  // sits in the middle of the ramp and a hundred and twenty-five is plainly
+  // blue, which is what "orange young, blue old" was asked for.
+  const t = Math.min(1, Math.max(0, ageMa / Math.max(1e-6, oldestMa))) ** 0.75
   for (let k = 1; k < stops.length; k++) {
     const [to, high] = stops[k]
     if (t > to && k < stops.length - 1) continue
