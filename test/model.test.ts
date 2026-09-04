@@ -17,6 +17,7 @@ import { SEAM_FULL_KM, SEAM_START_KM, measureSeams, seamReach } from '../shared/
 import { SURFACE_MAPS } from '../shared/maps'
 import { VIEW_MODES, remembered } from '../src/store'
 import { readTracks, writeTracks } from '../shared/tracks'
+import { KNOBS } from '../tools/lib/solver'
 import { readChannel, readFrames, writeChannel, writeFrames } from '../shared/frames'
 import { markCrust, measureFold, newFoldScratch, pullInward } from '../tools/lib/fold'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
@@ -757,21 +758,23 @@ describe('the built dataset', () => {
     expect(seen.size).toBeGreaterThan(5)
   })
 
-  // The list the run reports its overrides from is written by hand next to
-  // CONFIG, so it can fall behind the knobs themselves -- and a knob missing
+  // The list the run reports its overrides from is written by hand next to the
+  // config, so it can fall behind the knobs themselves -- and a knob missing
   // from it is silent in the worst way: the run calls itself the model, the
   // documents get checked against an experiment, and the numbers that get
-  // committed are from a sweep. Read out of the source rather than imported,
-  // because importing the solver runs it.
+  // committed are from a sweep.
+  //
+  // The list is imported and the reads are still scraped out of the source.
+  // Importing used to be impossible because the module ran the whole
+  // reconstruction on load; since the solver was split from its command line it
+  // is a module like any other, so half of this stopped needing a regular
+  // expression. The other half cannot: the point is to catch a read that
+  // nothing tells the list about.
   it('lists every knob the solver reads', () => {
-    const source = readFileSync(resolve(import.meta.dirname, '../tools/solve.ts'), 'utf8')
-    const listed = new Set(
-      (source.match(/export const KNOBS = \[([^\]]*)\]/)?.[1] ?? '')
-        .match(/'([A-Z_0-9]+)'/g)
-        ?.map((q) => q.slice(1, -1)) ?? [],
-    )
+    const source = readFileSync(resolve(import.meta.dirname, '../tools/lib/solver.ts'), 'utf8')
+    const listed = new Set<string>(KNOBS)
     const read = new Set(
-      (source.match(/process\.env\.[A-Z_0-9]+/g) ?? []).map((m) => m.slice('process.env.'.length)),
+      (source.match(/\bENV\.[A-Z_0-9]+/g) ?? []).map((m) => m.slice('ENV.'.length)),
     )
     expect(listed.size).toBeGreaterThan(0)
     expect([...read].filter((name) => !listed.has(name))).toEqual([])

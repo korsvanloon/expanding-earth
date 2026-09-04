@@ -1,0 +1,3529 @@
+/**
+ * Stage 2: reconstruct where the crust was, by simulation rather than by
+ * hand-authored keyframes.
+ *
+ * We integrate backwards from today, the only moment we actually know. Each
+ * one-million-year step does three things:
+ *
+ *   - crust that had not been made yet is taken out of the mesh, by collapsing
+ *     its edges: the two triangles along an edge go and its ends become one
+ *     point. Run forwards that is a ridge splitting a point in two and making
+ *     sea floor between the halves, which is what a ridge does;
+ *   - the surviving crust is carried along the spreading field, read off the
+ *     age gradient at the isochron that is disappearing;
+ *   - the sphere it all sits on shrinks to R(t), which is not a free parameter
+ *     but follows from the area budget.
+ *
+ * Then the springs are relaxed, so the ocean closes like a zip and drags the
+ * continents together. Nothing in here knows what a plate is: the blocks that
+ * move as units are whatever still moves as one, read back out of the motion
+ * afterwards.
+ *
+ * What is NOT here, because the comments used to say it was. There is no
+ * tension-only spring across crust that does not exist yet, and no pairing of
+ * conjugate margins: both were tried, and the mesh collapsing the dead crust
+ * outright does the same job without them. Nor is there any rule that cuts the
+ * shell where the age field steps -- the only thing that lets one piece slide
+ * past another is a redrawn triangle edge, and only in crust weak enough to
+ * fault. The reasoning that made the earlier version work is still worth
+ * keeping: letting vanished crust push as well as pull welded the blocks either
+ * side into one rigid sheet, and a sheet that large cannot change its curvature
+ * without absurd strain, which is why those runs reported 20% everywhere.
+ *
+ * The residual that relaxation cannot remove is not numerical noise, it is
+ * Gauss's Theorema Egregium. A curved shell cannot be laid on a sphere of
+ * different curvature without deforming, so rigid crust on a smaller Earth must
+ * take up tangential compression, the way paper wrinkles when wrapped onto a
+ * smaller ball. The solver measures that instead of hiding it.
+ *
+ * Relaxation is Gauss-Seidel rather than Jacobi on purpose. Jacobi moves
+ * information one edge per sweep, so a continent would need hundreds of sweeps
+ * to notice a ridge opening on its far side; applying each correction
+ * immediately lets a single sweep carry it across the whole mesh.
+ */
+import {
+  FIT_TARGETS,
+  PERMANENT_MA,
+  REGIONS,
+  sampleCurve,
+  type FrameDiagnostics,
+  type Meta,
+} from '../../shared/model.js'
+import { AGE_SAMPLES, momentOf, olderShare } from '../../shared/age-samples.js'
+import { CRATON_RIGIDITY, CRUST_TYPES, WEAK_RIGIDITY } from '../../shared/crust.js'
+import { type TopologyDelta, topologyDelta, writeTopology } from '../../shared/topology.js'
+import { writeChannel, writeFrames } from '../../shared/frames.js'
+import { directionToUv, length3 } from '../../shared/sphere.js'
+import { DynamicMesh, collapseVanished, retriangulate } from './dynamic-mesh.js'
+import {
+  foldShape, markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
+} from './fold.js'
+import { cellBuckets, coverage, probeCells, probeDirections, type Tiling } from './coverage.js'
+import { newContactScratch, separateIslands, type IslandContacts } from './contact.js'
+import { distortion, shapePairs } from './shape.js'
+import { conjugateFit } from './flowlines.js'
+import { ONE_SIDED, pairPulls as pairIsHeldIn, readTracks } from '../../shared/tracks.js'
+import { unstretching } from './unstretching.js'
+
+
+/**
+ * Where the solver's files come from and go to.
+ *
+ * Named rather than pathed, because the caller decides what a name means: the
+ * command line reads and writes `public/data`, and a browser worker hands over
+ * buffers it fetched and keeps the answer in memory. The solver itself has no
+ * business knowing which of those it is doing, and once it stopped knowing it
+ * stopped needing `node:fs` -- which is the whole reason it can run in a
+ * worker at all.
+ */
+export interface Host {
+  read(name: string): Uint8Array
+  readText(name: string): string
+  write(name: string, data: Uint8Array | string): void
+}
+
+let HOST: Host = {
+  read: () => { throw new Error('the solver was given no host to read from') },
+  readText: () => { throw new Error('the solver was given no host to read from') },
+  write: () => { throw new Error('the solver was given no host to write to') },
+}
+
+/** Read and write through this instead. See `Host`. */
+export function setHost(host: Host): void {
+  HOST = host
+}
+
+/**
+ * How near two margins have to be to count as in contact, km.
+ *
+ * A triangle is about a degree across, so a hundred kilometres is roughly one
+ * of them and this is two: below that a mesh at this resolution cannot say
+ * whether two coastlines are touching or merely adjacent. Not a tolerance
+ * chosen to flatter the fit -- raising it would inflate every figure at once,
+ * which is why it is stated here rather than tuned per pair.
+ */
+/**
+ * Where the knobs are read from, and why it is a variable.
+ *
+ * The solver has always taken its settings from the process environment, which
+ * is right for a command line and impossible for anything else: a browser has
+ * no environment, and a panel of sliders wants to hand in nine numbers and ask
+ * for the answer. So every knob below reads `ENV` rather than `process.env`,
+ * and `configure` replaces it and rebuilds everything derived from it.
+ *
+ * Nothing changes for a run from the command line -- `ENV` starts as the real
+ * environment and the values are the same objects they were. The check on that
+ * is not an argument, it is `frames.bin` coming out byte for byte identical.
+ */
+let ENV: Record<string, string | undefined> = process.env
+
+let CONTACT_KM = Number(ENV.CONTACT_KM ?? 200)
+
+/**
+ * Whether this run folds its un-erupted crust inside the shell instead of
+ * collapsing it away. Read before CONFIG because two of CONFIG's defaults
+ * depend on it: the fold needs crust that will not be crushed.
+ *
+ * On by default, which is the shipped model -- `FOLD_IN=0` restores the
+ * collapse exactly, to the byte. The trade between the two is written up in
+ * MODEL.md under "Swallowing the crust instead of deleting it"; briefly, the
+ * fold closes every southern join and loses the Atlantic ones.
+ *
+ * A default rather than a flag on the command line because the reconstruction
+ * is not committed -- it is regenerated by `pnpm build`, on a reader's machine
+ * and in the Pages workflow alike -- so anything not defaulted here is simply
+ * not what ships.
+ */
+let FOLDING = Number(ENV.FOLD_IN ?? 1) > 0
+
+/**
+ * Every environment variable the solver reads, listed so a run can say whether
+ * it was the model or an experiment.
+ *
+ * The documents quote the run on disk and a test fails when they disagree,
+ * which is the only thing keeping the numbers in them honest. But it also fired
+ * on every local sweep: a run with `END_MA=40` or one knob moved is not the
+ * shipped model, so of course the tables did not match it, and the failure had
+ * to be explained away each time -- which is how a real one gets explained
+ * away too. A run now records which of these were set, and the check skips
+ * itself, out loud, when any of them were.
+ *
+ * `test/model.test.ts` fails if this list and the file disagree.
+ */
+export const KNOBS = [
+  'AREA_K', 'AREA_TRACE', 'BREAKS_BELOW', 'CLOSE_K', 'CLOSE_TANGENT', 'COHERE',
+  'COHERE_ROUNDS', 'COMPRESS_K', 'CONTACT_K', 'CONTACT_KM', 'CURTAIN_K', 'DRAG',
+  'DRAG_FREE',
+  'EDGE_AGE', 'END_MA', 'FLAT_K', 'FLIP_PASSES', 'FLIP_TRUTH', 'FLOW_SMOOTH',
+  'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'HOLD_STRENGTH',
+  'ISLAND_HOLD',
+  'LAND_MARGIN', 'LIP_KM', 'MAX_RATE', 'OCEAN_K', 'PLATE_TOL', 'POLE_MEMORY',
+  'PROBES', 'RADIAL_K', 'SHORE_SHARE', 'SMALLEST_PLATE', 'STEP_TRACE',
+  'FRAME_STEP', 'PAIR_K', 'STRENGTH', 'STRETCH_TRACE', 'SWEEPS', 'TRACK_K',
+] as const
+
+let OVERRIDES: string[] = KNOBS.filter((name) => ENV[name] !== undefined)
+
+/**
+ * Every setting the solver runs on, read from `ENV` and rebuilt by `configure`.
+ *
+ * A function rather than an object literal so the same code can be handed nine
+ * numbers from a panel of sliders instead of a shell's environment. The body is
+ * unchanged; only where it reads from moved.
+ */
+function readConfig() {
+  return {
+  /** Integration step, Myr. Small enough that each step is a small nudge. */
+  stepMa: 1,
+  /**
+   * Gauss-Seidel sweeps per step.
+   *
+   * Eighty rather than forty, and it is not a comfort setting. Reading the
+   * fracture zones' own length through a step showed the drive adding about
+   * 0.9% to it and forty sweeps giving back 0.7%, with the remainder never
+   * recovered and compounding: 6% of stretch along a material line of crust by
+   * 60 Ma and 20% by 120, on segments whose length cannot change at all, since
+   * the crust between two points of a flow line is older than both of them.
+   *
+   * Doubling the sweeps roughly halves it -- 6.2% to 3.9% at 60 Ma -- and takes
+   * a quarter of the corners out of the traced lines with it, 8.4% of turns
+   * over thirty degrees to 6.3%. It costs 18% of the run, not the double one
+   * might expect, because the sweeps are not the whole of a step.
+   */
+  sweeps: Number(ENV.SWEEPS ?? 80),
+  /**
+   * How wide a band of isochrons the spreading field is read from, Myr.
+   *
+   * The field describes how fast the crust at a given isochron was moving when
+   * it formed, so what matters at time t is the crust around age t -- the
+   * margin that is disappearing. Reading it across a band rather than a line
+   * gives the fit enough points to pin a rotation down.
+   */
+  flowWindowMa: Number(ENV.FLOW_WINDOW ?? 14),
+  /**
+   * How much of the previous step's rotation a plate keeps.
+   *
+   * Plates hold an Euler pole for tens of millions of years; nothing in the
+   * mantle turns one round and back again in a single step. Carrying the pole
+   * forward is both what the rock does and what makes the motion readable,
+   * and it is what moves a fragment through the moments when its own ocean
+   * floor has nothing left to say.
+   */
+  poleMemory: Number(ENV.POLE_MEMORY ?? 0.5),
+  /**
+   * Crust at least this strong does not fault. Sea floor is 0.60 and thinned
+   * margins 0.18, so those redraw; platform is 0.90 and shield 1.00, so a
+   * craton has to carry the deformation rather than forget it.
+   */
+  breaksBelow: Number(ENV.BREAKS_BELOW ?? 0.65),
+  /**
+   * How closely two points have to agree, in kilometres per million years,
+   * before the same rotation is taken to explain both. The Earth's plates are
+   * rigid to about this.
+   */
+  plateTolerance: Number(ENV.PLATE_TOL ?? 4),
+  /** Fewer points than this and it is not a plate, it is a boundary. */
+  smallestPlate: Number(ENV.SMALLEST_PLATE ?? 60),
+  /** How hard an island is pulled back to its own shape, per sweep. */
+  islandHold: Number(ENV.ISLAND_HOLD ?? 0.35),
+  /**
+   * How much of that hold follows the crust's own strength, 0 to 1.
+   *
+   * At zero every point of an island is held equally, and an island then moves
+   * as one rotation with no shape of its own to give: a shield and the thinned
+   * sliver hanging off it are equally forbidden to bend. A reader named what
+   * that costs -- Patagonia and the Antarctic Peninsula cannot turn relative to
+   * the continents they hang from, and on this hypothesis they have to.
+   *
+   * At one the hold is ramped from nothing at `breaksBelow`, where crust is
+   * only just strong enough to be island at all, to the whole of it at a
+   * shield. Deformation then belongs to the thin crust, which is where a
+   * reader has been saying it belongs since the rigidity field went in, and
+   * the cratons still carry their shape.
+   *
+   * This is not a licence to squash: `areaHold` and `compressResist` below say
+   * a triangle keeps its area, and they are what stop shape freedom becoming
+   * compression. Bending and turning are allowed; losing ground is not.
+   */
+  islandHoldByStrength: Number(ENV.HOLD_STRENGTH ?? 1),
+  /**
+   * How much of its proper size a triangle must keep, wound the right way,
+   * before the orientation barrier stops pushing. A barrier, not a shape: the
+   * springs decide what a triangle looks like, this only decides which side of
+   * the shell it lies on. Low enough that badly sheared sea floor can still be
+   * squashed nearly flat, high enough to stay clear of zero, where the
+   * gradient that pushes a fold back out has vanished along with the area.
+   */
+  foldMargin: Number(ENV.FOLD_MARGIN ?? 0.08),
+  /**
+   * The same floor for continental crust, which needs a different one.
+   *
+   * A reader at 43 Ma with the mesh on found land crushed to a bright line off
+   * Alaska and through the Caribbean, and asked whether the crust being
+   * squeezed came to about as much as the gaps. It comes to more: at 43 Ma,
+   * 19.2 million km2 squeezed out of continent against 11.8 of bare sky, and
+   * at 200 Ma 45.2 against 25.2. So the two are one failure -- the model pays
+   * for a closure it cannot make by flattening continent somewhere else -- and
+   * at a margin of 0.08 it is allowed to, right down to a twelfth of the
+   * crust's own area.
+   *
+   * Sea floor squashed flat is defensible; it is about to be swallowed anyway.
+   * Continent is not. Shortening continental crust means thickening it, and
+   * halving a triangle's area means doubling its thickness, which is what an
+   * orogen is. Much past that is not a thing that happens.
+   */
+  landMargin: Number(ENV.LAND_MARGIN ?? 0.5),
+  /** How many rounds of redrawing slivers per step. */
+  /**
+   * How many passes of retriangulation a step gets.
+   *
+   * None under the fold. A flip is the only thing left that can carry a
+   * triangle's corners apart once nothing is being collapsed, and it does it
+   * 287,643 times in a run -- which took the share of the shell painted from
+   * crust hundreds of kilometres away *up*, 31% to 48% at 200 Ma, against the
+   * collapse it replaced. A reader looking at the result asked for them off
+   * knowing the fit gets worse for it, and the fit does: bare sky 6.58% to
+   * 20.23% at 200 Ma. What is bought is a mesh where every triangle still
+   * stands for the crust it is painted with.
+   */
+  flipPasses: Number(ENV.FLIP_PASSES ?? (FOLDING ? 0 : 6)),
+  /** Smoothing passes over the age field before differentiating it. */
+  flowSmoothing: Number(ENV.FLOW_SMOOTH ?? 6),
+  /** The fastest half-spreading rate believed, km/Myr. */
+  maxRate: Number(ENV.MAX_RATE ?? 200),
+  /**
+   * How hard each vertex is pulled back onto the sphere of radius R(t).
+   *
+   * Deliberately soft. A piece of the present-day sphere cannot lie on a
+   * smaller sphere isometrically -- their Gaussian curvatures differ -- so
+   * pinning every vertex exactly onto R(t) leaves the crust no way to take up
+   * the mismatch except by straining in-plane. Letting it ride slightly off the
+   * sphere lets rigid blocks meet at an angle instead, the way the gores of a
+   * globe do, and the leftover radial deviation is itself a prediction: it is
+   * where the model demands the crust buckled.
+   */
+  /**
+   * How hard a conjugate pair pulls its two halves together, per sweep.
+   *
+   * Modest on purpose. The pairs are read off the age grid by a tracer, and a
+   * tracer that is wrong somewhere would otherwise drag the crust there with
+   * the full authority of a measurement. At this stiffness a pair nudges and
+   * the springs argue back, so what survives is what many pairs and the age
+   * grid agree on.
+   */
+  conjugateStiffness: Number(ENV.PAIR_K ?? 0.15),
+  /**
+   * How hard a traced fracture zone is held to being smooth, and how much of a
+   * corner it is allowed before anything happens.
+   *
+   * A fracture zone is a path one piece of crust actually took, so it bends
+   * over hundreds of kilometres and never corners: the tracer enforces no more
+   * than six degrees per forty-kilometre step, and a drawn track is smooth today
+   * by construction. Measured through the reconstruction it is not. By 60 Ma
+   * 8.9% of the turns along the surviving tracks are over thirty degrees and the
+   * 99th percentile is 145 -- the crust doubling back on itself at the scale of
+   * one step, which nothing on the sea floor does. The tracer did not put those
+   * corners there; the solver did. See tools/measure-tracks.ts.
+   *
+   * So this is not a drawing fix. A kink in a material line is a kink in the
+   * crust, and this is a claim about the crust: whatever else the reconstruction
+   * does, it may not fold a fracture zone at forty kilometres.
+   *
+   * The allowance is twice what the tracer permits, so ordinary bending and the
+   * mesh's own noise cost nothing and only real corners are pushed on.
+   */
+  trackStiffness: Number(ENV.TRACK_K ?? 0),
+  trackTurnDeg: 12,
+  /**
+   * How hard two islands of strong crust are pushed apart where one has got
+   * inside the other. **Off, because it does not work.**
+   *
+   * Built because nothing forbade two rigid blocks occupying the same ground,
+   * and Arabia rides onto Africa from 120 Ma. Measured against a run with it
+   * switched off, it makes that worse at every setting tried, on the very
+   * figure it exists to lower:
+   *
+   *   two islands at once      120 Ma   140 Ma   160 Ma   200 Ma
+   *   off                      0.002%   0.005%   0.009%   0.022%
+   *   rigid, 0.35              0.012%   0.035%   0.050%   0.047%
+   *   rigid, 0.05              0.020%   0.081%   0.117%   0.089%
+   *   denting the contact      0.009%   0.046%   0.081%   0.069%
+   *
+   * Softer is worse, which is the finding. Not monotonic in the stiffness
+   * means it is not a shove that needs tuning down: a weak push does not
+   * resolve a contact but does keep nudging islands about, so it adds noise
+   * that puts the overlap somewhere else. The worst island's shape loss climbs
+   * with it -- 32% against 15% -- so the islands are being torn as they are
+   * pushed.
+   *
+   * What the numbers say together is that the overlap is not a missing rule.
+   * It is what the model does when rigid blocks stop fitting: at 200 Ma the
+   * sphere is 61% of today's and 39% of the crust has to cover it exactly, and
+   * seventeen rigid islands that may not overlap on a fixed total area is a
+   * packing problem local relaxation cannot solve. Push one out and the
+   * overlap reappears next door. Nearly all of it is past 160 Ma, where the
+   * sea floor has run out and this document already says the frames are the
+   * solver settling rather than history.
+   *
+   * The code stays, and so does the measurement, because the next idea about
+   * this will need both. CONTACT_K turns it back on for anyone who wants to
+   * try one.
+   */
+  islandContactStiffness: Number(ENV.CONTACT_K ?? 0),
+  /**
+   * How far a redrawn edge's rest length moves towards the distance its two
+   * ends really have on today's Earth, 0 to 1.
+   *
+   * Zero is the old rule -- born at whatever length it finds -- which writes
+   * the crust's deformation at that instant into its own rest state, and is
+   * where 77% of all the stretch along the traced fracture zones came from.
+   * One is the honest answer and too abrupt to apply: see the note in
+   * dynamic-mesh.ts flip.
+   */
+  flipRestTruth: Number(ENV.FLIP_TRUTH ?? 0),
+  radialStiffness: Number(ENV.RADIAL_K ?? 0.35),
+  /**
+   * Send un-erupted crust inside the shell instead of deleting it.
+   *
+   * The two ways of un-making sea floor, and they are not variations on each
+   * other: with this off, an edge with un-erupted crust on both sides is
+   * collapsed and the triangle between them leaves the mesh; with it on, the
+   * triangle stays, keeps its corners' names, and is pulled down inside the
+   * Earth where it carries no force. See tools/lib/fold.ts for why the second
+   * is both the more faithful reading of the hypothesis and the way out of
+   * everything the collapse costs.
+   *
+   * A knob rather than a replacement because the whole point is to be able to
+   * measure one against the other on the same data.
+   */
+  foldInward: FOLDING,
+  /**
+   * How hard the top of the curtain pulls the two flanks of a ridge together.
+   *
+   * Not negotiable in principle -- the crust between them does not exist yet --
+   * so full strength, and it is the crust either side that decides how much of
+   * that it can give. Only read under the fold.
+   */
+  closeStiffness: Number(ENV.CLOSE_K ?? 1),
+  /**
+   * How far back from a closing ridge the crust may tip down into the slot
+   * instead of staying flat on the shell, km of crust.
+   *
+   * Zero by default, which pins everything to the sphere. Three triangles'
+   * worth was the default for one day, on the argument that crust free to tip
+   * into the slot does not have to be squashed into it -- and it measured
+   * neutral on the pairs while doing the one thing a reader then asked it not
+   * to: released, the crust either side of a shutting ridge dishes in, and a
+   * dent in the sea floor is not something any data asked for. It is kept as a
+   * knob because the argument for it is still good; see **The lip** in
+   * tools/lib/fold.ts.
+   */
+  lipKm: Number(ENV.LIP_KM ?? 0),
+  /**
+   * How much of the curtain hangs directly under the line it folded over, in km
+   * of crust below the surface.
+   *
+   * One mesh spacing: the first ring of sunk crust, which is what makes the
+   * fold at the surface a right angle. Everything deeper keeps its depth and is
+   * free to crumple, which is what lets the vanished ocean actually shut. Zero
+   * pins nothing; a very large number pins the whole curtain. See `pullInward`.
+   */
+  hangUnderFoldKm: Number(ENV.HANG_KM ?? 150),
+  /**
+   * How much of the fold's pin the shore feels back, 0 to 1. See `pullInward`;
+   * this is the horizontal pull the curtain exerts on the crust it hangs from.
+   */
+  shoreShare: Number(ENV.SHORE_SHARE ?? 1),
+  /**
+   * How much of what the curtain pulls at becomes a turn of the plate it hangs
+   * from. See `dragIslands`; `DRAG=0` switches it off.
+   *
+   * A tenth, at a reader's ask, after seeing what the ladder above it does.
+   *
+   * It was off, on a measurement taken at 40 Ma: there it moved the share of
+   * held-out pairs inside one triangle from 44% to 48%, left the median where
+   * it was, and paid for that with inside-out triangles at 0.31% against 0.12%
+   * and a dented surface point 3 km deep. The conclusion drawn was that the
+   * dilution it was built to fix was real and was not what held the gaps open.
+   *
+   * That measurement was taken where the mechanism has nothing to do. At 40 Ma
+   * almost nothing has been taken away yet; at 200 Ma more than half the crust
+   * is un-erupted and the curtain hanging under the margins is the largest
+   * thing in the model. Measured there, at full gain, it does what a reader
+   * said it would, including their prediction that California ends up against
+   * Australia: Australia comes from 2,089 km off North America to 129, with 5%
+   * of the margin in contact; Antarctica against South America from 15% of its
+   * margin in contact to 50%; North America against Africa from 1,252 km to
+   * 404; India against Africa from 1,208 to 600.
+   *
+   * And it opens the ocean the pairs already know about, South America against
+   * Africa going from 27 km apart to 1,101. Every gain between 0.35 and 1 is
+   * that same trade in different proportions, so this is not a compromise to
+   * be found by sweeping: it is how hard the Pacific side may be pushed before
+   * the Atlantic gives. A tenth is the gentle end of it.
+   */
+  slabDrag: Number(ENV.DRAG ?? 0.1),
+  /**
+   * How near a conjugate pair a point has to be before the slab may not turn
+   * its plate, km. Zero lets the drag act everywhere.
+   *
+   * See `dragWeight`: the pairs and the drag are two witnesses about the same
+   * motion, and where the pairs are dense they are the better one. Ramped from
+   * nothing at this distance to a whole say at twice it, so there is no edge
+   * for a plate to sit on.
+   */
+  dragFreeKm: Number(ENV.DRAG_FREE ?? 0),
+  // Off, and measured: at 600 it keeps the Atlantic -- South America to Africa
+  // 15 km apart against 27 with no drag at all -- and loses the Pacific again,
+  // Australia back to 1,940 km off North America, because the Pacific has
+  // two-sided pairs of its own along the East Pacific Rise and they mask the
+  // drag out of the very water it was built for. DRAG_FREE=600 is that run.
+  /**
+   * How hard every triangle is held to its own area, 0 to 1.
+   *
+   * The model has never actually asked for this. It has edge springs, which
+   * ask for lengths and let a triangle shear away its area at no cost, and it
+   * has a one-sided barrier that only stops a triangle turning inside out.
+   * "The area of a triangle should stay the same" is a different statement and
+   * it was not being made.
+   *
+   * It is also the one a reader wants made: compression should be a last
+   * resort, the fold should be doing the work, and what is left over is what
+   * moves. So this is the same Newton step the fold guard uses, run in both
+   * directions and towards the crust's own area rather than towards a floor
+   * under it.
+   */
+  areaHold: Number(ENV.AREA_K ?? 1),
+  /**
+   * Let a triangle go down as soon as one of its corners has to, instead of
+   * waiting until all of it does.
+   *
+   * A reader drew the fold as a slot with a single point at the bottom and the
+   * crust either side hanging off it, and this is what that means: not a face
+   * that folds once it is entirely gone, but a face that tips because one
+   * corner's crust is not there yet.
+   *
+   * The reason it matters is measured. After one million years, 73 points of
+   * 40,962 hang inside the shell -- 0.18% of the mesh against 0.6% of the
+   * sphere that has to go somewhere -- because a face folds only when it is
+   * *entirely* younger than the moment, and after a single step almost none is.
+   * Everything the fold cannot take becomes deformation.
+   *
+   * The statement it replaces the binary with is about edges rather than
+   * faces, and it is the one the data actually supports: **the rest length of
+   * an edge is the length of crust along it that still exists.** Age rises
+   * linearly with distance from a spreading axis, which is what an axis is, so
+   * along an edge from crust of one age to crust of another the age is a
+   * straight line and the surviving fraction is the part of it older than the
+   * moment. An edge wholly older than the moment keeps its length; one wholly
+   * younger goes to nothing; one straddling shortens by exactly the strip that
+   * has not erupted -- kilometres a step, not whole triangles.
+   */
+  edgeAge: Number(ENV.EDGE_AGE ?? 1) > 0,
+  /**
+   * How often to record a frame, overriding what build-data settled on.
+   *
+   * Five million years is right for a timeline somebody scrubs; it is useless
+   * for getting the first step right, because the first recorded frame after
+   * the present day is the fifth step and everything before it is gone by the
+   * time anything can look at it. `FRAME_STEP=1 END_MA=1` keeps the step
+   * itself. The value goes into meta.json, so the viewer and the drawing tools
+   * read the run they were given rather than the one that was expected.
+   */
+  frameStepMa: Number(ENV.FRAME_STEP ?? 0) || undefined,
+  /**
+   * Report every step rather than every recorded frame.
+   *
+   * Frames are five million years apart, so a run of one step reported
+   * nothing at all -- and a reader who wants to get the first step exactly
+   * right before going on to the second needs to see the first step. This
+   * prints what that step did to the crust: how much of the sphere it left
+   * bare, how much area each triangle kept, and how much was squeezed against
+   * what the data allows.
+   */
+  stepReport: ENV.STEP_TRACE === '1',
+  /**
+   * How strongly neighbouring crust is made to move together, 0 to 1.
+   *
+   * The measured failure this attacks: against a deformation budget the data
+   * puts at about one percent of the sphere, the reconstruction deforms twelve
+   * to twenty-six -- and squeezed and stretched come out nearly equal at every
+   * epoch, so almost all of it cancels globally. That is not crust being
+   * deformed by a closure it cannot make. It is a plate whose leading edge is
+   * squashed and whose trailing edge is stretched instead of the plate moving,
+   * and it is high spatial frequency: squeeze immediately beside stretch.
+   *
+   * Making the crust stiffer does not touch it. Every triangle at maximum
+   * strength still deforms 19.7% at 60 Ma against 21.3%, and costs a fifth of
+   * the fit. The springs are not giving in; the positions cannot satisfy the
+   * constraints, and a position solver spreads the residual as deformation.
+   *
+   * So this constrains the *displacement* rather than the crust: each point is
+   * pulled towards the average of what its neighbours have moved this step,
+   * which leaves a long-wavelength motion untouched and suppresses exactly the
+   * short-wavelength churn. It is what a plate is, expressed without having to
+   * find one.
+   */
+  coherence: Number(ENV.COHERE ?? 0),
+  /** How many neighbourhood rounds each application spreads over. */
+  coherenceRounds: Number(ENV.COHERE_ROUNDS ?? 2),
+  /**
+   * Whether the curtain's closing pull acts along the sphere rather than
+   * straight between its ends. `CLOSE_TANGENT=0` gets the plain distance
+   * spring back; see the note where it is applied.
+   */
+  closeTangential: Number(ENV.CLOSE_TANGENT ?? 1) > 0,
+  /**
+   * The least an edge resists being made *shorter* than the crust along it.
+   *
+   * Stretching and shortening are not the same thing to a piece of sea floor.
+   * Seven kilometres of basalt pulls apart readily -- that is what a rift is,
+   * and the model has always let it -- but it does not shorten: shortening
+   * oceanic lithosphere means subducting it or folding it, and neither is a
+   * spring giving a little. Resistance had been symmetric, and under the fold
+   * that is what goes wrong: the top of the curtain shuts a ridge by crushing
+   * the weak crust beside it rather than by moving it, and at 40 Ma the crust
+   * that exists ends up 5.7% smaller in area than the crust it is made of,
+   * which is where the bare sky comes from.
+   *
+   * Zero leaves the springs symmetric, which is what every measurement before
+   * the fold was made with.
+   */
+  compressResist: Number(ENV.COMPRESS_K ?? (FOLDING ? 0.9 : 0)),
+  /**
+   * Whether the whole curtain of un-erupted crust pulls its ends together, or
+   * only the rim of it that still touches the surface. See markCrust.
+   */
+  curtainCloses: Number(ENV.CURTAIN_K ?? 1) > 0,
+  /** Stop early; for convergence experiments. */
+  endMa: Number(ENV.END_MA ?? 0) || undefined,
+}
+}
+
+let CONFIG = readConfig()
+
+/**
+ * Run on these knobs instead of the process environment.
+ *
+ * Everything read at load time is rebuilt in the order it depends on: the fold
+ * flag first, because two of the config's own defaults ask whether this run
+ * folds, then the config, then the contact distance and the list of overrides a
+ * run records about itself.
+ */
+export function configure(env: Record<string, string | undefined>): void {
+  ENV = env
+  FOLDING = Number(ENV.FOLD_IN ?? 1) > 0
+  CONFIG = readConfig()
+  CONTACT_KM = Number(ENV.CONTACT_KM ?? 200)
+  OVERRIDES = KNOBS.filter((name) => ENV[name] !== undefined)
+}
+
+
+/** Run the whole reconstruction on the knobs and host given. */
+export function solve(): void {
+  const meta = JSON.parse(
+    HOST.readText('meta.partial.json'),
+  ) as Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'>
+
+  // Copied into a buffer of its own, and then cast: a Uint8Array's buffer may
+  // be a shared one as far as the types are concerned, which `readTracks`
+  // cannot take. The copy is what makes the cast true rather than a promise.
+  const trackBytes = new Uint8Array(HOST.read('tracks.bin'))
+  const tracks = readTracks(trackBytes.buffer as ArrayBuffer)
+  console.log(
+    `[solve] ${tracks.pairAgeMa.length} conjugate pairs off ${tracks.ridge.length} drawn ` +
+      'fracture-zone tracks; see tools/lib/flowlines.ts',
+  )
+
+  const buffer = HOST.read('mesh.bin')
+  const [vertexCount, faceCount, , cutPairCount] =
+    new Uint32Array(buffer.buffer, buffer.byteOffset, 4)
+  let offset = buffer.byteOffset + 16
+  const dirs = new Float32Array(buffer.buffer, offset, vertexCount * 3)
+  offset += vertexCount * 3 * 4
+  const indices = new Uint32Array(buffer.buffer, offset, faceCount * 3)
+  offset += faceCount * 3 * 4
+  const faceAges = new Float32Array(buffer.buffer, offset, faceCount)
+  offset += faceCount * 4
+  const rigidity = new Float32Array(buffer.buffer, offset, faceCount)
+  offset += faceCount * 4
+  const thickness = new Float32Array(buffer.buffer, offset, faceCount)
+  offset += faceCount * 4
+  // The gravity gradient and its roughness, per vertex. Read by the viewer as
+  // the crustal fabric; nothing in the solve depends on them yet.
+  offset += vertexCount * 8
+  offset += vertexCount * 4 // origin, which an uncut mesh does not need
+  offset += faceCount * 2 // per-face fragment
+  const vertexIsland = new Uint16Array(buffer.buffer, offset, vertexCount)
+  const crustType = new Uint8Array(buffer.buffer, offset + vertexCount * 2, faceCount)
+  offset += vertexCount * 2 + faceCount
+  /**
+   * The age of the crust at each point, sampled where the point is.
+   *
+   * This is what decides when a corner has to go down, and for a while there
+   * was nothing to ask: the file held ages per triangle only, so the solver
+   * used the youngest face touching each point. That counts any point beside
+   * young crust as young, and it removed about twice the crust the radius curve
+   * allows -- which bought the first frames and cost every later one. See
+   * `sampleVertexAges` in tools/build-data.ts.
+   */
+  if (buffer.byteLength < offset - buffer.byteOffset + vertexCount * 4) {
+    throw new Error('mesh.bin has no per-vertex ages; re-run build-data')
+  }
+  // Read by the viewer, which used to take each point's age from the oldest
+  // triangle around it and so painted every coastal point as permanent crust.
+  // The solver's own use of it is gone: it asked what age a *point* was and got
+  // an answer, and the answer turned out not to be the question -- see
+  // crust-age.bin below.
+  void new Float32Array(buffer.buffer, offset, vertexCount)
+
+  /**
+   * How much of every edge and every triangle is crust that exists yet, read
+   * off the age grid along the edge rather than interpolated between its ends.
+   *
+   * Sixteen sorted samples each; see `sampleCrustAge` in tools/build-data.ts
+   * for why the corners cannot answer this. Comparisons happen in the stored
+   * units, so nothing is decoded in the loop and the permanent sentinel is
+   * simply larger than any moment.
+   */
+  const ageFile = HOST.read('crust-age.bin')
+  const [ageFaces, ageSamples] = new Uint32Array(ageFile.buffer, ageFile.byteOffset, 2)
+  if (ageFaces !== faceCount || ageSamples !== AGE_SAMPLES) {
+    throw new Error(
+      `crust-age.bin holds ${ageSamples} samples over ${ageFaces} faces; `
+      + `this build wants ${AGE_SAMPLES} over ${faceCount}`,
+    )
+  }
+  const edgeAges = new Uint16Array(
+    ageFile.buffer, ageFile.byteOffset + 8, faceCount * 3 * AGE_SAMPLES,
+  )
+  const faceAgeSamples = new Uint16Array(
+    ageFile.buffer,
+    ageFile.byteOffset + 8 + faceCount * 3 * AGE_SAMPLES * 2,
+    faceCount * AGE_SAMPLES,
+  )
+  console.log(`[solve] ${vertexCount} vertices, ${faceCount} faces`)
+  if (cutPairCount) throw new Error('this solver closes the mesh up; it wants an uncut one')
+
+  if (CONFIG.frameStepMa) meta.frameStepMa = CONFIG.frameStepMa
+
+  const radius = meta.crustModels.find((m) => m.id === meta.solvedModel)!.radiusKm
+  const radiusAt = (t: number) => sampleCurve(radius, t, meta.radiusStepMa)
+  const r0 = meta.r0Km
+
+  const mesh = new DynamicMesh(vertexCount, faceCount, indices)
+  const adjacency = buildVertexAdjacency(indices, vertexCount)
+
+  /**
+   * Which triangles are crust right now, as against which are in the mesh.
+   *
+   * With the fold on these are two different questions: a triangle whose sea
+   * floor has not erupted yet is still in the mesh, still drawn, and is not
+   * crust -- so it must appear in no spring, no fold guard, no island, no area
+   * and no score. Everything in this file that used to ask `mesh.faceAlive`
+   * asks `crustAlive` instead, which is `crustHere` under the fold and
+   * `mesh.faceAlive` itself otherwise, because with the collapse doing the
+   * un-making a face that is in the mesh *is* crust.
+   */
+  const crustHere = new Uint8Array(faceCount).fill(1)
+  /**
+   * The triangles whose crust is not there yet and whose corners are, which are
+   * the ones doing the closing. Never set without the fold: with the collapse
+   * doing the un-making, the topology is what brings the two flanks of a ridge
+   * together.
+   */
+  const closing = new Uint8Array(faceCount)
+  /**
+   * How much of its own area each triangle must keep. Continental crust gets
+   * its own floor; see CONFIG.landMargin.
+   */
+  const faceMargin = new Float64Array(faceCount)
+  const foldScratch = newFoldScratch(vertexCount)
+  /** Scratch for the coherence constraint; see CONFIG.coherence. */
+  const moved = new Float64Array(vertexCount * 3)
+  const smoothed = new Float64Array(vertexCount * 3)
+  const shorePush = new Float64Array(vertexCount * 3)
+  const shoreCount = new Float64Array(vertexCount)
+  const crustAlive = CONFIG.foldInward ? crustHere : mesh.faceAlive
+  /** Which points belong on the shell; undefined when they all do. */
+  const onShell = CONFIG.foldInward ? foldScratch.onShell : undefined
+  /** How hard each of them is held out there; undefined when it is absolutely. */
+  const holdOut = CONFIG.foldInward ? foldScratch.hold : undefined
+  /** The same, for the routines that take a mesh to measure coverage of. */
+  const shell: Tiling = { faceVerts: mesh.faceVerts, faceAlive: crustAlive }
+  /**
+   * How far inside the shell each point sits, for the viewer: 255 on the
+   * surface, 0 at the centre. Written only when the fold runs -- the frames
+   * themselves keep directions alone, so without this the curtain would be
+   * projected straight back onto the sphere it hangs beneath.
+   */
+  const sink = new Uint8Array(vertexCount).fill(255)
+  const sinks: Uint8Array[] = []
+  let fold: FoldResult = { sunk: 0, deepestKm: 0, hangingKm: 0 }
+  /** The share of the sphere still under a ridge that has not shut. */
+  let unshutShare = 0
+  /** How sharp the fold is and whether the surface has dished; see foldShape. */
+  let folding = { tiltDeg: NaN, pitKm: 0, pitShare: 0 }
+
+  /**
+   * The size and shape each triangle has today, kept per triangle rather than
+   * per edge on purpose. A collapse renames the corners of the triangles around
+   * it -- the crust between two points is the crust it always was, it has just
+   * lost the point that used to sit in the middle -- so a rest length stored
+   * against the triangle survives the renaming without any bookkeeping.
+   */
+  const restEdge = new Float64Array(faceCount * 3)
+  const restArea = new Float64Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    for (let k = 0; k < 3; k++) {
+      const a = indices[f * 3 + k] * 3
+      const b = indices[f * 3 + ((k + 1) % 3)] * 3
+      restEdge[f * 3 + k] =
+        r0 * length3(dirs[a] - dirs[b], dirs[a + 1] - dirs[b + 1], dirs[a + 2] - dirs[b + 2])
+    }
+    restArea[f] =
+      solidAngle(dirs, indices[f * 3] * 3, indices[f * 3 + 1] * 3, indices[f * 3 + 2] * 3) * r0 * r0
+  }
+
+  const pos = new Float64Array(vertexCount * 3)
+  for (let i = 0; i < vertexCount * 3; i++) pos[i] = dirs[i] * r0
+  const previous = new Float64Array(pos)
+  // Read from the mesh rather than worked out again, so the picture and the
+  // physics cannot drift apart.
+  const islands = {
+    vertexIsland: Int32Array.from(vertexIsland, (id) => id - 1),
+    count: vertexIsland.reduce((m, id) => Math.max(m, id), 0),
+  }
+  console.log(`[solve] ${islands.count} islands of strong crust hold their shape`)
+  const shape = islandShape(dirs, islands.vertexIsland, islands.count, vertexCount, r0)
+  /**
+   * The pairs whose distance the islands are supposed to keep.
+   *
+   * Sampled from the islands rather than from the lat/lon regions because an
+   * island is a claim this model makes -- shields hold their shape -- while a
+   * region is a box on a map, and half of what a box measures is Madagascar
+   * genuinely leaving Africa. See tools/lib/shape.ts.
+   */
+  const heldPairs = shapePairs(dirs, islands.vertexIsland, islands.count, vertexCount, r0)
+  console.log(
+    `[solve] ${heldPairs.a.length} pairs of points watched for the shape of their island`,
+  )
+  const islandFacing = new Float64Array(islands.count * 9)
+  for (let c = 0; c < islands.count; c++) {
+    islandFacing[c * 9] = 1; islandFacing[c * 9 + 4] = 1; islandFacing[c * 9 + 8] = 1
+  }
+
+  /**
+   * How hard it is to change a triangle's size, as against its shape.
+   *
+   * These are two different questions and the model had been answering both
+   * with the same number. A mountain belt bends easily -- that is what a
+   * mountain belt is, crust that folded -- but it does not stretch: it is the
+   * thickest crust on the planet, forty-five kilometres and more, piled up by
+   * being shortened. Giving it the strength of an orogen, 0.20, let it be
+   * pulled out like toffee, which is the opposite of what it did.
+   *
+   * Thickness is the honest measure of how much rock there is in the way, so
+   * resistance to stretching is read from ECM1's thickness where that says more
+   * than the crustal type does. Sea floor is seven kilometres thick and takes
+   * the type's answer; a forty-kilometre orogen takes its own.
+   */
+  /**
+   * Flatten the strength field, to find out what it is worth.
+   *
+   * The crustal *classification* is ECM1's -- shield, platform, basin, orogen,
+   * extended crust -- and published. The number this model turns each class
+   * into is ours: `CRUST_RIGIDITY` in shared/crust.ts, eleven values between
+   * 0.05 and 1.0 that were reasoned about and never measured against anything.
+   * A reader asked whether that was our invention and whether it should go.
+   *
+   * `FLAT_K=0.6` gives every triangle the same strength and changes nothing
+   * else -- the islands of strong crust are baked into mesh.bin and still held
+   * -- so the difference between that run and this one is exactly what the
+   * invented field is earning.
+   */
+  const flat = Number(ENV.FLAT_K ?? 0)
+  if (flat > 0) {
+    rigidity.fill(flat)
+    console.log(`[solve] every triangle given strength ${flat}; the strength field is switched off`)
+  }
+  /**
+   * Or take strength from thickness instead: thicker is stronger.
+   *
+   * `STRENGTH=thickness`. The reader's own suggestion, and the appeal of it is
+   * that it uses nothing but published numbers -- ECM1's thickness grid,
+   * linearly from 5 km to 75 -- where the class mapping above is ours.
+   *
+   * It is also the exact inversion of this model's most counterintuitive call.
+   * Under the classes an orogen is the weakest continental crust there is,
+   * 0.20, because a mountain belt is by definition crust that folded; under
+   * thickness it becomes the strongest thing on the planet at 0.96. And stable
+   * sea floor goes the other way, 0.60 down to 0.03. So this measures whether
+   * that call is earning anything.
+   */
+  /**
+   * Or weaken the sea floor alone, which is where the whole gain may come from.
+   *
+   * `OCEAN_K=0.05`. Taking strength from thickness improves the held-out pairs
+   * at every epoch, and it does two things at once: it makes seven kilometres
+   * of basalt nearly free (0.60 down to 0.03) and it makes shields and cratons
+   * deformable (1.0 down to about 0.5). The first is defensible on its own --
+   * sea floor is thin and is where every closure has to be absorbed -- and the
+   * second is not, so it is worth knowing which of them is paying.
+   */
+  const oceanK = Number(ENV.OCEAN_K ?? 0)
+  if (oceanK > 0) {
+    let n = 0
+    for (let f = 0; f < faceCount; f++) {
+      const name = CRUST_TYPES[crustType[f]]
+      if (name !== 'SOCE' && name !== 'MORB') continue
+      rigidity[f] = oceanK
+      n++
+    }
+    console.log(`[solve] ${n} sea-floor triangles given strength ${oceanK}, continents unchanged`)
+  }
+  if (ENV.STRENGTH === 'thickness') {
+    for (let f = 0; f < faceCount; f++) {
+      rigidity[f] = Math.max(0.02, Math.min(1, (thickness[f] - 5) / 70))
+    }
+    console.log('[solve] strength taken from ECM1 thickness rather than crustal class')
+  }
+
+  const stretchResist = new Float64Array(faceCount)
+  {
+    const intact: number[] = []
+    for (let f = 0; f < faceCount; f++) if (rigidity[f] >= 0.9) intact.push(thickness[f])
+    intact.sort((a, b) => a - b)
+    const reference = intact.length ? intact[Math.floor(intact.length / 2)] : 40
+    let stiffened = 0
+    for (let f = 0; f < faceCount; f++) {
+      const byThickness = Math.min(1, thickness[f] / reference)
+      stretchResist[f] = Math.max(rigidity[f], byThickness)
+      if (stretchResist[f] > rigidity[f] + 0.05) stiffened++
+    }
+    console.log(
+      `[solve] ${((100 * stiffened) / faceCount).toFixed(0)}% of the shell resists stretching ` +
+        `more than its crustal type alone would say, on the strength of how thick it is`,
+    )
+  }
+
+  for (let f = 0; f < faceCount; f++) {
+    faceMargin[f] = faceAges[f] >= PERMANENT_MA ? CONFIG.landMargin : CONFIG.foldMargin
+  }
+  if (CONFIG.landMargin !== CONFIG.foldMargin) {
+    console.log(
+      `[solve] continental crust may not be squeezed below ${(100 * CONFIG.landMargin).toFixed(0)}% `
+      + `of its own area; sea floor may go to ${(100 * CONFIG.foldMargin).toFixed(0)}%`,
+    )
+  }
+
+  const vertexAge = new Float32Array(vertexCount)
+  const vertexRigidity = new Float64Array(vertexCount)
+  {
+    const share = new Float64Array(vertexCount)
+    for (let f = 0; f < faceCount; f++) {
+      for (let k = 0; k < 3; k++) {
+        const v = indices[f * 3 + k]
+        if (faceAges[f] > vertexAge[v]) vertexAge[v] = faceAges[f]
+        vertexRigidity[v] += rigidity[f]
+        share[v]++
+      }
+    }
+    for (let v = 0; v < vertexCount; v++) if (share[v]) vertexRigidity[v] /= share[v]
+  }
+
+  /**
+   * How much of the island hold each point gets, from its own strength.
+   *
+   * Ramped from nothing at `breaksBelow`, where crust is only just strong
+   * enough to be part of an island, to all of it at a shield. See
+   * `islandHoldByStrength`: at zero this is flat and an island is one rigid
+   * cap, which is what forbids a peninsula turning relative to the continent
+   * it hangs off.
+   */
+  const holdShare = new Float64Array(vertexCount).fill(1)
+  {
+    const by = CONFIG.islandHoldByStrength
+    const floor = CONFIG.breaksBelow
+    let sum = 0
+    let held = 0
+    for (let v = 0; v < vertexCount; v++) {
+      const ramp = Math.min(1, Math.max(0, (vertexRigidity[v] - floor) / Math.max(1e-6, 1 - floor)))
+      holdShare[v] = 1 - by + by * ramp
+      if (islands.vertexIsland[v] >= 0) { sum += holdShare[v]; held++ }
+    }
+    if (by > 0 && held) {
+      console.log(
+        `[solve] an island point is held to its shape at ${
+          (CONFIG.islandHold * (sum / held)).toFixed(3)} per sweep on average, `
+          + `against ${CONFIG.islandHold} flat; the weakest crust in an island is free to bend`,
+      )
+    }
+  }
+
+  /**
+   * The conjugate pairs, split into the ones that pull and the ones that judge.
+   *
+   * Until now these only judged: they reached conjugateFit and nothing else, so
+   * every change to how they were traced moved the yardstick and left the
+   * reconstruction byte for byte identical. Feeding them in is the change that
+   * makes them matter -- and it destroys them as a test unless some are kept
+   * back, because a pair the solver was told to close is no evidence that it
+   * closed.
+   *
+   * Split by track, not by pair. Two pairs five million years apart on the same
+   * walk are nearly the same claim, so splitting pair by pair would put a
+   * near-copy of every constraint into the test set and score the model on what
+   * it had been told.
+   */
+  const pairPulls = new Uint8Array(tracks.pairAgeMa.length)
+  const pairRestKm = new Float64Array(tracks.pairAgeMa.length)
+  {
+    const place = (verts: Uint32Array, weights: Float32Array, i: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = verts[i * 3 + k] * 3
+        const w = weights[i * 3 + k]
+        x += w * dirs[v]; y += w * dirs[v + 1]; z += w * dirs[v + 2]
+      }
+      const l = length3(x, y, z) || 1
+      return [x / l, y / l, z / l]
+    }
+    let pulling = 0
+    for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+      if (pairIsHeldIn(tracks, i)) { pairPulls[i] = 1; pulling++ }
+      const a = place(tracks.pairAVerts, tracks.pairAWeights, i)
+      const b = place(tracks.pairBVerts, tracks.pairBWeights, i)
+      const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
+      pairRestKm[i] = Math.acos(dot) * r0
+    }
+    console.log(
+      `[solve] ${pulling} conjugate pairs pull on the crust, ` +
+        `${tracks.pairAgeMa.length - pulling} are held back to score it`,
+    )
+  }
+
+  /**
+   * Where the pairs have nothing to say, which is where the slab may pull.
+   *
+   * The two claims fight, and they should not both be believed in the same
+   * water. A conjugate pair says how far apart two pieces of crust were at an
+   * age, and in the Atlantic the pairs are dense: they already know how that
+   * ocean opened. The slab drag says a plate turns towards the curtain of
+   * un-erupted floor hanging under its margin, and in the Pacific that is the
+   * only claim there is, because a Pacific pair needs a western flank that is
+   * gone.
+   *
+   * Let both act everywhere and the stronger wins the water the other one
+   * knows about: at full drag, South America against Africa goes from 27 km
+   * apart to 1,101, while Australia against North America comes from 2,089 km
+   * to 129. Every gain between them is the same trade in different
+   * proportions, which is the shape of two witnesses contradicting each other
+   * rather than of a knob wanting tuning.
+   *
+   * So the drag is weighted by how far a point is from the nearest pair end.
+   * Nothing within `dragFreeKm` gets to turn its plate; from there it ramps to
+   * its whole say by twice that. Present-day places, because a pair's own
+   * position is where its crust is now and the mask is a statement about which
+   * survey covers which ocean, not about where anything has got to.
+   */
+  const dragWeight = new Float64Array(vertexCount).fill(1)
+  if (tracks && CONFIG.slabDrag > 0 && CONFIG.dragFreeKm > 0) {
+    const ends: number[] = []
+    const place = (verts: Uint32Array, weights: Float32Array, i: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = verts[i * 3 + k] * 3
+        const w = weights[i * 3 + k]
+        x += w * dirs[v]; y += w * dirs[v + 1]; z += w * dirs[v + 2]
+      }
+      const l = length3(x, y, z) || 1
+      return [x / l, y / l, z / l]
+    }
+    for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+      // Conjugate pairs only. A one-sided pair is the crust that has no
+      // conjugate left, so it is not a second witness against the drag -- it
+      // is the same witness, saying the ocean beside it closed onto a margin,
+      // and masking the drag out where it speaks would silence the drag over
+      // exactly the water it was built for.
+      if (tracks.pairKind[i] === ONE_SIDED) continue
+      for (const verts of [
+        [tracks.pairAVerts, tracks.pairAWeights],
+        [tracks.pairBVerts, tracks.pairBWeights],
+      ] as [Uint32Array, Float32Array][]) {
+        ends.push(...place(verts[0], verts[1], i))
+      }
+    }
+    // Bucketed by a coarse cell, so each vertex looks at the pairs near it
+    // rather than at all five thousand of them.
+    const rows = 45
+    const cols = 90
+    const cellOf = (x: number, y: number, z: number) => {
+      const row = Math.min(rows - 1, Math.floor(
+        (Math.acos(Math.min(1, Math.max(-1, y))) / Math.PI) * rows,
+      ))
+      const lon = Math.atan2(-z, x) / (2 * Math.PI) + 0.5
+      return row * cols + Math.min(cols - 1, Math.floor(lon * cols))
+    }
+    const buckets: number[][] = Array.from({ length: rows * cols }, () => [])
+    for (let e = 0; e < ends.length; e += 3) {
+      buckets[cellOf(ends[e], ends[e + 1], ends[e + 2])].push(e)
+    }
+    const free = CONFIG.dragFreeKm / r0
+    const full = (2 * CONFIG.dragFreeKm) / r0
+    let held = 0
+    for (let v = 0; v < vertexCount; v++) {
+      const x = dirs[v * 3], y = dirs[v * 3 + 1], z = dirs[v * 3 + 2]
+      const row = Math.min(rows - 1, Math.floor(
+        (Math.acos(Math.min(1, Math.max(-1, y))) / Math.PI) * rows,
+      ))
+      const lon = Math.atan2(-z, x) / (2 * Math.PI) + 0.5
+      const col = Math.min(cols - 1, Math.floor(lon * cols))
+      // Two cells of slack either way covers twice the free radius at this
+      // grid, so nothing near enough to matter is missed.
+      const reach = 2 + Math.ceil((2 * CONFIG.dragFreeKm) / ((Math.PI * r0) / rows))
+      let nearest = Math.PI
+      for (let dr = -reach; dr <= reach; dr++) {
+        const r2 = row + dr
+        if (r2 < 0 || r2 >= rows) continue
+        for (let dc = -reach; dc <= reach; dc++) {
+          const c2 = ((col + dc) % cols + cols) % cols
+          for (const e of buckets[r2 * cols + c2]) {
+            const dot = Math.min(1, Math.max(-1,
+              x * ends[e] + y * ends[e + 1] + z * ends[e + 2]))
+            const angle = Math.acos(dot)
+            if (angle < nearest) nearest = angle
+          }
+        }
+      }
+      const w = nearest <= free ? 0
+        : nearest >= full ? 1
+          : (nearest - free) / (full - free)
+      dragWeight[v] = w
+      if (w < 1) held++
+    }
+    console.log(
+      `[solve] the slab may turn a plate on ${vertexCount - held} of ${vertexCount} points; `
+        + `the other ${held} are within ${2 * CONFIG.dragFreeKm} km of a conjugate pair, `
+        + 'which already says how their ocean opened',
+    )
+  }
+
+  const identity = Uint32Array.from({ length: vertexCount }, (_, v) => v)
+  const flow = spreadingField(dirs, identity, vertexCount, vertexAge, adjacency, vertexCount, r0)
+  /**
+   * What each point was doing last step.
+   *
+   * Nothing here is a plate, so there is no Euler pole to carry forward; the
+   * memory lives on the points themselves. It does the same job -- crust that
+   * was moving one way keeps moving that way unless the data says otherwise --
+   * and it is what carries a continent through the long stretches where the
+   * ocean beside it has closed and there is nothing left to read.
+   */
+  const drift = new Float64Array(vertexCount * 3)
+
+  const { stretch, riftMa } = unstretching(
+    thickness, faceAges, rigidity, faceCount, indices, crustType,
+  )
+  const stretchAt = (f: number, t: number) =>
+    1 + (stretch[f] - 1) * (riftMa[f] > 0 ? Math.min(1, t / riftMa[f]) : 0)
+  let warnedBoundary = false
+  const restAreaNow = new Float64Array(faceCount)
+  /** What each of the three edges of a face should measure at the current step. */
+  const edgeTarget = new Float64Array(faceCount * 3)
+
+  // A fixed set of directions to ask "is there any crust here?" of. Not the
+  // mesh's own vertices, which is what they used to be; see tools/lib/coverage.ts.
+  const probes = probeDirections(Number(ENV.PROBES ?? 100000))
+  const cells = probeCells(probes)
+  const buckets = cellBuckets()
+  const faceIsland = new Uint16Array(faceCount)
+  // Its own bucketing, holding only the island faces, so the contact test and
+  // the coverage pass do not overwrite each other's lists.
+  const contactScratch = newContactScratch(cellBuckets().length)
+
+  /**
+   * Which island each triangle belongs to.
+   *
+   * Worked out fresh whenever the mesh has changed, because it does: a
+   * collapse renames a face's corners and a flip replaces one, so a face is
+   * not made of the crust it started with. All three corners have to agree or
+   * an island's own ragged edge reads as an overlap with whatever it borders.
+   */
+  const markIslands = () => {
+    for (let f = 0; f < faceCount; f++) {
+      if (!crustAlive[f]) { faceIsland[f] = 0; continue }
+      // The raw array, not islands.vertexIsland. There are two conventions in
+      // this file and mixing them is silent: mesh.bin numbers the islands from
+      // one with zero for none, and the solver shifts that to zero-based with
+      // *minus one* for none. Testing `!== 0` against the shifted one is true
+      // for every piece of crust that belongs to no island and false for every
+      // point of island one, which is as wrong as a test can be while still
+      // running. It marked nine tenths of the mesh as one enormous island,
+      // made the contact test scan seven hundred candidate faces per point,
+      // and inflated the island-overlap figure by counting ocean against
+      // craton.
+      const ia = vertexIsland[mesh.faceVerts[f * 3]]
+      const ib = vertexIsland[mesh.faceVerts[f * 3 + 1]]
+      const ic = vertexIsland[mesh.faceVerts[f * 3 + 2]]
+      faceIsland[f] = ia !== 0 && ia === ib && ib === ic ? ia : 0
+    }
+  }
+
+  const frames: Int16Array[] = []
+  const strains: Uint8Array[] = []
+  const plates: Uint8Array[] = []
+  /** Where everything was at the previous recorded frame, to read plates from. */
+  const atLastFrame = new Float64Array(pos)
+  let plateReport = { count: 0, biggest: [] as number[] }
+  const diagnostics: FrameDiagnostics[] = []
+
+  const regionVertices = new Map<string, number[]>()
+  for (const region of REGIONS) {
+    const list: number[] = []
+    for (let v = 0; v < vertexCount; v++) {
+      if (vertexAge[v] < PERMANENT_MA) continue
+      const [u, w] = directionToUv(dirs[v * 3], dirs[v * 3 + 1], dirs[v * 3 + 2])
+      const lon = (u - 0.5) * 360
+      const lat = (w - 0.5) * 180
+      if (lat >= region.latMin && lat <= region.latMax && lon >= region.lonMin && lon <= region.lonMax) {
+        list.push(v)
+      }
+    }
+    regionVertices.set(region.id, list)
+  }
+  /**
+   * The seaward edge of each continent: a point of permanent crust with a
+   * neighbour that is not permanent.
+   *
+   * The regions themselves are lat/lon rectangles intersected with continental
+   * crust, so their outlines are part coastline and part box edge. Asking which
+   * points have oceanic neighbours gets the coastline alone, which is the thing
+   * a fit is a fit between.
+   */
+  const regionMargin = new Map<string, number[]>()
+  for (const region of REGIONS) {
+    const margin: number[] = []
+    for (const v of regionVertices.get(region.id) ?? []) {
+      for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+        if (vertexAge[adjacency.neighbours[k]] < PERMANENT_MA) {
+          margin.push(v)
+          break
+        }
+      }
+    }
+    regionMargin.set(region.id, margin)
+  }
+  console.log(
+    `[solve] margins: ${REGIONS.map((r) => `${r.id} ${regionMargin.get(r.id)?.length ?? 0}`).join(', ')}`,
+  )
+
+  const separation = new Map<string, number[]>()
+  const matched = new Map<string, number[]>()
+
+  const track = new Map<string, { first: number[]; last: number[]; walked: number }>()
+  const regionCentre = (id: string) => {
+    let x = 0, y = 0, z = 0
+    for (const v of regionVertices.get(id) ?? []) {
+      const s = mesh.survivor(v) * 3
+      const length = length3(pos[s], pos[s + 1], pos[s + 2]) || 1
+      x += pos[s] / length; y += pos[s + 1] / length; z += pos[s + 2] / length
+    }
+    const length = length3(x, y, z) || 1
+    return [x / length, y / length, z / length]
+  }
+  const followRegions = (radiusKm: number) => {
+    for (const region of REGIONS) {
+      const centre = regionCentre(region.id)
+      const seen = track.get(region.id)
+      if (!seen) {
+        track.set(region.id, { first: centre, last: centre, walked: 0 })
+        continue
+      }
+      const dot = Math.min(1, Math.max(-1,
+        seen.last[0] * centre[0] + seen.last[1] * centre[1] + seen.last[2] * centre[2]))
+      seen.walked += Math.acos(dot) * radiusKm
+      seen.last = centre
+    }
+  }
+
+  /** Give every collapsed point the place of the point that swallowed it. */
+  const settleCollapsed = () => {
+    for (let v = 0; v < vertexCount; v++) {
+      if (mesh.vertexAlive[v]) continue
+      const s = mesh.survivor(v) * 3
+      pos[v * 3] = pos[s]
+      pos[v * 3 + 1] = pos[s + 1]
+      pos[v * 3 + 2] = pos[s + 2]
+    }
+  }
+
+  /**
+   * The triangulation as the frames have recorded it so far. Collapses and
+   * flips move it away from mesh.bin's index array from the first step, so the
+   * connectivity has to travel with the frames or the viewer draws a mesh that
+   * stopped being true two hundred million years ago. See shared/topology.ts.
+   */
+  const drawnTopology = Uint16Array.from(indices)
+  const topologyDeltas: TopologyDelta[] = []
+  const recordTopology = () =>
+    topologyDeltas.push(
+      topologyDelta(drawnTopology, mesh.drawnVerts, faceCount, mesh.faceAlive),
+    )
+
+  const record = (t: number) => {
+    const closest = (a: string, b: string) => {
+      const one = regionVertices.get(a) ?? []
+      const two = regionVertices.get(b) ?? []
+      let best = -1
+      for (let i = 0; i < one.length; i += 4) {
+        const p = mesh.survivor(one[i]) * 3
+        const pl = length3(pos[p], pos[p + 1], pos[p + 2]) || 1
+        const px = pos[p] / pl, py = pos[p + 1] / pl, pz = pos[p + 2] / pl
+        for (let j = 0; j < two.length; j += 4) {
+          const q = mesh.survivor(two[j]) * 3
+          const ql = length3(pos[q], pos[q + 1], pos[q + 2]) || 1
+          const dot = px * (pos[q] / ql) + py * (pos[q + 1] / ql) + pz * (pos[q + 2] / ql)
+          if (dot > best) best = dot
+        }
+      }
+      return Math.acos(Math.min(1, Math.max(-1, best))) * radiusAt(t)
+    }
+    /**
+     * How much of the shorter margin lies against the other one.
+     *
+     * Measured from the shorter of the two on purpose: the question for India
+     * against Africa is whether India's western margin lies along Africa, not
+     * whether most of Africa's coastline lies along India, which it never could.
+     * Points are counted rather than arc length measured -- a geodesic mesh
+     * spaces them near evenly, and collapse thins them without favouring one
+     * stretch of coast over another.
+     */
+    const matchedShare = (a: string, b: string) => {
+      const here = (regionMargin.get(a) ?? []).length <= (regionMargin.get(b) ?? []).length ? a : b
+      const there = here === a ? b : a
+      const mine = regionMargin.get(here) ?? []
+      const theirs = regionMargin.get(there) ?? []
+      if (!mine.length || !theirs.length) return 0
+      const r = radiusAt(t)
+      // A margin closer than this cannot be resolved by a mesh whose triangles
+      // are about a degree across, so anything nearer counts as in contact.
+      const touching = Math.cos(CONTACT_KM / r)
+      const seen = new Set<number>()
+      let count = 0
+      let close = 0
+      for (const v of mine) {
+        const p = mesh.survivor(v)
+        if (seen.has(p)) continue
+        seen.add(p)
+        count++
+        const i = p * 3
+        const pl = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+        const px = pos[i] / pl, py = pos[i + 1] / pl, pz = pos[i + 2] / pl
+        for (const w of theirs) {
+          const q = mesh.survivor(w) * 3
+          const ql = length3(pos[q], pos[q + 1], pos[q + 2]) || 1
+          if (px * (pos[q] / ql) + py * (pos[q + 1] / ql) + pz * (pos[q + 2] / ql) >= touching) {
+            close++
+            break
+          }
+        }
+      }
+      return count ? close / count : 0
+    }
+    for (const target of FIT_TARGETS) {
+      const key = `${target.a}|${target.b}`
+      separation.set(key, [...(separation.get(key) ?? []), closest(target.a, target.b)])
+      matched.set(key, [...(matched.get(key) ?? []), matchedShare(target.a, target.b)])
+    }
+
+    const found = findPlates(
+      pos, atLastFrame, mesh, Math.max(meta.frameStepMa, 1), vertexCount,
+      plates[plates.length - 1],
+    )
+    for (let v = 0; v < vertexCount; v++) {
+      if (!mesh.vertexAlive[v]) found.ids[v] = found.ids[mesh.survivor(v)]
+    }
+    plates.push(found.ids)
+    plateReport = { count: found.count, biggest: found.biggest }
+    const speed = medianSpeed(
+      pos, atLastFrame, mesh, radiusAt(t), Math.max(meta.frameStepMa, 1), vertexCount,
+    )
+    atLastFrame.set(pos)
+
+    for (let f = 0; f < faceCount; f++) restAreaNow[f] = restArea[f] / stretchAt(f, t)
+    const strain = faceStrain(pos, mesh.faceVerts, restAreaNow, faceCount, crustAlive)
+    frames.push(quantise(pos, vertexCount))
+    if (CONFIG.foldInward) {
+      readSink(pos, vertexCount, radiusAt(t), sink)
+      sinks.push(Uint8Array.from(sink))
+    }
+    recordTopology()
+    // Per-vertex readings are computed on the solver's names, so a point that
+    // has been merged away holds nothing -- and the drawn triangulation still
+    // uses those names, because that is how it keeps track of whose crust each
+    // triangle is. Hand each of them its survivor's reading, the same way
+    // settleCollapsed hands them its position.
+    const vertexStrain = perVertexStrain(
+      strain, mesh.faceVerts, restAreaNow, faceCount, vertexCount, crustAlive,
+    )
+    for (let v = 0; v < vertexCount; v++) {
+      if (!mesh.vertexAlive[v]) vertexStrain[v] = vertexStrain[mesh.survivor(v)]
+    }
+    strains.push(vertexStrain)
+    const held = distortion(heldPairs, pos, radiusAt(t))
+    markIslands()
+    const tiled = coverage(pos, shell, faceCount, probes, cells, buckets, faceIsland)
+    // How much of the sphere is still under a ridge that has not shut.
+    //
+    // Under the fold the crust that exists can cover less than the whole sphere
+    // -- there is no closed triangulation forcing it to -- and the share that
+    // is bare says nothing about *why*. This splits it: sky over a triangle
+    // whose crust has not erupted is a closure the solver did not manage, and
+    // sky over nothing at all is crust that has been pulled apart.
+    if (CONFIG.foldInward) {
+      let rest = 0
+      let now = 0
+      for (let f = 0; f < faceCount; f++) {
+        if (!crustHere[f]) continue
+        rest += restAreaNow[f]
+        const a3 = mesh.faceVerts[f * 3] * 3
+        const b3 = mesh.faceVerts[f * 3 + 1] * 3
+        const c3 = mesh.faceVerts[f * 3 + 2] * 3
+        now += solidAngle(pos, a3, b3, c3) * radiusAt(t) * radiusAt(t)
+      }
+      const sphere = 4 * Math.PI * radiusAt(t) ** 2
+      console.log(
+        `[area] ${t} Ma  crust wants ${(100 * rest / sphere).toFixed(2)}% of the sphere, `
+        + `covers ${(100 * now / sphere).toFixed(2)}%`,
+      )
+      if (ENV.AREA_TRACE) {
+        const band = (f: number) => (rigidity[f] >= 0.9 ? 0 : rigidity[f] >= 0.5 ? 1 : 2)
+        const young = (f: number) => (faceAges[f] < t + 20 ? 1 : 0)
+        const names = ['craton', 'middle', 'weak  ']
+        const w = [0, 0, 0, 0, 0, 0]
+        const h = [0, 0, 0, 0, 0, 0]
+        const ratios: number[] = []
+        const edges: number[] = []
+        for (let f = 0; f < faceCount; f++) {
+          if (!crustHere[f]) continue
+          const at = band(f) * 2 + young(f)
+          const a3 = mesh.faceVerts[f * 3] * 3
+          const b3 = mesh.faceVerts[f * 3 + 1] * 3
+          const c3 = mesh.faceVerts[f * 3 + 2] * 3
+          const area = solidAngle(pos, a3, b3, c3) * radiusAt(t) * radiusAt(t)
+          w[at] += restAreaNow[f]
+          h[at] += area
+          ratios.push(area / restAreaNow[f])
+          for (let k = 0; k < 3; k++) {
+            const i = mesh.faceVerts[f * 3 + k] * 3
+            const j = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
+            edges.push(
+              length3(pos[i] - pos[j], pos[i + 1] - pos[j + 1], pos[i + 2] - pos[j + 2])
+              / edgeTarget[f * 3 + k],
+            )
+          }
+        }
+        for (let i = 0; i < 6; i++) {
+          console.log(
+            `[area]   ${names[i >> 1]} ${i % 2 ? 'young' : 'old  '}  `
+            + `wants ${(100 * w[i] / sphere).toFixed(2)}%  covers ${(100 * h[i] / sphere).toFixed(2)}%`
+            + `  (${(100 * (h[i] / w[i] - 1)).toFixed(1)}%)`,
+          )
+        }
+        ratios.sort((x, y) => x - y)
+        edges.sort((x, y) => x - y)
+        const q = (a: number[], p: number) => a[Math.floor(p * (a.length - 1))].toFixed(3)
+        console.log(
+          `[area]   area/rest  p10 ${q(ratios, 0.1)}  median ${q(ratios, 0.5)}  p90 ${q(ratios, 0.9)}`
+          + `   edge/target  p10 ${q(edges, 0.1)}  median ${q(edges, 0.5)}  p90 ${q(edges, 0.9)}`,
+        )
+      }
+    }
+    if (CONFIG.foldInward) {
+      folding = foldShape(pos, mesh, vertexCount, radiusAt(t), foldScratch)
+      // How far the rim still has to go, and what the crust around it is doing
+      // about it. A closing face is asked for zero angular separation, so the
+      // residual says whether it is contracting at all; the ring of live crust
+      // round it has to shorten its own perimeter for that to happen, and the
+      // second figure is how much of that shortening it is allowing.
+      const rim: number[] = []
+      const ring: number[] = []
+      const rNow = radiusAt(t)
+      for (let f = 0; f < faceCount; f++) {
+        if (closing[f]) {
+          for (let k = 0; k < 3; k++) {
+            const a2 = mesh.faceVerts[f * 3 + k] * 3
+            const b2 = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
+            const la = length3(pos[a2], pos[a2 + 1], pos[a2 + 2]) || 1
+            const lb = length3(pos[b2], pos[b2 + 1], pos[b2 + 2]) || 1
+            rim.push(rNow * length3(
+              pos[a2] / la - pos[b2] / lb,
+              pos[a2 + 1] / la - pos[b2 + 1] / lb,
+              pos[a2 + 2] / la - pos[b2 + 2] / lb,
+            ))
+          }
+          continue
+        }
+        if (!crustHere[f]) continue
+        // Live crust that borders the curtain: is it being let in?
+        let touches = false
+        for (let k = 0; k < 3; k++) {
+          for (const g of mesh.facesAt(mesh.faceVerts[f * 3 + k])) {
+            if (closing[g]) { touches = true; break }
+          }
+          if (touches) break
+        }
+        if (!touches) continue
+        for (let k = 0; k < 3; k++) {
+          const a2 = mesh.faceVerts[f * 3 + k] * 3
+          const b2 = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
+          const want = edgeTarget[f * 3 + k]
+          if (want < 1) continue
+          ring.push(length3(pos[a2] - pos[b2], pos[a2 + 1] - pos[b2 + 1], pos[a2 + 2] - pos[b2 + 2]) / want)
+        }
+      }
+      const mid = (xs: number[]) => {
+        if (!xs.length) return NaN
+        xs.sort((x, y) => x - y)
+        return xs[xs.length >> 1]
+      }
+      console.log(
+        `[rim] ${t} Ma  ${rim.length / 3} closing faces, median edge still `
+        + `${mid(rim).toFixed(0)} km apart on the sphere; the live crust beside them `
+        + `sits at ${(100 * mid(ring)).toFixed(1)}% of its rest length`,
+      )
+    }
+    unshutShare = CONFIG.foldInward
+      ? coverage(
+        pos, { faceVerts: mesh.faceVerts, faceAlive: closing }, faceCount,
+        probes, cells, buckets,
+      ).gapFraction
+      : 1
+    unshutShare = 1 - unshutShare
+    // How deep, as well as how much. A share of the sphere cannot tell a suture
+    // the mesh is too coarse to draw from a continent in the wrong place; the
+    // depth can. Measured, never applied -- see measureOnly in lib/contact.ts.
+    const dents = separateIslands(
+      pos, shell, faceCount, vertexCount, vertexIsland, faceIsland,
+      mesh.vertexAlive, radiusAt(t), 0, contactScratch, true, true,
+    )
+    // Should be impossible; said out loud rather than trusted, because when the
+    // probes did sit on the mesh this went wrong in total silence.
+    if (tiled.boundaryHits > 0 && !warnedBoundary) {
+      warnedBoundary = true
+      console.log(
+        `[solve] WARNING: ${tiled.boundaryHits} probes landed exactly on a triangle edge at ` +
+          `${t} Ma; the coverage figures are not reliable. See tools/lib/coverage.ts.`,
+      )
+    }
+    diagnostics.push({
+      timeMa: t,
+      radiusKm: radiusAt(t),
+      ...tiled,
+      islandOverlapDeepestKm: dents.deepestKm,
+      ...foldedShare(pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount),
+      ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, crustAlive),
+      reliefKm: relief(pos, vertexCount, radiusAt(t), onShell),
+      blockCount: plateReport.count,
+      biggestBlockShare: plateReport.biggest[0] ?? 0,
+      // The crust the grid took away arriving here, per Myr: the forcing. Zero
+      // at the first frame because no time has passed; it borrows the second
+      // below, as the plates do.
+      forcingFraction: t > 0
+        ? ((radiusAt(t - meta.frameStepMa) / r0) ** 2 - (radiusAt(t) / r0) ** 2)
+          / meta.frameStepMa
+        : 0,
+      medianSpeedKmMyr: speed,
+      islandDistortion: held.islandDistortion,
+      worstIslandDistortion: held.worstIslandDistortion,
+      ...conjugateFit(
+        {
+          aVerts: tracks.pairAVerts,
+          aWeights: tracks.pairAWeights,
+          bVerts: tracks.pairBVerts,
+          bWeights: tracks.pairBWeights,
+          ageMa: tracks.pairAgeMa,
+        },
+        t, pos, radiusAt(t), CONTACT_KM, (v) => mesh.survivor(v),
+        (i) => !pairPulls[i],
+      ),
+    })
+  }
+
+  record(0)
+  followRegions(radiusAt(0))
+  const started = Date.now()
+
+  /**
+   * Pull the pairs that were once one point towards being one point again.
+   *
+   * The claim a conjugate pair makes is about one instant: at the age its crust
+   * erupted, these two places were the same place. Everything between then and
+   * now it says nothing about -- so the target closes linearly from where they
+   * sit today to nothing at that age, and the stiffness does the opposite,
+   * near zero at the present and full at formation. Most of the pull therefore
+   * lands where the claim is real, and the straight-line guess in between is
+   * barely enforced.
+   *
+   * It runs after the edge springs and before the fold guard and the sphere, so
+   * a pull that would turn a triangle inside out is caught in the same sweep
+   * that made it.
+   *
+   * Each end is a point inside a triangle, so the correction is handed to its
+   * three corners in proportion to their weights: pulling the point pulls the
+   * crust it is part of, which is the whole idea. A vertex the mesh has already
+   * collapsed follows its survivor.
+   */
+  const closeConjugates = (pos: Float64Array, t: number, radius: number) => {
+    if (CONFIG.conjugateStiffness <= 0) return
+    for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+      if (!pairPulls[i]) continue
+      const age = tracks.pairAgeMa[i]
+      if (age <= 0 || t > age) continue
+      const remaining = (age - t) / age
+      const stiffness = CONFIG.conjugateStiffness * (1 - remaining)
+      if (stiffness <= 0) continue
+      const targetKm = pairRestKm[i] * remaining
+
+      const place = (verts: Uint32Array, weights: Float32Array) => {
+        let x = 0, y = 0, z = 0
+        for (let k = 0; k < 3; k++) {
+          const v = mesh.survivor(verts[i * 3 + k]) * 3
+          const w = weights[i * 3 + k]
+          x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+        }
+        return [x, y, z]
+      }
+      const a = place(tracks.pairAVerts, tracks.pairAWeights)
+      const b = place(tracks.pairBVerts, tracks.pairBWeights)
+      const dx = a[0] - b[0], dy = a[1] - b[1], dz = a[2] - b[2]
+      const chord = length3(dx, dy, dz)
+      if (chord < 1e-9) continue
+      // Both distances as chords of the same sphere, so the comparison does not
+      // mix a great-circle target with a straight-line reading.
+      const targetChord = 2 * radius * Math.sin(Math.min(Math.PI, targetKm / radius) / 2)
+      const move = (0.5 * stiffness * (chord - targetChord)) / chord
+      const mx = dx * move, my = dy * move, mz = dz * move
+
+      const push = (verts: Uint32Array, weights: Float32Array, sign: number) => {
+        // Spread over the corners by weight, and divide by the sum of the
+        // squared weights so that the point itself moves by the amount asked
+        // for however the weights happen to fall.
+        let share = 0
+        for (let k = 0; k < 3; k++) share += weights[i * 3 + k] * weights[i * 3 + k]
+        if (share < 1e-9) return
+        for (let k = 0; k < 3; k++) {
+          const v = mesh.survivor(verts[i * 3 + k]) * 3
+          const w = (weights[i * 3 + k] / share) * sign
+          pos[v] += mx * w; pos[v + 1] += my * w; pos[v + 2] += mz * w
+        }
+      }
+      push(tracks.pairAVerts, tracks.pairAWeights, -1)
+      push(tracks.pairBVerts, tracks.pairBWeights, 1)
+    }
+  }
+
+  /**
+   * Which drawn tracks are held smooth, and which are left alone to say whether
+   * it worked.
+   *
+   * The same split the conjugate pairs use, and for the same reason: a track the
+   * solver was told to keep smooth is no evidence that the crust stayed smooth.
+   * pairPulls is decided by the track's own number, so the two constraints agree
+   * about which half of the evidence is being spent and which is being kept.
+   */
+  const trackPulls = new Uint8Array(Math.max(0, tracks.offsets.length - 1))
+  for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+    const t = tracks.pairTrack[i]
+    if (t < trackPulls.length && pairPulls[i]) trackPulls[t] = 1
+  }
+  {
+    let held = 0
+    for (const v of trackPulls) if (v) held++
+    console.log(
+      `[solve] ${held} of ${trackPulls.length} drawn tracks are held smooth, `
+        + `${trackPulls.length - held} left free to score it`,
+    )
+  }
+
+  /**
+   * Refuse to let a traced fracture zone corner.
+   *
+   * Three consecutive points of one track are a piece of crust forty kilometres
+   * long either side of a middle point. If the turn there is past the allowance,
+   * the middle is pulled towards the midpoint of its neighbours and they are
+   * pushed the other way by half each, so the correction moves no crust on
+   * average and cannot walk the whole line sideways.
+   *
+   * Only where the crust exists: a point on sea floor younger than the frame has
+   * been collapsed out of the mesh, so its corners have been merged into their
+   * neighbours and the turn through it is not a reading of anything. Measuring
+   * those was the first version of the diagnostic and it reported a quarter of
+   * every track reversing on itself at 13 Ma, which was a measurement of the
+   * collapse and not of the crust.
+   *
+   * Like the pairs, each point is a place inside a triangle, so its correction
+   * is handed to the three corners in proportion to their weights.
+   */
+  const straightenTracks = (pos: Float64Array, t: number) => {
+    if (CONFIG.trackStiffness <= 0) return
+    const allowance = Math.cos((CONFIG.trackTurnDeg * Math.PI) / 180)
+    const place = (i: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.survivor(tracks.pointVerts[i * 3 + k]) * 3
+        const w = tracks.pointWeights[i * 3 + k]
+        x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+      }
+      return [x, y, z] as const
+    }
+    /** Hand a correction to the three corners the point is mixed from. */
+    const push = (i: number, cx: number, cy: number, cz: number) => {
+      let share = 0
+      for (let k = 0; k < 3; k++) {
+        const w = tracks.pointWeights[i * 3 + k]
+        share += w * w
+      }
+      if (share < 1e-9) return
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.survivor(tracks.pointVerts[i * 3 + k]) * 3
+        const w = tracks.pointWeights[i * 3 + k] / share
+        pos[v] += cx * w; pos[v + 1] += cy * w; pos[v + 2] += cz * w
+      }
+    }
+    for (let track = 0; track + 1 < tracks.offsets.length; track++) {
+      if (!trackPulls[track]) continue
+      const from = tracks.offsets[track]
+      const to = tracks.offsets[track + 1]
+      for (let i = from + 1; i + 1 < to; i++) {
+        // Adjacent in the walk and all three still crust. A gap where the sea
+        // floor has gone is not a corner, so nothing bridges one.
+        if (tracks.ageMa[i - 1] < t || tracks.ageMa[i] < t || tracks.ageMa[i + 1] < t) continue
+        const a = place(i - 1)
+        const b = place(i)
+        const c = place(i + 1)
+        const ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2]
+        const vx = c[0] - b[0], vy = c[1] - b[1], vz = c[2] - b[2]
+        const ul = length3(ux, uy, uz)
+        const vl = length3(vx, vy, vz)
+        if (ul < 1e-9 || vl < 1e-9) continue
+        const cos = (ux * vx + uy * vy + uz * vz) / (ul * vl)
+        if (cos >= allowance) continue
+        // How far past the allowance, ramped so a corner just over it is barely
+        // touched and a reversal gets the full stiffness.
+        const excess = Math.min(1, (allowance - cos) / (allowance + 1))
+        const w = CONFIG.trackStiffness * excess
+        const dx = b[0] - 0.5 * (a[0] + c[0])
+        const dy = b[1] - 0.5 * (a[1] + c[1])
+        const dz = b[2] - 0.5 * (a[2] + c[2])
+        push(i, -w * dx, -w * dy, -w * dz)
+        push(i - 1, 0.5 * w * dx, 0.5 * w * dy, 0.5 * w * dz)
+        push(i + 1, 0.5 * w * dx, 0.5 * w * dy, 0.5 * w * dz)
+      }
+    }
+  }
+
+  /**
+   * Which stage of a step stretches the fracture zones.
+   *
+   * Two adjacent points of a track are crust forty kilometres apart, and the
+   * crust between them is older than both ends, so it survives as long as they
+   * do and the distance has to hold. Measured on the shipped run it does not:
+   * the median segment reads 1.04 of its present-day length at 38 Ma and 1.21
+   * at 120, worst on the youngest crust still alive and fading with age behind
+   * it -- the shape of a sheet pulled along by its leading edge.
+   *
+   * Knobs did not find it. Letting the crust behind the driven band coast for
+   * longer (poleMemory 0.5 to 0.9) leaves the gradient where it was and costs
+   * fit; so does cutting the flips. So instead of guessing which stage is
+   * responsible, this reads the same number after each of them. Set
+   * STRETCH_TRACE=1; it is off otherwise because it walks every track point
+   * five times a step.
+   */
+  const tracing = ENV.STRETCH_TRACE === '1'
+  const ratioBefore = new Float64Array(tracks.ageMa.length)
+  const ratioAfter = new Float64Array(tracks.ageMa.length)
+  let stretchOnTouched = 0
+  let stretchOnCalm = 0
+  let touchedSteps = 0
+  let calmSteps = 0
+  const segmentRestKm = new Float64Array(tracks.ageMa.length)
+  if (tracing) {
+    for (let track = 0; track + 1 < tracks.offsets.length; track++) {
+      for (let i = tracks.offsets[track]; i + 1 < tracks.offsets[track + 1]; i++) {
+        const place = (j: number) => {
+          let x = 0, y = 0, z = 0
+          for (let k = 0; k < 3; k++) {
+            const v = tracks.pointVerts[j * 3 + k] * 3
+            const w = tracks.pointWeights[j * 3 + k]
+            x += w * dirs[v]; y += w * dirs[v + 1]; z += w * dirs[v + 2]
+          }
+          const l = length3(x, y, z) || 1
+          return [x / l, y / l, z / l] as const
+        }
+        const a = place(i)
+        const b = place(i + 1)
+        const dot = Math.min(1, Math.max(-1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2]))
+        segmentRestKm[i] = Math.acos(dot) * r0
+      }
+    }
+  }
+  /**
+   * Every live segment's length as a share of its present-day length, written
+   * into `into`, with NaN where the crust is gone.
+   *
+   * The step-by-step version of stretchNow. Two adjacent points of a track are
+   * crust forty kilometres apart whose age is older than both ends, so the
+   * distance between them cannot change; taking it before and after a step
+   * gives what that step did to it, and the difference can then be split by
+   * whether the mesh redrew the ground underneath in the meantime.
+   */
+  const segmentRatios = (t: number, into: Float64Array) => {
+    const place = (j: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.survivor(tracks.pointVerts[j * 3 + k]) * 3
+        const w = tracks.pointWeights[j * 3 + k]
+        x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+      }
+      return [x, y, z] as const
+    }
+    into.fill(NaN)
+    for (let track = 0; track + 1 < tracks.offsets.length; track++) {
+      for (let i = tracks.offsets[track]; i + 1 < tracks.offsets[track + 1]; i++) {
+        if (segmentRestKm[i] < 1) continue
+        if (tracks.ageMa[i] < t || tracks.ageMa[i + 1] < t) continue
+        const a = place(i)
+        const b = place(i + 1)
+        into[i] = length3(a[0] - b[0], a[1] - b[1], a[2] - b[2]) / segmentRestKm[i]
+      }
+    }
+  }
+
+  /** Whether the mesh redrew the ground under a segment during this step. */
+  const segmentTouched = (i: number) => {
+    for (const j of [i, i + 1]) {
+      for (let k = 0; k < 3; k++) {
+        if (mesh.touched[tracks.pointVerts[j * 3 + k]]) return true
+      }
+    }
+    return false
+  }
+
+  /** Median segment length as a share of its present-day length, right now. */
+  const stretchNow = (t: number): number => {
+    const ratios: number[] = []
+    const place = (j: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = mesh.survivor(tracks.pointVerts[j * 3 + k]) * 3
+        const w = tracks.pointWeights[j * 3 + k]
+        x += w * pos[v]; y += w * pos[v + 1]; z += w * pos[v + 2]
+      }
+      return [x, y, z] as const
+    }
+    for (let track = 0; track + 1 < tracks.offsets.length; track++) {
+      for (let i = tracks.offsets[track]; i + 1 < tracks.offsets[track + 1]; i++) {
+        if (segmentRestKm[i] < 1) continue
+        if (tracks.ageMa[i] < t || tracks.ageMa[i + 1] < t) continue
+        const a = place(i)
+        const b = place(i + 1)
+        ratios.push(length3(a[0] - b[0], a[1] - b[1], a[2] - b[2]) / segmentRestKm[i])
+      }
+    }
+    if (ratios.length < 20) return NaN
+    ratios.sort((x, y) => x - y)
+    return ratios[ratios.length >> 1]
+  }
+
+  const endTimeMa = CONFIG.endMa ?? meta.endTimeMa
+  let refusedTotal = 0
+  let flippedTotal = 0
+  let easedTotal = 0
+  let foldedNow = 0
+  let contacts: IslandContacts = { found: 0, deepestKm: 0, tests: 0, bucketed: 0 }
+  let contactTests = 0
+  let contactBucketed = 0
+  let contactsTotal = 0
+  let deepestContactKm = 0
+  for (let t = CONFIG.stepMa; t <= endTimeMa; t += CONFIG.stepMa) {
+    let contactsNow = 0
+    const rPrev = radiusAt(t - CONFIG.stepMa)
+    const rNext = radiusAt(t)
+    previous.set(pos)
+
+    const shrink = rNext / rPrev
+    const trace: string[] = []
+    if (tracing) {
+      trace.push(`start ${stretchNow(t).toFixed(3)}`)
+      segmentRatios(t, ratioBefore)
+      mesh.touched.fill(0)
+    }
+    for (let i = 0; i < vertexCount * 3; i++) pos[i] *= shrink
+    if (tracing) trace.push(`shrink ${stretchNow(t).toFixed(3)}`)
+
+    // Un-make the crust that had not been made yet: either by closing it up,
+    // or by sending it back down where it came from. See tools/lib/fold.ts.
+    if (CONFIG.foldInward) {
+      markCrust(mesh, faceAges, t, crustHere, closing, foldScratch, CONFIG.curtainCloses)
+      fold = measureFold(
+        mesh, restEdge, crustHere, closing, vertexCount, rNext, CONFIG.lipKm, foldScratch,
+      )
+      pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm, CONFIG.shoreShare, shorePush, shoreCount)
+    } else {
+      const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
+      refusedTotal += closed.refused
+      easedTotal += closed.eased
+      settleCollapsed()
+    }
+    markIslands()
+
+    if (tracing) trace.push(`collapse ${stretchNow(t).toFixed(3)}`)
+    driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
+    if (tracing) trace.push(`drive ${stretchNow(t).toFixed(3)}`)
+
+    // What each edge is asked to measure, worked out once for the step rather
+    // than once per sweep. Neither the rest lengths nor how far the crust has
+    // been let out change while the sweeps run, so forty sweeps were asking the
+    // same question forty times: a million square roots a step, and four
+    // million divisions, for a hundred thousand distinct answers.
+    // The moment, in the units the age samples are stored in.
+    const moment = momentOf(t)
+    for (let f = 0; f < faceCount; f++) {
+      const stretched = stretchAt(f, t)
+      const pull = Math.sqrt(stretched)
+      if (!CONFIG.edgeAge) {
+        restAreaNow[f] = restArea[f] / stretched
+        edgeTarget[f * 3] = restEdge[f * 3] / pull
+        edgeTarget[f * 3 + 1] = restEdge[f * 3 + 1] / pull
+        edgeTarget[f * 3 + 2] = restEdge[f * 3 + 2] / pull
+        continue
+      }
+      // How much of each edge is still there; see CONFIG.edgeAge.
+      for (let k = 0; k < 3; k++) {
+        const share = olderShare(edgeAges, (f * 3 + k) * AGE_SAMPLES, moment)
+        edgeTarget[f * 3 + k] = (restEdge[f * 3 + k] * share) / pull
+      }
+      // And how much of its area, which is a different question.
+      //
+      // Scaling the three sides and squaring the mean was the first attempt and
+      // it removes far too much: a triangle with one edge half gone loses a
+      // third of its area that way, when the strip that has actually not
+      // erupted is a few kilometres. It showed up as the deformation budget
+      // jumping from 4.0 to 11.8 million km2 at the first step -- the model
+      // being told to lose three times the crust the age grid says it should.
+      //
+      // Nor is it a plane through three corner ages, which was the second
+      // attempt: the age over a triangle that a ridge runs through is a roof,
+      // not a plane, and a plane through the corners misses the whole ridge.
+      // So the area is sampled in its own right, over sixteen equal pieces.
+      restAreaNow[f] = (restArea[f]
+        * olderShare(faceAgeSamples, f * AGE_SAMPLES, moment)) / stretched
+    }
+
+    for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
+      const forward = sweep % 2 === 0
+      for (let n = 0; n < faceCount; n++) {
+        const f = forward ? n : faceCount - 1 - n
+        // Three kinds of triangle under the fold, and only the first exists as
+        // crust: the ones whose sea floor has erupted pull towards the length
+        // they have today, the rim of the curtain pulls towards nothing at all
+        // because the crust between its corners is not there yet, and whatever
+        // is hanging below that is crumpled and asks for nothing. Without the
+        // fold there is only the first kind: `closing` is all zeros, so this
+        // reads exactly as it did.
+        const shuts = closing[f]
+        if (!crustAlive[f] && !shuts) continue
+        const stiffness = shuts ? CONFIG.closeStiffness : stretchResist[f]
+        if (stiffness === 0) continue
+        for (let k = 0; k < 3; k++) {
+          const va = mesh.faceVerts[f * 3 + k]
+          const vb = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
+          // Every edge of the rim, not only the pairs that are both still on
+          // the surface. Restricting it to those was the obvious reading -- the
+          // two points either side of a ridge belong together, and an edge to a
+          // corner on its way down only fights the fold for that corner -- and
+          // it is wrong: a rim triangle with two corners already sinking has no
+          // such pair, and over 20 Myr leaving those out cost a third of the
+          // closure (bare sky 2.85% -> 3.75%, the held-out pairs 159 -> 194 km).
+          // What the rim asks for is that its three corners end up in the same
+          // place. Where that place is, the fold decides.
+          const i = va * 3
+          const j = vb * 3
+          if (shuts && CONFIG.closeTangential) {
+            // The rim's claim is angular, not a distance.
+            //
+            // What a triangle of un-erupted crust says is that its corners
+            // belong at the same *place on the sphere*; how deep each of them
+            // sits is the fold's business and nothing to do with this. Asking
+            // for the straight-line distance instead conflates the two, and a
+            // reader watching the gaps stay open guessed why: since the curtain
+            // started hanging under its own fold line, a great many of these
+            // edges run *straight down* -- from a shore point to the point
+            // pinned directly beneath it -- and asking those for zero length
+            // pulls the shore inward, where relaxToSphere and the fold undo it
+            // on the same sweep. Half the closure was being spent on a
+            // tug-of-war with the other half.
+            //
+            // So both ends are moved together along the sphere and each keeps
+            // its own radius exactly. An edge that is already vertical asks for
+            // nothing, and an edge across a ridge asks for all of it.
+            const la = length3(pos[i], pos[i + 1], pos[i + 2])
+            const lb = length3(pos[j], pos[j + 1], pos[j + 2])
+            if (la < 1e-9 || lb < 1e-9) continue
+            const ax = pos[i] / la, ay = pos[i + 1] / la, az = pos[i + 2] / la
+            const bx = pos[j] / lb, by = pos[j + 1] / lb, bz = pos[j + 2] / lb
+            const h = 0.5 * stiffness
+            let nax = ax + h * (bx - ax)
+            let nay = ay + h * (by - ay)
+            let naz = az + h * (bz - az)
+            let nbx = bx + h * (ax - bx)
+            let nby = by + h * (ay - by)
+            let nbz = bz + h * (az - bz)
+            const na = length3(nax, nay, naz)
+            const nb = length3(nbx, nby, nbz)
+            if (na < 1e-9 || nb < 1e-9) continue
+            nax /= na; nay /= na; naz /= na
+            nbx /= nb; nby /= nb; nbz /= nb
+            pos[i] = nax * la; pos[i + 1] = nay * la; pos[i + 2] = naz * la
+            pos[j] = nbx * lb; pos[j + 1] = nby * lb; pos[j + 2] = nbz * lb
+            continue
+          }
+          const target = shuts ? 0 : edgeTarget[f * 3 + k]
+          const dx = pos[i] - pos[j]
+          const dy = pos[i + 1] - pos[j + 1]
+          const dz = pos[i + 2] - pos[j + 2]
+          const length = length3(dx, dy, dz)
+          if (length < 1e-9) continue
+          // Harder to shorten than to stretch; see CONFIG.compressResist.
+          const resist = length < target && stiffness < CONFIG.compressResist
+            ? CONFIG.compressResist
+            : stiffness
+          const c = (0.5 * resist * (length - target)) / length
+          const cx = dx * c, cy = dy * c, cz = dz * c
+          pos[i] -= cx; pos[i + 1] -= cy; pos[i + 2] -= cz
+          pos[j] += cx; pos[j + 1] += cy; pos[j + 2] += cz
+        }
+      }
+      closeConjugates(pos, t, rNext)
+      straightenTracks(pos, t)
+      // Rigid crust may not pass through rigid crust. Rebuilt only on the
+      // first sweep: a sweep moves points by kilometres and a grid cell is two
+      // degrees, so the lists are still right at the end of the step.
+      contacts = separateIslands(
+        pos, shell, faceCount, vertexCount, vertexIsland, faceIsland,
+        mesh.vertexAlive, rNext, CONFIG.islandContactStiffness, contactScratch,
+        sweep === 0,
+      )
+      contactsNow += contacts.found
+      if (contacts.deepestKm > deepestContactKm) deepestContactKm = contacts.deepestKm
+      contactTests += contacts.tests
+      contactBucketed += contacts.bucketed
+      if (CONFIG.areaHold > 0) {
+        holdArea(
+          pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.areaHold,
+        )
+      }
+      unfold(
+        pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext,
+        CONFIG.foldMargin, faceMargin,
+      )
+      relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness, onShell, holdOut)
+      // Beside the sphere, not once a step: the closing rim hauls the top of
+      // the curtain towards the surface every sweep, and this is what keeps
+      // sending it back down.
+      if (CONFIG.foldInward) {
+        pullInward(pos, vertexCount, foldScratch, CONFIG.radialStiffness, CONFIG.hangUnderFoldKm,
+          CONFIG.shoreShare, shorePush, shoreCount)
+      }
+      // What the curtain is pulling at, as a turn of the whole plate.
+      //
+      // The push itself reaches the crust and then all but disappears:
+      // holdIslands moves an island only as a rotation fitted over every one
+      // of its points, and the push is on its margin, so a continent of five
+      // thousand points feels a few percent of what its shore was asking for.
+      // A hanging slab does not pull on a margin, it turns a plate -- so the
+      // same pushes are summed into a torque about the island's own centre and
+      // composed into the orientation holdIslands then places it by.
+      holdIslands(
+        pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
+        rNext, islandFacing, holdShare,
+      )
+      // After the hold, not before it. Composing the turn into the island's
+      // carried orientation and letting holdIslands run does nothing at all:
+      // the hold *refits* that orientation from the island's current positions
+      // every sweep, so anything written into it beforehand is fitted straight
+      // back out. Measured identical to fifteen digits. Turning the placed
+      // positions instead sticks, because the next sweep's fit then finds the
+      // island where the turn left it.
+      // Neighbouring crust moves together. Every eighth sweep rather than
+      // every one: it is a smoothing pass over forty thousand points and it
+      // does not need to be exact, only present.
+      if (CONFIG.coherence > 0 && sweep % 8 === 7) {
+        cohere(
+          pos, previous, shrink, adjacency, vertexCount, mesh.vertexAlive,
+          CONFIG.coherence, CONFIG.coherenceRounds, moved, smoothed,
+        )
+      }
+      if (CONFIG.foldInward && CONFIG.slabDrag > 0) {
+        dragIslands(
+          pos, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
+          shorePush, shoreCount, CONFIG.slabDrag, dragWeight,
+        )
+      }
+    }
+    relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
+    if (CONFIG.foldInward) pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm, CONFIG.shoreShare, shorePush, shoreCount)
+    if (tracing) trace.push(`sweeps ${stretchNow(t).toFixed(3)}`)
+    foldedNow = unfold(
+      pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
+      faceMargin,
+    )
+    // Redraw whatever the move has left as slivers, then settle again: a
+    // triangulation that has stopped describing the crust well is one nudge
+    // from turning inside out.
+    flippedTotal += retriangulate(
+      mesh, pos, restEdge, CONFIG.flipPasses, rigidity, CONFIG.breaksBelow, dirs, r0,
+      CONFIG.flipRestTruth, CONFIG.foldInward ? crustHere : undefined,
+    )
+    if (tracing) trace.push(`flips ${stretchNow(t).toFixed(3)}`)
+    settleCollapsed()
+    removeNetRotation(pos, previous, vertexCount, shrink)
+    settleCollapsed()
+    followRegions(rNext)
+
+    if (CONFIG.stepReport) {
+      // Against the rest area the step itself used, not a freshly computed one:
+      // under CONFIG.edgeAge those differ, and recomputing here measured the
+      // crust against an area it was never asked to have.
+      markIslands()
+      const seen = coverage(pos, shell, faceCount, probes, cells, buckets)
+      let squeezed = 0
+      let stretchedNow = 0
+      let demanded = 0
+      const kept: number[] = []
+      for (let f = 0; f < faceCount; f++) {
+        if (!crustAlive[f]) continue
+        const rest = restAreaNow[f]
+        demanded += rest
+        if (rest <= 0) continue
+        const now = solidAngle(
+          pos, mesh.faceVerts[f * 3] * 3, mesh.faceVerts[f * 3 + 1] * 3,
+          mesh.faceVerts[f * 3 + 2] * 3,
+        ) * rNext * rNext
+        if (now < rest) squeezed += rest - now
+        else stretchedNow += now - rest
+        kept.push(rest > 0 ? now / rest : 1)
+      }
+      kept.sort((x, y) => x - y)
+      const q = (p: number) => kept[Math.min(kept.length - 1, Math.floor(p * kept.length))]
+      const sphere = 4 * Math.PI * rNext * rNext
+      const budget = Math.abs(demanded - sphere)
+      const deformed = squeezed + stretchedNow
+      console.log(
+        `[step] ${String(t).padStart(3)} Ma  bare ${(100 * seen.gapFraction).toFixed(3)}%  `
+        + `doubled ${(100 * seen.overlapFraction).toFixed(3)}%  `
+        + `area kept p1 ${q(0.01).toFixed(3)} p10 ${q(0.1).toFixed(3)} `
+        + `median ${q(0.5).toFixed(3)} p90 ${q(0.9).toFixed(3)} worst ${q(0).toFixed(3)}  `
+        + `deformed ${(deformed / 1e6).toFixed(2)} Mkm2 vs budget `
+        + `${(budget / 1e6).toFixed(2)} (x${(deformed / (budget || 1)).toFixed(1)})`,
+      )
+    }
+
+    contactsTotal += contactsNow
+    if (tracing) {
+      // What this step did to each segment, split by whether the mesh redrew
+      // the ground under it in the meantime. A flip hands its new edge whatever
+      // length it finds, so an edge that has just been redrawn has forgotten
+      // what was ever asked of it; if the residual stretch lives there, that is
+      // where to look next.
+      segmentRatios(t, ratioAfter)
+      let touchedSum = 0, touchedN = 0, calmSum = 0, calmN = 0
+      for (let i = 0; i < ratioBefore.length; i++) {
+        if (!Number.isFinite(ratioBefore[i]) || !Number.isFinite(ratioAfter[i])) continue
+        const change = ratioAfter[i] - ratioBefore[i]
+        if (segmentTouched(i)) { touchedSum += change; touchedN++ }
+        else { calmSum += change; calmN++ }
+      }
+      stretchOnTouched += touchedSum
+      stretchOnCalm += calmSum
+      touchedSteps += touchedN
+      calmSteps += calmN
+      if (t % 10 === 0) {
+        console.log(
+          `[stretch] ${t} Ma  ${trace.join('  ')}`
+          + `  | redrawn ${touchedN} segments ${(touchedSum / (touchedN || 1) * 100).toFixed(3)}%`
+          + `  untouched ${calmN} segments ${(calmSum / (calmN || 1) * 100).toFixed(3)}%`,
+        )
+      }
+    }
+    if (t % meta.frameStepMa === 0) {
+      record(t)
+      const d = diagnostics[diagnostics.length - 1]
+      console.log(
+        `  ${String(t).padStart(3)} Ma  R=${d.radiusKm.toFixed(0)} km  ` +
+          (CONFIG.foldInward
+            ? `folded in=${((100 * fold.sunk) / vertexCount).toFixed(1)}% `
+              + `deep=${fold.deepestKm.toFixed(0)}/${fold.hangingKm.toFixed(0)}km  `
+            : `points=${String(mesh.liveVertices).padStart(5)}  `) +
+          `bare=${(100 * d.gapFraction).toFixed(2)}%  ` +
+          (CONFIG.foldInward
+            ? `unshut=${(100 * unshutShare).toFixed(2)}%  `
+              + `fold=${folding.tiltDeg.toFixed(0)}deg  `
+              + `pit=${folding.pitKm.toFixed(0)}km/${(100 * folding.pitShare).toFixed(2)}%  `
+            : '') +
+          `doubled=${(100 * d.overlapFraction).toFixed(2)}%  ` +
+          `folded=${(100 * d.foldFraction).toFixed(2)}%  ` +
+          `strain craton=${(100 * d.cratonStrain).toFixed(1)}% weak=${(100 * d.weakStrain).toFixed(1)}%  ` +
+          `pairs=${String(d.conjugateCount).padStart(3)}` +
+          ` med=${d.conjugateMedianKm.toFixed(0).padStart(4)}km` +
+          ` hit=${(100 * d.conjugateMatched).toFixed(0).padStart(3)}%  ` +
+          `plates=${String(plateReport.count).padStart(3)}` +
+          ` (biggest ${plateReport.biggest.slice(0, 3).map((x) => `${(100 * x).toFixed(0)}%`).join(' ')})`,
+      )
+    }
+  }
+  console.log(
+    `[solve] ${((Date.now() - started) / 1000).toFixed(1)}s; ` +
+      `${foldedNow} triangles still being pushed back out at the last step, ` +
+      (CONFIG.foldInward
+        ? `${fold.sunk} of ${vertexCount} points hanging inside the shell, `
+          + `the deepest ${fold.deepestKm.toFixed(0)} km down carrying `
+          + `${fold.hangingKm.toFixed(0)} km of crust, `
+        : `${vertexCount - mesh.liveVertices} of ${vertexCount} points closed away, `
+          + `${refusedTotal} collapses refused to keep the surface whole, `
+          + `${easedTotal} edges redrawn inside dying crust to let the closure carry on, `) +
+      `${flippedTotal} edges redrawn`,
+  )
+  if (mesh.eulerCharacteristic() !== 2) {
+    throw new Error('the mesh stopped being a sphere; every area measured here would be a lie')
+  }
+
+  const fixedRadiusDiagnostics: FrameDiagnostics[] = diagnostics.map((d) => ({
+    ...d,
+    radiusKm: r0,
+    gapFraction: 1 - (d.radiusKm / r0) ** 2,
+    overlapFraction: 0,
+    rmsStrain: 0,
+  }))
+
+  const frameBuffer = new Uint8Array(writeFrames(frames, vertexCount))
+  const joined = (parts: Uint8Array[]) => {
+    const out = new Uint8Array(parts.reduce((n, part) => n + part.byteLength, 0))
+    let at = 0
+    for (const part of parts) { out.set(part, at); at += part.byteLength }
+    return out
+  }
+  const strainBuffer = joined(strains.map((s) => new Uint8Array(s.buffer)))
+  const plateBuffer = joined(plates.map((p) => new Uint8Array(p.buffer)))
+  const topologyBuffer = new Uint8Array(writeTopology(topologyDeltas))
+  HOST.write('topology.bin', topologyBuffer)
+  HOST.write('frames.bin', frameBuffer)
+  // Only under the fold: the frames carry directions alone, so without this the
+  // curtain would be drawn projected straight back onto the shell it hangs
+  // beneath -- which is worse than either honest picture.
+  if (CONFIG.foldInward) {
+    HOST.write('sink.bin', new Uint8Array(writeChannel(sinks)))
+  }
+  HOST.write('strain.bin', strainBuffer)
+  HOST.write('plates.bin', plateBuffer)
+  HOST.write(
+    'meta.json',
+    JSON.stringify({
+      ...meta,
+      folded: CONFIG.foldInward,
+      builtAt: new Date().toISOString(),
+      overrides: [...OVERRIDES],
+      frameCount: frames.length,
+      diagnostics,
+      fixedRadiusDiagnostics,
+      scorecard: FIT_TARGETS.map((target) => ({
+        ...target,
+        separationKm: separation.get(`${target.a}|${target.b}`) ?? [],
+        matchedFraction: matched.get(`${target.a}|${target.b}`) ?? [],
+      })),
+    } satisfies Meta),
+  )
+  // Both numbers, because they disagree and the disagreement is the point: the
+  // closest approach can read zero on a pair that has only brushed at a corner,
+  // which is what a fit measured as a distance rather than as a length of margin
+  // has always been able to hide.
+  console.log('[solve] fit scorecard:')
+  for (const target of FIT_TARGETS) {
+    const km = separation.get(`${target.a}|${target.b}`) ?? []
+    const share = matched.get(`${target.a}|${target.b}`) ?? []
+    const step = meta.frameStepMa
+    // A watched pair has no time it should have met; read it at the end.
+    const watched = target.joinedByMa === 0
+    const when = watched ? endTimeMa : target.joinedByMa
+    const i = Math.min(km.length - 1, Math.round(when / step))
+    console.log(
+      `  ${(target.a + ' - ' + target.b).padEnd(30)} ` +
+        `at ${String(when).padStart(3)} Ma:  ${km[i].toFixed(0).padStart(5)} km apart,  ` +
+        `${(100 * (share[i] ?? 0)).toFixed(0).padStart(3)}% of the shorter margin in contact  ` +
+        `(best ${(100 * Math.max(...share)).toFixed(0)}% at ${share.indexOf(Math.max(...share)) * step} Ma)` +
+        `${watched ? '   [watched, not scored]' : ''}`,
+    )
+  }
+  console.log('[solve] where each continent ended up, against where it sits today:')
+  for (const region of REGIONS) {
+    const seen = track.get(region.id)
+    if (!seen) continue
+    const place = (p: number[]) => {
+      const [u, w] = directionToUv(p[0], p[1], p[2])
+      return [(w - 0.5) * 180, (u - 0.5) * 360] as const
+    }
+    const [lat0, lon0] = place(seen.first)
+    const [lat1, lon1] = place(seen.last)
+    console.log(
+      `  ${region.label.padEnd(18)} ${lat0.toFixed(0).padStart(4)} deg  ${lon0.toFixed(0).padStart(5)} deg ` +
+        `  ->  ${lat1.toFixed(0).padStart(4)} deg  ${lon1.toFixed(0).padStart(5)} deg `,
+    )
+  }
+  console.log('[solve] how straight each continent walked (1.0 is a single smooth move):')
+  for (const region of REGIONS) {
+    const seen = track.get(region.id)
+    if (!seen) continue
+    const dot = Math.min(1, Math.max(-1,
+      seen.first[0] * seen.last[0] + seen.first[1] * seen.last[1] + seen.first[2] * seen.last[2]))
+    const net = Math.acos(dot) * radiusAt(endTimeMa)
+    console.log(
+      `  ${region.label.padEnd(18)} walked ${seen.walked.toFixed(0).padStart(6)} km ` +
+        `to get ${net.toFixed(0).padStart(5)} km   ` +
+        `${net > 1 ? `x${(seen.walked / net).toFixed(1)}` : '(went nowhere)'}`,
+    )
+  }
+  {
+    let islandFaces = 0
+    for (let f = 0; f < faceCount; f++) if (faceIsland[f]) islandFaces++
+    console.log(
+      `[solve] ${islandFaces} of ${faceCount} faces belong to an island of strong crust`,
+    )
+  }
+  if (tracing) {
+    console.log(
+      `[solve] stretch added per segment-step: `
+        + `${(stretchOnTouched / (touchedSteps || 1) * 100).toFixed(4)}% on ground the mesh `
+        + `redrew (${touchedSteps} segment-steps), `
+        + `${(stretchOnCalm / (calmSteps || 1) * 100).toFixed(4)}% on ground it did not `
+        + `(${calmSteps}); totals ${(stretchOnTouched * 100).toFixed(0)}% and `
+        + `${(stretchOnCalm * 100).toFixed(0)}%`,
+    )
+  }
+  console.log(
+    `[solve] ${contactsTotal} island-on-island contacts pushed apart, `
+      + `deepest ${deepestContactKm.toFixed(0)} km; `
+      + `${(contactTests / 1e6).toFixed(1)}M point-in-triangle tests, `
+      + `${(contactBucketed / 1e6).toFixed(2)}M faces bucketed`,
+  )
+  if (mesh.drawnMisses) {
+    console.log(
+      `[solve] WARNING: ${mesh.drawnMisses} flips could not be named in the drawn `
+        + 'triangulation, so some triangles are painted from the wrong crust. '
+        + 'See drawnVerts in tools/lib/dynamic-mesh.ts.',
+    )
+  }
+  console.log(
+    `[solve] connectivity changed on ` +
+      `${topologyDeltas.reduce((n, d) => n + d.faces.length, 0)} triangle-frames, ` +
+      `${(topologyBuffer.byteLength / 1e6).toFixed(1)} MB\n` +
+    `[solve] wrote ${frames.length} frames ` +
+      `(${(frameBuffer.byteLength / 1e6).toFixed(1)} MB + ${(strainBuffer.byteLength / 1e6).toFixed(1)} MB)`,
+  )
+}
+
+
+/**
+ * What each island's shape actually is, measured once.
+ *
+ * For every point: how far it lies from the middle of its island, in
+ * kilometres along the surface, and which way. Those two numbers are the
+ * island's shape, and they are what must not change.
+ */
+function islandShape(
+  dirs: Float32Array, island: Int32Array, count: number, vertexCount: number, r0: number,
+) {
+  const centre = new Float64Array(count * 3)
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0) continue
+    for (let k = 0; k < 3; k++) centre[c * 3 + k] += dirs[i * 3 + k]
+  }
+  for (let c = 0; c < count; c++) {
+    const length = length3(centre[c * 3], centre[c * 3 + 1], centre[c * 3 + 2]) || 1
+    for (let k = 0; k < 3; k++) centre[c * 3 + k] /= length
+  }
+  const arcKm = new Float64Array(vertexCount)
+  const bearing = new Float64Array(vertexCount * 3)
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0) continue
+    const cx = centre[c * 3], cy = centre[c * 3 + 1], cz = centre[c * 3 + 2]
+    const dot = Math.min(1, Math.max(-1, dirs[i * 3] * cx + dirs[i * 3 + 1] * cy + dirs[i * 3 + 2] * cz))
+    arcKm[i] = Math.acos(dot) * r0
+    const tx = dirs[i * 3] - cx * dot, ty = dirs[i * 3 + 1] - cy * dot, tz = dirs[i * 3 + 2] - cz * dot
+    const tl = length3(tx, ty, tz) || 1
+    bearing[i * 3] = tx / tl; bearing[i * 3 + 1] = ty / tl; bearing[i * 3 + 2] = tz / tl
+  }
+  return { centre, arcKm, bearing }
+}
+
+/**
+ * Put each island back where its own shape says it should be.
+ *
+ * The version before this fitted the best rigid placement of the island's
+ * present-day shape and pulled towards that, which cannot work: a cap of the
+ * present-day sphere does not lie on a smaller one at all, so the target was
+ * always slightly off the surface and the projection back onto it undid the
+ * hold. Shields were still deforming by five percent.
+ *
+ * Rebuilt from the shape instead. Only the island's placement is fitted -- one
+ * rotation, three numbers -- and then every point is put at its own distance
+ * from the middle, in kilometres, along its own bearing. Distances outwards
+ * from the centre come out exactly right. What is left over is the tangential
+ * stretch of laying a flat disc on a ball, which is Gauss's and not ours, and
+ * it is spread evenly instead of piling up at one edge.
+ */
+/**
+ * Turn each island by what its own hanging crust is pulling at.
+ *
+ * `pullInward` leaves, per shore point, the direction its curtain wants it to
+ * move and how many hanging points asked for it. Those pushes do reach the
+ * crust -- and then holdIslands averages them away, because an island moves
+ * only as a rotation fitted over all of its points and the pushes are on its
+ * margin. A continent of five thousand points with three hundred pushed ones
+ * keeps about six percent of the ask.
+ *
+ * A slab hanging off a plate does not push on the margin; it turns the plate.
+ * So the pushes are summed as a torque about the centre of the Earth and the
+ * whole island is turned by it bodily, where nothing can dilute it. The angle
+ * is the mean of what was asked for rather than the sum: an island with a wide
+ * curtain under it should turn as fast as one with a narrow curtain, not faster
+ * for having more points.
+ *
+ * This runs *after* holdIslands rather than before. Before, it does nothing:
+ * the hold refits each island's orientation from its current positions every
+ * sweep, so a turn written into that orientation is fitted straight back out
+ * -- measured identical to fifteen digits.
+ */
+function dragIslands(
+  pos: Float64Array,
+  island: Int32Array,
+  count: number,
+  vertexCount: number,
+  alive: Uint8Array,
+  shorePush: Float64Array,
+  shoreCount: Float64Array,
+  gain: number,
+  /** How much each point's own pull is believed; see `dragWeight`. */
+  weight: Float64Array,
+) {
+  if (count === 0) return
+  const torque = new Float64Array(count * 3)
+  const asked = new Float64Array(count)
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0 || !alive[i] || !shoreCount[i]) continue
+    const l = length3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
+    const ux = pos[i * 3] / l, uy = pos[i * 3 + 1] / l, uz = pos[i * 3 + 2] / l
+    const w = weight[i]
+    if (w <= 0) continue
+    const n = shoreCount[i] / w
+    const px = shorePush[i * 3] / n, py = shorePush[i * 3 + 1] / n, pz = shorePush[i * 3 + 2] / n
+    torque[c * 3] += uy * pz - uz * py
+    torque[c * 3 + 1] += uz * px - ux * pz
+    torque[c * 3 + 2] += ux * py - uy * px
+    asked[c]++
+  }
+  const axis = new Float64Array(count * 4)
+  let turning = false
+  for (let c = 0; c < count; c++) {
+    if (!asked[c]) continue
+    const tx = torque[c * 3], ty = torque[c * 3 + 1], tz = torque[c * 3 + 2]
+    const l = length3(tx, ty, tz)
+    if (l < 1e-12) continue
+    // Capped, because a torque is a direction and this is a position solver:
+    // a plate that swung a quarter turn in one sweep would take everything
+    // attached to it through the far side of the Earth.
+    axis[c * 4] = tx / l
+    axis[c * 4 + 1] = ty / l
+    axis[c * 4 + 2] = tz / l
+    axis[c * 4 + 3] = Math.min(0.01, (gain * l) / asked[c])
+    turning = true
+  }
+  if (!turning) return
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0 || !alive[i]) continue
+    const angle = axis[c * 4 + 3]
+    if (angle <= 0) continue
+    const ax = axis[c * 4], ay = axis[c * 4 + 1], az = axis[c * 4 + 2]
+    const co = Math.cos(angle)
+    const si = Math.sin(angle)
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
+    const dot = ax * x + ay * y + az * z
+    pos[i * 3] = x * co + (ay * z - az * y) * si + ax * dot * (1 - co)
+    pos[i * 3 + 1] = y * co + (az * x - ax * z) * si + ay * dot * (1 - co)
+    pos[i * 3 + 2] = z * co + (ax * y - ay * x) * si + az * dot * (1 - co)
+  }
+}
+
+/**
+ * Pull every point towards the motion its neighbours are making.
+ *
+ * The displacement this step, smoothed over the neighbourhood a couple of
+ * rounds, and then each point moved part of the way from where it is to where
+ * that smoothed motion would have put it. A uniform translation or rotation is
+ * its own average and comes through untouched; squeeze beside stretch is not,
+ * and is what this removes. See CONFIG.coherence.
+ */
+function cohere(
+  pos: Float64Array,
+  previous: Float64Array,
+  shrink: number,
+  adjacency: ReturnType<typeof buildVertexAdjacency>,
+  vertexCount: number,
+  alive: Uint8Array,
+  strength: number,
+  rounds: number,
+  moved: Float64Array,
+  smoothed: Float64Array,
+) {
+  for (let v = 0; v < vertexCount; v++) {
+    const i = v * 3
+    moved[i] = pos[i] - previous[i] * shrink
+    moved[i + 1] = pos[i + 1] - previous[i + 1] * shrink
+    moved[i + 2] = pos[i + 2] - previous[i + 2] * shrink
+  }
+  let from = moved
+  let into = smoothed
+  for (let round = 0; round < rounds; round++) {
+    for (let v = 0; v < vertexCount; v++) {
+      const i = v * 3
+      if (!alive[v]) { into[i] = from[i]; into[i + 1] = from[i + 1]; into[i + 2] = from[i + 2]; continue }
+      let sx = from[i], sy = from[i + 1], sz = from[i + 2]
+      let n = 1
+      for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+        const w = adjacency.neighbours[k] * 3
+        sx += from[w]; sy += from[w + 1]; sz += from[w + 2]
+        n++
+      }
+      into[i] = sx / n; into[i + 1] = sy / n; into[i + 2] = sz / n
+    }
+    const swap = from
+    from = into
+    into = swap
+  }
+  for (let v = 0; v < vertexCount; v++) {
+    if (!alive[v]) continue
+    const i = v * 3
+    const wantX = previous[i] * shrink + from[i]
+    const wantY = previous[i + 1] * shrink + from[i + 1]
+    const wantZ = previous[i + 2] * shrink + from[i + 2]
+    pos[i] += strength * (wantX - pos[i])
+    pos[i + 1] += strength * (wantY - pos[i + 1])
+    pos[i + 2] += strength * (wantZ - pos[i + 2])
+  }
+}
+
+function holdIslands(
+  pos: Float64Array,
+  dirs: Float32Array,
+  shape: ReturnType<typeof islandShape>,
+  island: Int32Array,
+  count: number,
+  vertexCount: number,
+  alive: Uint8Array,
+  radiusKm: number,
+  /** The island's orientation carried forward between steps. */
+  carried: Float64Array,
+  /** How much of the hold each point gets; see `islandHoldByStrength`. */
+  share: Float64Array,
+) {
+  if (count === 0) return
+  // Where the island is pointing now, refined from where it was pointing last
+  // step rather than worked out afresh from today's map.
+  //
+  // The fit walks in small angles and refuses a step beyond about thirty
+  // degrees, which is right for refining and useless for starting: an island
+  // that has turned further than that since the present day gets no fit at all,
+  // the rotation stays the identity, and the hold then drags it back towards
+  // where it sits today. That is a spring tying every continent to its modern
+  // position, and it showed: Africa walked two thousand four hundred kilometres
+  // to end up twenty-one from where it started.
+  const rotation = carried
+  for (let pass = 0; pass < 3; pass++) {
+    const m = new Float64Array(count * 6)
+    const v = new Float64Array(count * 3)
+    for (let i = 0; i < vertexCount; i++) {
+      const c = island[i]
+      if (c < 0 || !alive[i]) continue
+      const r = c * 9
+      const rx = dirs[i * 3], ry = dirs[i * 3 + 1], rz = dirs[i * 3 + 2]
+      const qx = rotation[r] * rx + rotation[r + 1] * ry + rotation[r + 2] * rz
+      const qy = rotation[r + 3] * rx + rotation[r + 4] * ry + rotation[r + 5] * rz
+      const qz = rotation[r + 6] * rx + rotation[r + 7] * ry + rotation[r + 8] * rz
+      const length = length3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
+      const dx = pos[i * 3] / length - qx
+      const dy = pos[i * 3 + 1] / length - qy
+      const dz = pos[i * 3 + 2] / length - qz
+      const q2 = qx * qx + qy * qy + qz * qz
+      const o = c * 6
+      m[o] += q2 - qx * qx; m[o + 1] += q2 - qy * qy; m[o + 2] += q2 - qz * qz
+      m[o + 3] -= qx * qy; m[o + 4] -= qx * qz; m[o + 5] -= qy * qz
+      v[c * 3] += qy * dz - qz * dy
+      v[c * 3 + 1] += qz * dx - qx * dz
+      v[c * 3 + 2] += qx * dy - qy * dx
+    }
+    for (let c = 0; c < count; c++) {
+      const o = c * 6
+      const omega = solve3(
+        [m[o], m[o + 3], m[o + 4], m[o + 3], m[o + 1], m[o + 5], m[o + 4], m[o + 5], m[o + 2]],
+        [v[c * 3], v[c * 3 + 1], v[c * 3 + 2]],
+      )
+      if (!omega) continue
+      const angle = length3(omega[0], omega[1], omega[2])
+      if (angle < 1e-12 || angle > 0.5) continue
+      compose(rotation, c * 9, omega[0] / angle, omega[1] / angle, omega[2] / angle, angle)
+    }
+  }
+
+  for (let i = 0; i < vertexCount; i++) {
+    const c = island[i]
+    if (c < 0 || !alive[i]) continue
+    const hold = CONFIG.islandHold * share[i]
+    if (hold <= 0) continue
+    const r = c * 9
+    const cx0 = shape.centre[c * 3], cy0 = shape.centre[c * 3 + 1], cz0 = shape.centre[c * 3 + 2]
+    const bx0 = shape.bearing[i * 3], by0 = shape.bearing[i * 3 + 1], bz0 = shape.bearing[i * 3 + 2]
+    const cx = rotation[r] * cx0 + rotation[r + 1] * cy0 + rotation[r + 2] * cz0
+    const cy = rotation[r + 3] * cx0 + rotation[r + 4] * cy0 + rotation[r + 5] * cz0
+    const cz = rotation[r + 6] * cx0 + rotation[r + 7] * cy0 + rotation[r + 8] * cz0
+    const bx = rotation[r] * bx0 + rotation[r + 1] * by0 + rotation[r + 2] * bz0
+    const by = rotation[r + 3] * bx0 + rotation[r + 4] * by0 + rotation[r + 5] * bz0
+    const bz = rotation[r + 6] * bx0 + rotation[r + 7] * by0 + rotation[r + 8] * bz0
+    // Same kilometres from the middle, which on a smaller sphere is a wider
+    // angle: a rigid cap laid on a tighter ball reaches further round it.
+    const theta = Math.min(Math.PI * 0.9, shape.arcKm[i] / radiusKm)
+    const sin = Math.sin(theta), cos = Math.cos(theta)
+    const tx = (cx * cos + bx * sin) * radiusKm
+    const ty = (cy * cos + by * sin) * radiusKm
+    const tz = (cz * cos + bz * sin) * radiusKm
+    pos[i * 3] += hold * (tx - pos[i * 3])
+    pos[i * 3 + 1] += hold * (ty - pos[i * 3 + 1])
+    pos[i * 3 + 2] += hold * (tz - pos[i * 3 + 2])
+  }
+}
+
+/**
+ * How fast the crust is moving across the surface, km/Myr, at the median point.
+ *
+ * The number the block count has to be read against. Blocks are patches that
+ * one rotation explains to within a few km/Myr, so when the crust slows below
+ * that the finder cannot tell a rigid shell from a still one and reports a
+ * single block turning at nearly nothing. That is what the run does past
+ * 180 Ma, where the sea floor -- and so the forcing -- has run out.
+ *
+ * Radial motion is left out for the same reason findPlates leaves it out: the
+ * sphere itself grows by eighty-odd kilometres between frames, more than the
+ * continents travel, and none of that is crust moving over crust.
+ */
+function medianSpeed(
+  pos: Float64Array,
+  before: Float64Array,
+  mesh: DynamicMesh,
+  radiusKm: number,
+  dtMa: number,
+  vertexCount: number,
+) {
+  const speeds: number[] = []
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    const i = v * 3
+    const now = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+    const then = length3(before[i], before[i + 1], before[i + 2]) || 1
+    const dot = Math.min(1, Math.max(-1,
+      (pos[i] * before[i] + pos[i + 1] * before[i + 1] + pos[i + 2] * before[i + 2])
+        / (now * then)))
+    speeds.push((Math.acos(dot) * radiusKm) / dtMa)
+  }
+  if (!speeds.length) return 0
+  speeds.sort((a, b) => a - b)
+  return speeds[speeds.length >> 1]
+}
+
+/**
+ * Read the plates back out of the motion.
+ *
+ * This is the last thing in the model that used to be assumed and is now
+ * measured. A plate is not a region of a particular kind of crust, nor a piece
+ * of a mosaic drawn before the run started: it is a patch of the Earth whose
+ * points are all moving as one rigid body, and whether a patch is one of those
+ * is a question about the answer, not about the question.
+ *
+ * So: give every point its velocity over the last interval, pick an unclaimed
+ * one, fit the rotation that best explains it and its neighbours, and let the
+ * region grow outwards over every point the same rotation explains to within a
+ * few kilometres per million years -- which is about as rigidly as the Earth's
+ * plates actually behave. Where it stops is a plate boundary, found rather than
+ * drawn.
+ *
+ * They are found again at every frame, and they are free to differ. That is the
+ * point of doing it this way round: North America comes back as one plate for a
+ * long stretch and then as two when the Gulf of Mexico shuts against South
+ * America, and no fixed set of plates can say that.
+ */
+function findPlates(
+  pos: Float64Array,
+  before: Float64Array,
+  mesh: DynamicMesh,
+  dtMa: number,
+  vertexCount: number,
+  previousIds: Uint8Array | undefined,
+) {
+  // Only the motion across the surface counts. Everything also moves outwards
+  // as the Earth grows -- eighty-odd kilometres between frames, more than the
+  // plates themselves travel -- and a rotation cannot explain a radial move at
+  // all, so leaving it in makes every point look like its own plate.
+  const velocity = new Float64Array(vertexCount * 3)
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    const now = length3(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
+    const then = length3(before[v * 3], before[v * 3 + 1], before[v * 3 + 2]) || 1
+    for (let c = 0; c < 3; c++) {
+      const u = pos[v * 3 + c] / now
+      velocity[v * 3 + c] = ((u - before[v * 3 + c] / then) * now) / dtMa
+    }
+  }
+
+  const claimed = new Int32Array(vertexCount).fill(-1)
+  const ring = new Set<number>()
+  const region: number[] = []
+  const queue: number[] = []
+  const sizes: number[] = []
+  const tolerance = CONFIG.plateTolerance
+
+  const fit = (members: number[]) => {
+    const m = new Float64Array(6)
+    const rhs = new Float64Array(3)
+    for (const v of members) {
+      const px = pos[v * 3], py = pos[v * 3 + 1], pz = pos[v * 3 + 2]
+      const vx = velocity[v * 3], vy = velocity[v * 3 + 1], vz = velocity[v * 3 + 2]
+      const p2 = px * px + py * py + pz * pz
+      m[0] += p2 - px * px; m[1] += p2 - py * py; m[2] += p2 - pz * pz
+      m[3] -= px * py; m[4] -= px * pz; m[5] -= py * pz
+      rhs[0] += py * vz - pz * vy
+      rhs[1] += pz * vx - px * vz
+      rhs[2] += px * vy - py * vx
+    }
+    return solve3(
+      [m[0], m[3], m[4], m[3], m[1], m[5], m[4], m[5], m[2]],
+      [rhs[0], rhs[1], rhs[2]],
+    )
+  }
+  const residual = (omega: [number, number, number], v: number) => {
+    const px = pos[v * 3], py = pos[v * 3 + 1], pz = pos[v * 3 + 2]
+    const rx = omega[1] * pz - omega[2] * py
+    const ry = omega[2] * px - omega[0] * pz
+    const rz = omega[0] * py - omega[1] * px
+    return length3(
+      velocity[v * 3] - rx, velocity[v * 3 + 1] - ry, velocity[v * 3 + 2] - rz,
+    )
+  }
+
+  /**
+   * Start from the calmest ground and work outwards.
+   *
+   * A region grown from a seed takes its rotation from wherever it began, so
+   * beginning on a plate boundary -- where two rotations meet and neither
+   * explains the neighbourhood -- splits a plate into the pieces the seeding
+   * happened to visit first. Points whose neighbours are all doing the same
+   * thing are plate interiors, and starting there finds a plate whole, and
+   * finds the same one again at the next frame.
+   */
+  const calm = new Float64Array(vertexCount).fill(Infinity)
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    mesh.ring(v, ring)
+    let spread = 0
+    let n = 0
+    for (const u of ring) {
+      if (!mesh.vertexAlive[u]) continue
+      spread += length3(
+        velocity[u * 3] - velocity[v * 3],
+        velocity[u * 3 + 1] - velocity[v * 3 + 1],
+        velocity[u * 3 + 2] - velocity[v * 3 + 2],
+      )
+      n++
+    }
+    calm[v] = n ? spread / n : Infinity
+  }
+  const order = Array.from({ length: vertexCount }, (_, v) => v)
+    .filter((v) => mesh.vertexAlive[v])
+    .sort((a, b) => calm[a] - calm[b])
+
+  let count = 0
+  for (const seed of order) {
+    if (claimed[seed] >= 0) continue
+    region.length = 0
+    queue.length = 0
+    region.push(seed)
+    claimed[seed] = count
+    // A single point cannot pin a rotation down; start from its neighbourhood.
+    mesh.ring(seed, ring)
+    for (const n of ring) {
+      if (!mesh.vertexAlive[n] || claimed[n] >= 0) continue
+      claimed[n] = count
+      region.push(n)
+    }
+    let omega = fit(region)
+    if (!omega) {
+      for (const v of region) claimed[v] = count
+      sizes.push(region.length)
+      count++
+      continue
+    }
+    queue.push(...region)
+    let sinceFit = 0
+    for (let head = 0; head < queue.length; head++) {
+      const u = queue[head]
+      mesh.ring(u, ring)
+      for (const n of ring) {
+        if (!mesh.vertexAlive[n] || claimed[n] >= 0) continue
+        if (residual(omega, n) > tolerance) continue
+        claimed[n] = count
+        region.push(n)
+        queue.push(n)
+        // Refit now and then, so a plate that turns out to be turning about a
+        // different pole than its first few points suggested can still be found
+        // whole rather than in pieces.
+        if (++sinceFit >= 250) {
+          sinceFit = 0
+          omega = fit(region) ?? omega
+        }
+      }
+    }
+    sizes.push(region.length)
+    count++
+  }
+
+  // Anything too small to be a plate takes the label most of its neighbours
+  // carry, so the map is plates and boundaries rather than confetti.
+  const smallest = CONFIG.smallestPlate
+  const label = new Int32Array(claimed)
+  for (let pass = 0; pass < 4; pass++) {
+    let moved = 0
+    for (let v = 0; v < vertexCount; v++) {
+      if (!mesh.vertexAlive[v] || label[v] < 0 || sizes[label[v]] >= smallest) continue
+      const votes = new Map<number, number>()
+      mesh.ring(v, ring)
+      for (const n of ring) {
+        if (!mesh.vertexAlive[n] || label[n] < 0 || label[n] === label[v]) continue
+        votes.set(label[n], (votes.get(label[n]) ?? 0) + 1)
+      }
+      let best = -1
+      let bestVotes = 0
+      for (const [id, n] of votes) if (n > bestVotes) { bestVotes = n; best = id }
+      if (best >= 0) {
+        label[v] = best
+        moved++
+      }
+    }
+    if (!moved) break
+  }
+
+  // Renumber largest first, so the same colour means the same size of thing.
+  const finalSizes = new Map<number, number>()
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v] || label[v] < 0) continue
+    finalSizes.set(label[v], (finalSizes.get(label[v]) ?? 0) + 1)
+  }
+  const ranked = [...finalSizes].sort((a, b) => b[1] - a[1])
+
+  /**
+   * A plate keeps the number it had last time.
+   *
+   * The plates are found again from scratch at every frame, which is the point
+   * -- they are allowed to differ -- but numbering them afresh each time made
+   * the whole map change colour on every step, and a thing that changes colour
+   * looks like a thing that changed. Largest first is a stable enough ordering
+   * for the big plates and hopeless for the rest, so each new plate instead
+   * claims the number carried by most of the ground it covers, biggest first,
+   * and only a genuinely new plate gets a number nobody was using.
+   */
+  const renumber = new Map<number, number>()
+  const taken = new Set<number>()
+  for (const [id] of ranked) {
+    const votes = new Map<number, number>()
+    for (let v = 0; v < vertexCount; v++) {
+      if (label[v] !== id || !previousIds || previousIds[v] === 0) continue
+      votes.set(previousIds[v], (votes.get(previousIds[v]) ?? 0) + 1)
+    }
+    let inherited = 0
+    let most = 0
+    for (const [was, n] of votes) if (n > most && !taken.has(was)) { most = n; inherited = was }
+    if (!inherited) {
+      for (let candidate = 1; candidate <= 254; candidate++) {
+        if (!taken.has(candidate)) { inherited = candidate; break }
+      }
+    }
+    if (!inherited) inherited = 255
+    taken.add(inherited)
+    renumber.set(id, inherited)
+  }
+  const out = new Uint8Array(vertexCount)
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v] || label[v] < 0) continue
+    out[v] = renumber.get(label[v]) ?? 255
+  }
+  const live = mesh.liveVertices || 1
+  return {
+    ids: out,
+    count: ranked.filter(([, n]) => n >= smallest).length,
+    biggest: ranked.slice(0, 5).map(([, n]) => n / live),
+  }
+}
+
+/**
+ * Push every point along the spreading field, and let it remember.
+ *
+ * There are no plates here to fit a rotation to, and there should not be: what
+ * moves together is whatever the surviving crust holds together, which changes
+ * as the crust does. So the field acts on the points directly and the springs
+ * carry it inland -- rigid crust arrives as one piece because it is rigid, not
+ * because it was declared a plate.
+ *
+ * Read at the isochrons disappearing now, since that is the margin the ocean is
+ * closing at this moment; crust deep inside a plate records the rate at the time
+ * it formed, which is a different question. Each point keeps most of what it was
+ * doing last step, which is what turns a sequence of independent nudges into a
+ * motion, and what keeps a continent going once its own sea floor has run out.
+ */
+function driveByField(
+  pos: Float64Array,
+  mesh: DynamicMesh,
+  flow: Float64Array,
+  drift: Float64Array,
+  vertexAge: Float32Array,
+  t: number,
+  dt: number,
+) {
+  const memory = CONFIG.poleMemory
+  for (let v = 0; v < mesh.vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    const age = vertexAge[v]
+    const reading = age < PERMANENT_MA && age >= t && age <= t + CONFIG.flowWindowMa
+    const i = v * 3
+    if (reading) {
+      // The field is a direction on today's Earth; carry it round with the
+      // crust by turning it the way the crust itself has turned.
+      const dx = flow[i] * dt, dy = flow[i + 1] * dt, dz = flow[i + 2] * dt
+      drift[i] = memory * drift[i] + (1 - memory) * dx
+      drift[i + 1] = memory * drift[i + 1] + (1 - memory) * dy
+      drift[i + 2] = memory * drift[i + 2] + (1 - memory) * dz
+    } else {
+      drift[i] *= memory
+      drift[i + 1] *= memory
+      drift[i + 2] *= memory
+    }
+    pos[i] += drift[i]
+    pos[i + 1] += drift[i + 1]
+    pos[i + 2] += drift[i + 2]
+  }
+}
+
+
+
+
+/**
+ * The spreading velocity field, read off the age grid.
+ *
+ * Lines of equal age on the sea floor are old positions of a ridge, so the
+ * gradient of age points straight across them: along the direction that crust
+ * actually travelled. That is the same direction the fracture zones scratch
+ * into the bathymetry -- the stretch marks you can see on any bathymetric map,
+ * running at right angles to the ridges for thousands of kilometres.
+ *
+ * The speed comes out of the same derivative. If age rises by one million years
+ * over twenty-nine kilometres then twenty-nine kilometres of crust were made per
+ * million years, so the half-spreading rate is one over the gradient. Across the
+ * whole grid that gives a median of 29 km/Myr, with the slow Atlantic ridges
+ * near 10 and the East Pacific Rise near 90, which is what ships measure. There
+ * is nothing to fit: the field is a derivative of data we already had.
+ *
+ * Run backwards, a piece of sea floor travels down this gradient towards the
+ * ridge it erupted from, at that rate. So `flow` is `-grad(age) / |grad(age)|^2`
+ * -- pointing towards younger crust, with the length of the half rate, in
+ * kilometres per million years.
+ *
+ * A fracture zone is a step in the age field, and the gradient of a step points
+ * across the step, which is along the ridge rather than across it -- exactly
+ * wrong. The field is smoothed over a few hundred kilometres first, which keeps
+ * the trend of the isochrons and drops the steps.
+ */
+function spreadingField(
+  dirs: Float32Array,
+  origin: Uint32Array,
+  originalCount: number,
+  uncutAge: Float32Array,
+  adjacency: { offsets: Uint32Array; neighbours: Uint32Array },
+  vertexCount: number,
+  r0: number,
+) {
+  // Positions and ages on the uncut mesh, so the gradient at a fracture is
+  // taken across the crust rather than stopping at the cut.
+  const unit = new Float64Array(originalCount * 3)
+  for (let v = 0; v < vertexCount; v++) {
+    const o = origin[v]
+    unit[o * 3] = dirs[v * 3]
+    unit[o * 3 + 1] = dirs[v * 3 + 1]
+    unit[o * 3 + 2] = dirs[v * 3 + 2]
+  }
+
+  const { offsets, neighbours } = adjacency
+  let age = new Float64Array(originalCount)
+  for (let o = 0; o < originalCount; o++) {
+    age[o] = uncutAge[o] >= PERMANENT_MA ? NaN : uncutAge[o]
+  }
+  let next = new Float64Array(originalCount)
+  for (let pass = 0; pass < CONFIG.flowSmoothing; pass++) {
+    for (let o = 0; o < originalCount; o++) {
+      if (Number.isNaN(age[o])) {
+        next[o] = NaN
+        continue
+      }
+      let sum = age[o]
+      let n = 1
+      for (let k = offsets[o]; k < offsets[o + 1]; k++) {
+        const a = age[neighbours[k]]
+        if (Number.isNaN(a)) continue
+        sum += a
+        n++
+      }
+      next[o] = sum / n
+    }
+    const swap = age
+    age = next
+    next = swap
+  }
+
+  const field = new Float64Array(vertexCount * 3)
+  let counted = 0
+  const rates: number[] = []
+  for (let o = 0; o < originalCount; o++) {
+    if (Number.isNaN(age[o])) continue
+    const nx = unit[o * 3], ny = unit[o * 3 + 1], nz = unit[o * 3 + 2]
+    // Any two directions in the tangent plane will do; take the one that avoids
+    // the pole of the cross product.
+    const helper = Math.abs(ny) < 0.9 ? [0, 1, 0] : [1, 0, 0]
+    let e1 = [
+      ny * helper[2] - nz * helper[1],
+      nz * helper[0] - nx * helper[2],
+      nx * helper[1] - ny * helper[0],
+    ]
+    const e1n = length3(e1[0], e1[1], e1[2]) || 1
+    e1 = [e1[0] / e1n, e1[1] / e1n, e1[2] / e1n]
+    const e2 = [
+      ny * e1[2] - nz * e1[1],
+      nz * e1[0] - nx * e1[2],
+      nx * e1[1] - ny * e1[0],
+    ]
+
+    // Least squares fit of a plane through the neighbouring ages.
+    let axx = 0, axy = 0, ayy = 0, bx = 0, by = 0, samples = 0
+    for (let k = offsets[o]; k < offsets[o + 1]; k++) {
+      const u = neighbours[k]
+      if (Number.isNaN(age[u])) continue
+      const dx = (unit[u * 3] - nx) * r0
+      const dy = (unit[u * 3 + 1] - ny) * r0
+      const dz = (unit[u * 3 + 2] - nz) * r0
+      const x = dx * e1[0] + dy * e1[1] + dz * e1[2]
+      const y = dx * e2[0] + dy * e2[1] + dz * e2[2]
+      const d = age[u] - age[o]
+      axx += x * x; axy += x * y; ayy += y * y
+      bx += x * d; by += y * d
+      samples++
+    }
+    if (samples < 3) continue
+    const det = axx * ayy - axy * axy
+    if (Math.abs(det) < 1e-9) continue
+    const gx = (ayy * bx - axy * by) / det
+    const gy = (axx * by - axy * bx) / det
+    const g2 = gx * gx + gy * gy
+    if (g2 < 1e-12) continue
+    const rate = 1 / Math.sqrt(g2)
+    if (!Number.isFinite(rate) || rate > CONFIG.maxRate) continue
+    rates.push(rate)
+    // Down the gradient, at the half rate.
+    const fx = -(gx * e1[0] + gy * e2[0]) / g2
+    const fy = -(gx * e1[1] + gy * e2[1]) / g2
+    const fz = -(gx * e1[2] + gy * e2[2]) / g2
+    field[o * 3] = fx
+    field[o * 3 + 1] = fy
+    field[o * 3 + 2] = fz
+    counted++
+  }
+
+  // Hand each cut copy the field of the vertex it came from.
+  const out = new Float64Array(vertexCount * 3)
+  for (let v = 0; v < vertexCount; v++) {
+    const o = origin[v]
+    out[v * 3] = field[o * 3]
+    out[v * 3 + 1] = field[o * 3 + 1]
+    out[v * 3 + 2] = field[o * 3 + 2]
+  }
+  rates.sort((a, b) => a - b)
+  console.log(
+    `[solve] spreading field over ${((100 * counted) / originalCount).toFixed(0)}% of the mesh; ` +
+      `half rate median ${rates[Math.floor(rates.length / 2)].toFixed(0)} km/Myr ` +
+      `(10th ${rates[Math.floor(rates.length * 0.1)].toFixed(0)}, ` +
+      `90th ${rates[Math.floor(rates.length * 0.9)].toFixed(0)})`,
+  )
+  return out
+}
+
+
+
+
+
+
+
+
+/** Pre-multiply the 3x3 rotation at `offset` by a Rodrigues rotation. */
+function compose(
+  out: Float64Array, offset: number,
+  ax: number, ay: number, az: number, angle: number,
+) {
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  const k = 1 - c
+  const r = [
+    c + ax * ax * k, ax * ay * k - az * s, ax * az * k + ay * s,
+    ay * ax * k + az * s, c + ay * ay * k, ay * az * k - ax * s,
+    az * ax * k - ay * s, az * ay * k + ax * s, c + az * az * k,
+  ]
+  const m = out.slice(offset, offset + 9)
+  for (let i = 0; i < 3; i++) {
+    for (let j = 0; j < 3; j++) {
+      out[offset + i * 3 + j] = r[i * 3] * m[j] + r[i * 3 + 1] * m[3 + j] + r[i * 3 + 2] * m[6 + j]
+    }
+  }
+}
+
+
+
+/** Flat adjacency list (offsets + neighbours) for vertex smoothing. */
+function buildVertexAdjacency(indices: Uint32Array, vertexCount: number) {
+  const sets: Set<number>[] = Array.from({ length: vertexCount }, () => new Set<number>())
+  for (let f = 0; f < indices.length; f += 3) {
+    const a = indices[f], b = indices[f + 1], c = indices[f + 2]
+    sets[a].add(b); sets[a].add(c)
+    sets[b].add(a); sets[b].add(c)
+    sets[c].add(a); sets[c].add(b)
+  }
+  const offsets = new Uint32Array(vertexCount + 1)
+  for (let i = 0; i < vertexCount; i++) offsets[i + 1] = offsets[i] + sets[i].size
+  const neighbours = new Uint32Array(offsets[vertexCount])
+  let k = 0
+  for (let i = 0; i < vertexCount; i++) for (const n of sets[i]) neighbours[k++] = n
+  return { offsets, neighbours }
+}
+
+
+// --- numerics --------------------------------------------------------------
+
+/** Move every vertex a fraction `stiffness` of the way onto the sphere. */
+/**
+ * Push any triangle that has turned inside out back the right way round.
+ *
+ * The face springs only know edge lengths, and a triangle has exactly the same
+ * three edge lengths as its own mirror image -- so folding one through an edge
+ * costs the springs nothing, and once it is folded there is no force anywhere
+ * in the model that unfolds it. That is a ratchet, and it was running: by
+ * 200 Ma an eighth of the shell was lying inside out, and it never healed at
+ * any step. A folded patch also cannot pass motion on, so the crust that
+ * should have travelled piled up against it instead -- which is why the mesh
+ * managed to be torn open across the South Atlantic and stacked twenty deep a
+ * few hundred kilometres away at the same time.
+ *
+ * The measure is the signed volume of the tetrahedron from the centre of the
+ * Earth out to the triangle, positive exactly when the corners still wind the
+ * way the icosphere wound them. A triangle of area A sitting on a sphere of
+ * radius r spans six times a volume of 2*A*r, so asking for a small fraction
+ * of that keeps the barrier clear of zero, where a barrier is no use: at zero
+ * the triangle is already flat and the gradient that would push it back has
+ * gone with it.
+ */
+/**
+ * How much of the live crust is lying inside out, by area.
+ *
+ * The sign of the tetrahedron from the centre of the Earth to the triangle,
+ * which is what the area measure elsewhere throws away: solidAngle takes the
+ * absolute value of its numerator, so a folded triangle reports a perfectly
+ * healthy positive area and every strain figure in the run believed it.
+ */
+function foldedShare(
+  pos: Float64Array, faceVerts: Int32Array, alive: Uint8Array,
+  restAreaNow: Float64Array, faceCount: number,
+) {
+  let folded = 0
+  let total = 0
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const a = faceVerts[f * 3] * 3
+    const b = faceVerts[f * 3 + 1] * 3
+    const c = faceVerts[f * 3 + 2] * 3
+    const gax = pos[b + 1] * pos[c + 2] - pos[b + 2] * pos[c + 1]
+    const gay = pos[b + 2] * pos[c] - pos[b] * pos[c + 2]
+    const gaz = pos[b] * pos[c + 1] - pos[b + 1] * pos[c]
+    total += restAreaNow[f]
+    if (pos[a] * gax + pos[a + 1] * gay + pos[a + 2] * gaz < 0) folded += restAreaNow[f]
+  }
+  return { foldFraction: total > 0 ? folded / total : 0 }
+}
+
+function unfold(
+  pos: Float64Array,
+  faceVerts: Int32Array,
+  alive: Uint8Array,
+  restAreaNow: Float64Array,
+  faceCount: number,
+  r: number,
+  margin: number,
+  /** A floor per triangle, where one kind of crust may keep more than another. */
+  floor?: Float64Array,
+) {
+  let caught = 0
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const a = faceVerts[f * 3] * 3
+    const b = faceVerts[f * 3 + 1] * 3
+    const c = faceVerts[f * 3 + 2] * 3
+    const ax = pos[a], ay = pos[a + 1], az = pos[a + 2]
+    const bx = pos[b], by = pos[b + 1], bz = pos[b + 2]
+    const cx = pos[c], cy = pos[c + 1], cz = pos[c + 2]
+    // The determinant and its gradients at once: d(det)/da is b x c, and the
+    // other two follow by rotating the three corners.
+    const gax = by * cz - bz * cy, gay = bz * cx - bx * cz, gaz = bx * cy - by * cx
+    const det = ax * gax + ay * gay + az * gaz
+    const want = 2 * (floor ? floor[f] : margin) * restAreaNow[f] * r
+    if (det >= want) continue
+    const gbx = cy * az - cz * ay, gby = cz * ax - cx * az, gbz = cx * ay - cy * ax
+    const gcx = ay * bz - az * by, gcy = az * bx - ax * bz, gcz = ax * by - ay * bx
+    const norm =
+      gax * gax + gay * gay + gaz * gaz +
+      gbx * gbx + gby * gby + gbz * gbz +
+      gcx * gcx + gcy * gcy + gcz * gcz
+    if (norm < 1e-12) continue
+    // One Newton step on the constraint, shared between the three corners in
+    // proportion to how much each one can shift it. Deeply folded ground needs
+    // several, which it gets: this runs once per sweep.
+    const l = (want - det) / norm
+    pos[a] += l * gax; pos[a + 1] += l * gay; pos[a + 2] += l * gaz
+    pos[b] += l * gbx; pos[b + 1] += l * gby; pos[b + 2] += l * gbz
+    pos[c] += l * gcx; pos[c + 1] += l * gcy; pos[c + 2] += l * gcz
+    caught++
+  }
+  return caught
+}
+
+
+/**
+ * Hold every triangle to the area of the crust it is made of.
+ *
+ * The same determinant and the same gradients as `unfold`, which is no
+ * accident: six times the volume of the tetrahedron on a triangle and the
+ * centre is twice its area times the radius, so one Newton step on the
+ * determinant is one step on the area. What differs is that the fold guard is
+ * a barrier -- it only pushes when a triangle has fallen below a fraction of
+ * its size, and never pulls one back that has grown -- and this is a
+ * constraint, pushing and pulling towards the size itself.
+ *
+ * It says nothing about shape. A triangle may be sheared into a needle by this
+ * and the edge springs will still object; between them they ask for the crust
+ * to keep both its lengths and its area, which is as close to rigid as a mesh
+ * of springs gets.
+ */
+function holdArea(
+  pos: Float64Array,
+  faceVerts: Int32Array,
+  alive: Uint8Array,
+  restAreaNow: Float64Array,
+  faceCount: number,
+  r: number,
+  stiffness: number,
+) {
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const a = faceVerts[f * 3] * 3
+    const b = faceVerts[f * 3 + 1] * 3
+    const c = faceVerts[f * 3 + 2] * 3
+    const ax = pos[a], ay = pos[a + 1], az = pos[a + 2]
+    const bx = pos[b], by = pos[b + 1], bz = pos[b + 2]
+    const cx = pos[c], cy = pos[c + 1], cz = pos[c + 2]
+    const gax = by * cz - bz * cy, gay = bz * cx - bx * cz, gaz = bx * cy - by * cx
+    const det = ax * gax + ay * gay + az * gaz
+    const want = 2 * restAreaNow[f] * r
+    const gbx = cy * az - cz * ay, gby = cz * ax - cx * az, gbz = cx * ay - cy * ax
+    const gcx = ay * bz - az * by, gcy = az * bx - ax * bz, gcz = ax * by - ay * bx
+    const norm =
+      gax * gax + gay * gay + gaz * gaz +
+      gbx * gbx + gby * gby + gbz * gbz +
+      gcx * gcx + gcy * gcy + gcz * gcz
+    if (norm < 1e-12) continue
+    const l = (stiffness * (want - det)) / norm
+    pos[a] += l * gax; pos[a + 1] += l * gay; pos[a + 2] += l * gaz
+    pos[b] += l * gbx; pos[b + 1] += l * gby; pos[b + 2] += l * gbz
+    pos[c] += l * gcx; pos[c + 1] += l * gcy; pos[c + 2] += l * gcz
+  }
+}
+
+function relaxToSphere(
+  pos: Float64Array,
+  vertexCount: number,
+  r: number,
+  stiffness: number,
+  /**
+   * Which vertices belong on the shell. Under the fold the rest of them hang
+   * inside it and this must leave them alone: pulling them back out is the one
+   * thing that would undo the fold, silently, every sweep.
+   */
+  onShell?: Uint8Array,
+  /**
+   * How hard each point is held out at `r` when it has dipped below it. One
+   * everywhere without the fold; nought at the lip of a closing ridge, where
+   * the crust is meant to tip into the slot rather than be squashed flat.
+   * Sitting *above* the shell is never allowed and never weighted: nothing
+   * holds crust up there.
+   */
+  hold?: Float64Array,
+) {
+  for (let i = 0; i < vertexCount; i++) {
+    if (onShell && !onShell[i]) continue
+    const x = pos[i * 3]
+    const y = pos[i * 3 + 1]
+    const z = pos[i * 3 + 2]
+    const length = length3(x, y, z)
+    if (length < 1e-12) continue
+    const k = hold && length < r ? stiffness * hold[i] : stiffness
+    if (k <= 0) continue
+    const s = 1 + k * (r / length - 1)
+    pos[i * 3] = x * s
+    pos[i * 3 + 1] = y * s
+    pos[i * 3 + 2] = z * s
+  }
+}
+
+/**
+ * Strip the rigid rotation of the whole shell relative to the previous step, so
+ * the reconstruction does not slowly spin. Same no-net-rotation convention
+ * plate tectonics uses to pin its reference frame.
+ */
+function removeNetRotation(
+  pos: Float64Array,
+  previous: Float64Array,
+  vertexCount: number,
+  shrink: number,
+) {
+  let axx = 0, ayy = 0, azz = 0, axy = 0, axz = 0, ayz = 0
+  let bx = 0, by = 0, bz = 0
+  for (let i = 0; i < vertexCount; i++) {
+    const qx = previous[i * 3] * shrink
+    const qy = previous[i * 3 + 1] * shrink
+    const qz = previous[i * 3 + 2] * shrink
+    const dx = pos[i * 3] - qx
+    const dy = pos[i * 3 + 1] - qy
+    const dz = pos[i * 3 + 2] - qz
+    const q2 = qx * qx + qy * qy + qz * qz
+    axx += q2 - qx * qx; ayy += q2 - qy * qy; azz += q2 - qz * qz
+    axy -= qx * qy; axz -= qx * qz; ayz -= qy * qz
+    bx += qy * dz - qz * dy
+    by += qz * dx - qx * dz
+    bz += qx * dy - qy * dx
+  }
+  const omega = solve3([axx, axy, axz, axy, ayy, ayz, axz, ayz, azz], [bx, by, bz])
+  if (!omega) return
+  const angle = length3(omega[0], omega[1], omega[2])
+  if (angle < 1e-12 || angle > 0.5) return
+  const [ax, ay, az] = omega.map((v) => v / angle)
+  const c = Math.cos(-angle)
+  const s = Math.sin(-angle)
+  for (let i = 0; i < vertexCount; i++) {
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
+    const dot = ax * x + ay * y + az * z
+    pos[i * 3] = x * c + (ay * z - az * y) * s + ax * dot * (1 - c)
+    pos[i * 3 + 1] = y * c + (az * x - ax * z) * s + ay * dot * (1 - c)
+    pos[i * 3 + 2] = z * c + (ax * y - ay * x) * s + az * dot * (1 - c)
+  }
+}
+
+function solve3(m: number[], v: number[]): [number, number, number] | null {
+  const [a, b, c, d, e, f, g, h, i] = m
+  const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g)
+  if (Math.abs(det) < 1e-6) return null
+  const inv = 1 / det
+  return [
+    inv * ((e * i - f * h) * v[0] + (c * h - b * i) * v[1] + (b * f - c * e) * v[2]),
+    inv * ((f * g - d * i) * v[0] + (a * i - c * g) * v[1] + (c * d - a * f) * v[2]),
+    inv * ((d * h - e * g) * v[0] + (b * g - a * h) * v[1] + (a * e - b * d) * v[2]),
+  ]
+}
+
+function quantise(pos: Float64Array, vertexCount: number) {
+  const out = new Int16Array(vertexCount * 3)
+  for (let i = 0; i < vertexCount; i++) {
+    const x = pos[i * 3], y = pos[i * 3 + 1], z = pos[i * 3 + 2]
+    const length = length3(x, y, z) || 1
+    out[i * 3] = Math.round((x / length) * 32767)
+    out[i * 3 + 1] = Math.round((y / length) * 32767)
+    out[i * 3 + 2] = Math.round((z / length) * 32767)
+  }
+  return out
+}
+
+// --- diagnostics -----------------------------------------------------------
+
+/** RMS departure from the sphere: how far the model has to buckle the crust. */
+function relief(pos: Float64Array, vertexCount: number, r: number, onShell?: Uint8Array) {
+  let sum = 0
+  let counted = 0
+  for (let i = 0; i < vertexCount; i++) {
+    // Only crust that is on the surface has relief. The rest is hanging inside
+    // the shell on purpose, and averaging that in would report the depth of the
+    // fold as the roughness of the Earth.
+    if (onShell && !onShell[i]) continue
+    const d = length3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) - r
+    sum += d * d
+    counted++
+  }
+  return counted ? Math.sqrt(sum / counted) : 0
+}
+
+/**
+ * Linear strain per triangle, from how much its area has changed.
+ *
+ * Measuring edge lengths instead invites a checkerboard: relaxation on a
+ * triangle mesh happily settles into a state where alternate edges are long and
+ * short, which averages out to nothing real but shows up as a dense speckle and
+ * inflates every strain statistic. Area is blind to that mode, and area change
+ * is the more meaningful quantity anyway -- it is what tells you whether the
+ * model is asking the crust to be squeezed or pulled apart.
+ */
+function faceStrain(
+  pos: Float64Array, indices: Int32Array, restArea: Float64Array, faceCount: number,
+  alive: Uint8Array,
+) {
+  const out = new Float32Array(faceCount)
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const a = indices[f * 3] * 3
+    const b = indices[f * 3 + 1] * 3
+    const c = indices[f * 3 + 2] * 3
+    const radius = length3(pos[a], pos[a + 1], pos[a + 2]) || 1
+    const area = solidAngle(pos, a, b, c) * radius * radius
+    out[f] = Math.sqrt(area / restArea[f]) - 1
+  }
+  return out
+}
+
+function strainStats(
+  strain: Float32Array, faceAges: Float32Array, restArea: Float64Array, faceCount: number,
+  t: number, rigidity: Float32Array, alive: Uint8Array,
+) {
+  let square = 0
+  let signed = 0
+  let weight = 0
+  const magnitudes: { value: number; weight: number }[] = []
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f] || faceAges[f] < t) continue
+    const w = restArea[f]
+    square += strain[f] * strain[f] * w
+    signed += strain[f] * w
+    weight += w
+    magnitudes.push({ value: Math.abs(strain[f]), weight: w })
+  }
+  if (weight === 0) {
+    return { rmsStrain: 0, meanStrain: 0, medianStrain: 0, p90Strain: 0, cratonStrain: 0, weakStrain: 0 }
+  }
+  magnitudes.sort((a, b) => a.value - b.value)
+  const quantile = (q: number) => {
+    let seen = 0
+    for (const m of magnitudes) {
+      seen += m.weight
+      if (seen >= weight * q) return m.value
+    }
+    return magnitudes[magnitudes.length - 1].value
+  }
+  return {
+    rmsStrain: Math.sqrt(square / weight),
+    meanStrain: signed / weight,
+    // The RMS is dominated by a thin fringe of badly distorted cells along
+    // ridges and faults. The median says what the crust away from them is
+    // actually asked to do, which is the number worth judging the model by.
+    medianStrain: quantile(0.5),
+    p90Strain: quantile(0.9),
+    // Split by strength, because where the deformation goes matters as much as
+    // how much there is. Thick cratons must stay near zero; thin necks, shelves
+    // and island arcs are where it belongs.
+    cratonStrain: median(byClass(f => rigidity[f] >= CRATON_RIGIDITY)),
+    weakStrain: median(byClass(f => rigidity[f] < WEAK_RIGIDITY)),
+  }
+
+  function byClass(test: (f: number) => boolean) {
+    const out: number[] = []
+    for (let f = 0; f < faceCount; f++) {
+      if (alive[f] && faceAges[f] >= t && test(f)) out.push(Math.abs(strain[f]))
+    }
+    return out
+  }
+  function median(values: number[]) {
+    if (!values.length) return 0
+    values.sort((a, b) => a - b)
+    return values[values.length >> 1]
+  }
+}
+
+/** Area-weighted average of the surrounding triangles' strain, per vertex. */
+function perVertexStrain(
+  strain: Float32Array, indices: Int32Array, restArea: Float64Array,
+  faceCount: number, vertexCount: number, alive: Uint8Array,
+) {
+  const sum = new Float64Array(vertexCount)
+  const weight = new Float64Array(vertexCount)
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const w = restArea[f]
+    for (let k = 0; k < 3; k++) {
+      const v = indices[f * 3 + k]
+      sum[v] += strain[f] * w
+      weight[v] += w
+    }
+  }
+  // Quantised to a byte over +/-20% strain, well beyond what real crust
+  // survives, so the interesting range keeps plenty of resolution.
+  const out = new Uint8Array(vertexCount)
+  for (let i = 0; i < vertexCount; i++) {
+    const value = weight[i] > 0 ? sum[i] / weight[i] : 0
+    out[i] = Math.round(Math.min(255, Math.max(0, (value / 0.2) * 127 + 128)))
+  }
+  return out
+}
+
+
+
+function solidAngle(pos: ArrayLike<number>, a: number, b: number, c: number) {
+  const n = (i: number) => {
+    const length = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+    return [pos[i] / length, pos[i + 1] / length, pos[i + 2] / length] as const
+  }
+  const [ax, ay, az] = n(a)
+  const [bx, by, bz] = n(b)
+  const [cx, cy, cz] = n(c)
+  const numerator = Math.abs(
+    ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx),
+  )
+  const denominator =
+    1 + (ax * bx + ay * by + az * bz) + (bx * cx + by * cy + bz * cz) + (cx * ax + cy * ay + cz * az)
+  return 2 * Math.atan2(numerator, denominator)
+}

@@ -63,6 +63,7 @@ jobs:
             public/data/zones.png
           key: >-
             stage-${{ hashFiles('tools/**/*.ts', '!tools/solve.ts',
+            '!tools/lib/solver.ts',
             'shared/**/*.ts', 'public/textures/height-map.jpg',
             'data-src/**') }}
 

@@ -78,14 +78,22 @@ const inputHash = hashOf(inputs)
  * mesh as well and paid for both. Which is most iterations, here and in the
  * Pages workflow.
  *
- * Only `tools/solve.ts` is held out, rather than a hand-picked list of what the
+ * Only the solver is held out, rather than a hand-picked list of what the
  * first stage reads: this file's own comment records what happened the last
  * time such a list existed, which is that it drifted and a stale build looked
  * like a change with no effect. Holding out one file cannot drift, because
  * `build-data.ts` does not and could not import the solver -- the dependency
  * runs the other way, and a test says so.
  */
-const stageHash = hashOf(inputs.filter((path) => path !== resolve(ROOT, 'tools/solve.ts')))
+/**
+ * Two files, since the solver was split: `tools/lib/solver.ts` is the whole of
+ * it and `tools/solve.ts` is now a dozen lines of command line around it. The
+ * split was for the browser -- a worker cannot import `node:fs` -- and if only
+ * the old name were held out here, every change to the solver would throw the
+ * mesh away again and pay two minutes for nothing.
+ */
+const SOLVER = ['tools/solve.ts', 'tools/lib/solver.ts'].map((p) => resolve(ROOT, p))
+const stageHash = hashOf(inputs.filter((path) => !SOLVER.includes(path)))
 
 const META = resolve(ROOT, 'public/data/meta.json')
 /** The hash the data on disk was built from, written after a successful run. */
