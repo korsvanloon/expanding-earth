@@ -56,13 +56,22 @@ import {
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const TEXTURES = resolve(ROOT, 'public/textures')
-const OUT = resolve(ROOT, 'public/data')
+/**
+ * Where the stage writes, and why it can be moved.
+ *
+ * The explorer in the viewer solves in a browser worker on a coarser mesh, and
+ * that mesh has to be cut by this same code -- there is no second way to make
+ * one that would still be the same model. So the output directory is a knob:
+ * `tools/build-preview.ts` points it at a scratch directory, cuts a mesh at
+ * another subdivision, and keeps the four files a solve reads.
+ */
+const OUT = resolve(ROOT, process.env.DATA_OUT ?? 'public/data')
 /**
  * Where the handover to the solver goes. Not in public/data: everything there
  * is copied onto the published site, and this is a hundred and ten kilobytes
  * of the solver's own working notes that the viewer never reads.
  */
-const STAGE = resolve(ROOT, '.stage')
+const STAGE = resolve(ROOT, process.env.STAGE_OUT ?? '.stage')
 
 /** Quality of the crustal-fabric raster; see where it is written. */
 const FABRIC_QUALITY = 90

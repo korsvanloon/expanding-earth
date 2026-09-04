@@ -10,6 +10,9 @@ dist
 /public/data/*.jpg
 /public/data/*.png
 /public/data/*.sha
+# The coarse meshes the viewer's explorer solves on: generated, like the rest of
+# public/data, and the patterns above are one level deep so this needs its own.
+/public/data/preview/
 
 # TypeScript incremental build state
 *.tsbuildinfo

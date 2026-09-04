@@ -61,6 +61,8 @@ jobs:
             public/data/crust-age.bin
             public/data/fabric.jpg
             public/data/zones.png
+            public/data/preview
+            .stage/preview.sha
           key: >-
             stage-${{ hashFiles('tools/**/*.ts', '!tools/solve.ts',
             '!tools/lib/solver.ts',

@@ -100,6 +100,8 @@ const META = resolve(ROOT, 'public/data/meta.json')
 const STAMP = resolve(ROOT, 'public/data/inputs.sha')
 /** And the same for the mesh alone, written after the first stage. */
 const STAGE_STAMP = resolve(ROOT, '.stage/stage.sha')
+/** And for the coarse meshes the viewer's explorer solves on. */
+const PREVIEW_STAMP = resolve(ROOT, '.stage/preview.sha')
 const stamp = (path: string) => {
   try {
     return readFileSync(path, 'utf8').trim()
@@ -108,6 +110,13 @@ const stamp = (path: string) => {
   }
 }
 const builtFrom = stamp(STAMP)
+const havePreview = (() => {
+  try {
+    return statSync(resolve(ROOT, 'public/data/preview/4/mesh.bin')).size > 0
+  } catch {
+    return false
+  }
+})()
 const haveData = (() => {
   try {
     return statSync(META).size > 0
@@ -179,6 +188,20 @@ if (haveData && builtFrom === inputHash && builtAt === subdivision()) {
     run('build-data.ts')
     mkdirSync(dirname(STAGE_STAMP), { recursive: true })
     writeFileSync(STAGE_STAMP, `${stageHash}\n`)
+  }
+  /**
+   * The coarse inputs the viewer's explorer solves on, on the same stamp as
+   * the mesh, since it is the same stage at another resolution.
+   *
+   * Its own stamp, though, so a checkout that has the mesh cached but not the
+   * preview still builds it -- which is what the Pages runner looks like the
+   * first time after this went in.
+   */
+  if (stamp(PREVIEW_STAMP) === stageHash && havePreview) {
+    console.log('[data] preview meshes are up to date')
+  } else {
+    run('build-preview.ts')
+    writeFileSync(PREVIEW_STAMP, `${stageHash}\n`)
   }
   run('solve.ts')
   // Only once both stages have succeeded, or a crash halfway would leave a
