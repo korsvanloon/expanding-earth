@@ -117,6 +117,18 @@ export const CONFIG = {
    */
   seedSpacingKm: 250,
   /**
+   * How far apart two conjugate pairs have to be, end for end, km.
+   *
+   * The point is an even spread over the whole world rather than the most
+   * pairs obtainable, and those are different things: pairs are taken wherever
+   * both flanks of a path survive, so the oceans that kept both flanks carried
+   * the answer. Before this, 52% of pairs were Atlantic and 16% Pacific, while
+   * the paths themselves were spread 80 to 54 -- the paths were never the
+   * problem. A reader put the rule plainly: an even spread, and never mind
+   * that the points end up far apart.
+   */
+  pairSpacingKm: Number(process.env.PAIR_SPACING ?? 400),
+  /**
    * How far the gravity grid's lineaments may pull a traced step away from the
    * age gradient, at full coherence. Zero reads the age grid alone.
    *
@@ -670,7 +682,9 @@ async function main() {
     { length: Math.floor(CONFIG.endTimeMa / CONFIG.frameStepMa) + 1 },
     (_, i) => i * CONFIG.frameStepMa,
   )
-  const conjugates = conjugatePairs(traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa)
+  const conjugates = conjugatePairs(
+    traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa, CONFIG.pairSpacingKm,
+  )
 
   /**
    * Throw away the pairs whose join does not run along the spreading direction.

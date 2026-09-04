@@ -699,17 +699,86 @@ export function conjugatePairs(
   ages: number[],
   snap: (x: number, y: number, z: number) => MeshPoint | null,
   tolerance = 4,
+  /**
+   * How far apart two pairs have to be, in km, measured end for end.
+   *
+   * Zero keeps every pair a path can offer, which is what this used to do and
+   * which loads the answer onto whichever ocean happens to have both of its
+   * flanks. Measured over the run before this option existed: 52% of pairs in
+   * the Atlantic against 16% in the Pacific, while the *paths* were spread 80
+   * to 54. The paths were never the problem. Pairs are taken at every frame
+   * age both flanks survive, and in the Atlantic both flanks survive back to
+   * 180 Ma, so one path there offers 36 while the same path in the Pacific --
+   * whose western flank is gone -- offers a handful.
+   *
+   * Spacing them along their own path does not fix that: the Atlantic pairs
+   * already sit about 315 km apart along theirs. What fixes it is spacing them
+   * against *each other*, wherever they are, which is what a reader asked for
+   * in as many words -- an even spread over the whole world, and never mind
+   * that points end up far apart.
+   */
+  spacingKm = 0,
 ): ConjugateResult {
   const pairs: Conjugate[] = []
   const rejected: Record<string, number> = {
     'no crust of that age on one flank': 0,
     'both halves are the same mesh point': 0,
     'not as far apart as the paths are long': 0,
+    'another pair already covers this crust': 0,
   }
-  for (const [index, track] of tracks.entries()) {
-    const left = track.points.slice(0, track.ridge).reverse()
-    const right = track.points.slice(track.ridge + 1)
-    for (const age of ages) {
+  /**
+   * Ends already spoken for, in buckets a spacing wide, so the test is local.
+   *
+   * Both ends of a pair are registered and both are tested: a pair is a claim
+   * about two pieces of crust, and either being already covered makes it a
+   * repetition of a claim rather than a new one.
+   */
+  const taken = new Map<string, [number, number, number][]>()
+  const cell = (x: number, y: number, z: number) => {
+    const size = Math.max(1e-6, spacingKm / RADIUS_KM)
+    return `${Math.round(x / size)},${Math.round(y / size)},${Math.round(z / size)}`
+  }
+  const clear = (p: FlowPoint) => {
+    if (!spacingKm) return true
+    const size = Math.max(1e-6, spacingKm / RADIUS_KM)
+    const near = Math.cos(spacingKm / RADIUS_KM)
+    for (let dx = -1; dx <= 1; dx++) {
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dz = -1; dz <= 1; dz++) {
+          const there = taken.get(cell(p.x + dx * size, p.y + dy * size, p.z + dz * size))
+          if (!there) continue
+          for (const [x, y, z] of there) {
+            if (p.x * x + p.y * y + p.z * z > near) return false
+          }
+        }
+      }
+    }
+    return true
+  }
+  const claim = (p: FlowPoint) => {
+    if (!spacingKm) return
+    const key = cell(p.x, p.y, p.z)
+    const there = taken.get(key)
+    if (there) there.push([p.x, p.y, p.z])
+    else taken.set(key, [[p.x, p.y, p.z]])
+  }
+
+  /**
+   * Age by age across every path, rather than path by path.
+   *
+   * The spacing rule is greedy, so the order it considers candidates in is the
+   * order of preference, and path by path would hand one ocean everything it
+   * asked for before the next ocean was looked at. Age by age, every path gets
+   * its young pair before any path gets its old one, so the spread is even in
+   * time as well as in place and no basin is served first.
+   */
+  const flanks = tracks.map((track) => ({
+    left: track.points.slice(0, track.ridge).reverse(),
+    right: track.points.slice(track.ridge + 1),
+  }))
+  for (const age of ages) {
+    for (const [index] of tracks.entries()) {
+      const { left, right } = flanks[index]
       const nearest = (side: FlowPoint[]) => {
         let best: FlowPoint | null = null
         for (const p of side) {
@@ -736,6 +805,12 @@ export function conjugatePairs(
         rejected['both halves are the same mesh point']++
         continue
       }
+      if (!clear(pa) || !clear(pb)) {
+        rejected['another pair already covers this crust']++
+        continue
+      }
+      claim(pa)
+      claim(pb)
       pairs.push({
         a, b, ageMa: age, fromRidgeAKm: pa.fromRidgeKm, fromRidgeBKm: pb.fromRidgeKm,
         track: index,
