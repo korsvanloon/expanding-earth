@@ -558,39 +558,27 @@ export function traceFlowLines(
    */
   const departures = (axis: [number, number, number]) => {
     /**
-     * The fitted field decides which line to leave on, where it has an opinion.
-     *
-     * The ring below asks the age grid which way the crust gets older, and on
-     * a ridge axis that is the one question the age grid cannot answer. The age
-     * is at a *minimum* there, so what is left of the gradient is noise, and
-     * over a staircase of ridge segments offset by transforms the oldest
-     * direction on a ring is the staircase's diagonal. Measured in the
-     * equatorial Atlantic: paths left the ridge on bearings of 31, 31, 37, 4,
-     * 31, 29, 28, 9 and 31 degrees where the answer is about 90, so paths
-     * leaving Brazil went north-east instead of east and never reached the
-     * coast they came from.
-     *
-     * The fabric does answer it: a transform runs along the spreading
-     * direction, and it is the strongest thing in the gravity grid at a ridge.
-     * That is what the fitted field carries. Reaching for it here is not an
-     * extra refinement -- until now the field was consulted only from the
-     * second step onwards, so the grooves had no say in the one step that sets
-     * the whole path, and adding 27 anchors in that region changed the paths by
-     * exactly nothing.
-     *
-     * The ring is still what decides *which end* of the line is the older way,
-     * because a line has no direction and the age grid, useless about the axis
-     * here, is perfectly good about which side is older a few hundred
-     * kilometres out.
-     */
-    /**
      * The line to leave on, from the grooves if one is near, else from the fit.
+     *
+     * Neither is the age ring below, which is what this used to be and which
+     * asks the age grid which way the crust gets older. On a ridge axis that is
+     * the one question the age grid cannot answer: the age is at a *minimum*
+     * there, so what is left of the gradient is noise, and over a staircase of
+     * ridge segments offset by transforms the oldest direction on a ring is the
+     * staircase's diagonal. Measured in the equatorial Atlantic, paths left on
+     * bearings of 31, 31, 37, 4, 31, 29, 28, 9 and 31 degrees where the answer
+     * is about 90, so paths leaving Brazil went north-east instead of east.
      *
      * A groove *is* the evidence; the fit is a smoothing of it over a region
      * far wider than the evidence reaches, and a reader watching two maps come
      * out identical is how that got found. Asking the grooves first is not a
      * refinement of the fit, it is preferring a reading to an average of
      * readings and absences.
+     *
+     * The ring still decides *which end* of the line is the older way, because
+     * a line has no direction, and the age grid -- useless about the axis here
+     * -- is perfectly good about which side is older a few hundred kilometres
+     * out.
      */
     const leaveOn = (() => {
       if (ridgeAxis) {
