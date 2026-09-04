@@ -44,11 +44,39 @@ export interface FlowTrack {
   points: FlowPoint[]
   /** Where the ridge sits in `points`. */
   ridge: number
+  /**
+   * A path with one flank only: the other has gone, under a continent or off
+   * the edge of the survey, so nothing on it can be paired and scored. What
+   * it still says is which way this crust travelled, and that is a force on
+   * the reconstruction and never a check of it. See traceFlowLines.
+   */
+  oneSided?: boolean
+}
+
+export interface OneSidedOptions {
+  /** How far a seed has to be from every two-sided path to be worth placing, km. */
+  coverKm?: number
+  /** How far apart the one-sided seeds are, km. */
+  seedSpacingKm?: number
+  /** The youngest crust a seed is placed on, Ma. */
+  minAgeMa?: number
 }
 
 export interface FlowOptions {
   /** How far apart the ridge seeds are, km. */
   seedSpacingKm?: number
+  /**
+   * Also trace one-sided paths over the crust no two-sided path reaches.
+   *
+   * A reader named the places: the Pacific off California, whose ridge went
+   * under North America; the Weddell Sea; the sea west of Australia and
+   * Indonesia. The crust there travelled like any other and has no conjugate
+   * left to pair with, so a path over it is seeded wherever the two-sided ones
+   * left a gap, walked to its young end -- the margin, or the edge of the
+   * dated crust -- and back out along the field. Its pairs join each point to
+   * that young end, pull the reconstruction, and are never scored.
+   */
+  oneSided?: OneSidedOptions
   /** How sure the field must be to choose the direction out of the ridge. */
   departureConfidence?: number
   /**
@@ -271,6 +299,9 @@ export interface FlowResult {
    */
   seeds: number
   rejected: Record<string, number>
+  /** The one-sided paths, when asked for, and why the failed seeds failed. */
+  oneSided: FlowTrack[]
+  oneSidedRejected: Record<string, number>
 }
 
 export function traceFlowLines(
@@ -751,7 +782,207 @@ export function traceFlowLines(
       ridge: a.length,
     })
   }
-  return { tracks, seeds: seeds.length, rejected }
+
+  // --- one-sided paths over the crust the two-sided ones never reach --------
+  const oneSided: FlowTrack[] = []
+  const oneSidedRejected: Record<string, number> = {
+    'no way to the young end': 0,
+    'reaches a ridge another path serves': 0,
+    'a flank went nowhere': 0,
+    'nothing 10 Ma older than its young end': 0,
+    'a flank doubled back': 0,
+  }
+  if (options.oneSided) {
+    const coverKm = options.oneSided.coverKm ?? 500
+    const seedKm = options.oneSided.seedSpacingKm ?? 500
+    const minAgeMa = options.oneSided.minAgeMa ?? 10
+
+    // Every point of every two-sided path, in buckets a cover wide, so asking
+    // whether a place is already served looks at its neighbourhood only.
+    const size = coverKm / r
+    const bucket = new Map<string, [number, number, number][]>()
+    const keyOf = (x: number, y: number, z: number) =>
+      `${Math.round(x / size)},${Math.round(y / size)},${Math.round(z / size)}`
+    for (const track of tracks) {
+      for (const p of track.points) {
+        const key = keyOf(p.x, p.y, p.z)
+        const there = bucket.get(key)
+        if (there) there.push([p.x, p.y, p.z])
+        else bucket.set(key, [[p.x, p.y, p.z]])
+      }
+    }
+    const coverCos = Math.cos(coverKm / r)
+    const served = (p: [number, number, number]) => {
+      for (let dx = -1; dx <= 1; dx++) {
+        for (let dy = -1; dy <= 1; dy++) {
+          for (let dz = -1; dz <= 1; dz++) {
+            const there = bucket.get(keyOf(p[0] + dx * size, p[1] + dy * size, p[2] + dz * size))
+            if (!there) continue
+            for (const [x, y, z] of there) if (x * p[0] + y * p[1] + z * p[2] > coverCos) return true
+          }
+        }
+      }
+      return false
+    }
+
+    // Seeds: dated crust old enough to have travelled, unserved, and no two
+    // within a spacing of each other. Scanned at a quarter of the spacing so
+    // the thinning, not the scan, decides where they land.
+    const scan = Math.max(1, Math.round((seedKm / 4) / ((2 * Math.PI * r) / width)))
+    const seedCos = Math.cos(seedKm / r)
+    const oneSeeds: [number, number, number][] = []
+    for (let row = 0; row < height; row += scan) {
+      for (let col = 0; col < width; col += scan) {
+        const a = age[row * width + col]
+        if (Number.isNaN(a) || a < minAgeMa) continue
+        const lon = ((col + 0.5) / width - 0.5) * 2 * Math.PI
+        const lat = (0.5 - (row + 0.5) / height) * Math.PI
+        const c = Math.cos(lat)
+        const p: [number, number, number] = [c * Math.cos(lon), Math.sin(lat), -c * Math.sin(lon)]
+        if (served(p)) continue
+        let near = false
+        for (const q of oneSeeds) {
+          if (q[0] * p[0] + q[1] * p[1] + q[2] * p[2] > seedCos) { near = true; break }
+        }
+        if (!near) oneSeeds.push(p)
+      }
+    }
+
+    /**
+     * Walk a seed down the ages to where its crust is youngest: the margin
+     * the ridge went under, the edge of the dated crust, or a ridge.
+     *
+     * Along the field where there is one, taking the end of the axis the age
+     * falls along; down the gradient where there is not. Stops where the age
+     * stops falling or the crust stops being dated.
+     */
+    const toYoungEnd = (seed: [number, number, number]) => {
+      let [x, y, z] = seed
+      let last = field.at(x, y, z)
+      let heading: [number, number, number] | null = null
+      for (let walked = 0; walked < maxLengthKm; walked += stepKm) {
+        const g = gradient(x, y, z)
+        if (!g) break
+        let dx = -g.tx, dy = -g.ty, dz = -g.tz
+        if (fitted) {
+          const flow = flowAt(fitted, x, y, z, heading ?? [dx, dy, dz])
+          if (flow) { dx = flow.tx; dy = flow.ty; dz = flow.tz }
+        }
+        const [px, py, pz] = advance(x, y, z, dx, dy, dz, stepAngle)
+        const a = field.at(px, py, pz)
+        if (Number.isNaN(a) || a > last + 1) break
+        x = px; y = py; z = pz
+        last = Math.min(last, a)
+        const drift = dx * x + dy * y + dz * z
+        dx -= x * drift; dy -= y * drift; dz -= z * drift
+        const l = length3(dx, dy, dz) || 1
+        heading = [dx / l, dy / l, dz / l]
+      }
+      return { point: [x, y, z] as [number, number, number], ageMa: last, heading }
+    }
+
+    for (const raw of oneSeeds) {
+      const young = toYoungEnd(raw)
+      // Back out the way it came, or, for a seed already at its young end,
+      // up the gradient.
+      let out: [number, number, number] | null = young.heading
+        ? [-young.heading[0], -young.heading[1], -young.heading[2]]
+        : null
+      if (!out) {
+        const g = gradient(young.point[0], young.point[1], young.point[2])
+        if (g) {
+          out = [g.tx, g.ty, g.tz]
+          if (fitted) {
+            const flow = flowAt(fitted, young.point[0], young.point[1], young.point[2], out)
+            if (flow) out = [flow.tx, flow.ty, flow.tz]
+          }
+        }
+      }
+      if (!out) { oneSidedRejected['no way to the young end']++; continue }
+      // A young end on a ridge that a two-sided path already leaves from is
+      // that path's crust, reached from the far side of a gap in its flank.
+      if (young.ageMa <= ridgeAgeMa + 2) {
+        let served = false
+        for (const a of axes) {
+          if (a[0] * young.point[0] + a[1] * young.point[1] + a[2] * young.point[2] > seedCos) {
+            served = true
+            break
+          }
+        }
+        if (served) { oneSidedRejected['reaches a ridge another path serves']++; continue }
+      }
+      const walk = flank(young.point, out[0], out[1], out[2], young.ageMa)
+      if (walk.length < 3) { oneSidedRejected['a flank went nowhere']++; continue }
+      if (walk[walk.length - 1].ageMa < young.ageMa + 10) {
+        oneSidedRejected['nothing 10 Ma older than its young end']++
+        continue
+      }
+      if (!straight(young.point, walk)) { oneSidedRejected['a flank doubled back']++; continue }
+      oneSided.push({
+        points: [
+          { x: young.point[0], y: young.point[1], z: young.point[2], ageMa: young.ageMa, fromRidgeKm: 0 },
+          ...walk,
+        ],
+        ridge: 0,
+        oneSided: true,
+      })
+    }
+  }
+  return { tracks, seeds: seeds.length, rejected, oneSided, oneSidedRejected }
+}
+
+/**
+ * The pairs a one-sided path offers: each point of an asked-for age joined to
+ * the path's young end, where the crust between them has gone by that time.
+ *
+ * At its own age a point was at the ridge, and everything younger than it on
+ * this path had not yet formed -- so it sat where the young end is, or where
+ * what is left of the young end will be once the crust under it has been
+ * taken away. That is the pull: the old crust closes on the margin along the
+ * path. There is no partner on the other side to check it against, so every
+ * one of these pulls and none of them scores; `pairPulls` in shared/tracks.ts
+ * reads the kind.
+ */
+export function marginPairs(
+  tracks: FlowTrack[],
+  ages: number[],
+  snap: (x: number, y: number, z: number) => MeshPoint | null,
+  tolerance = 4,
+  /** Where these tracks start in the numbering the pairs refer to. */
+  trackOffset = 0,
+): ConjugateResult {
+  const pairs: Conjugate[] = []
+  const rejected: Record<string, number> = {
+    'no crust of that age on the flank': 0,
+    'both halves are the same mesh point': 0,
+  }
+  for (const [index, track] of tracks.entries()) {
+    const young = track.points[track.ridge]
+    const flank = track.points.slice(track.ridge + 1)
+    const a = snap(young.x, young.y, young.z)
+    if (!a) continue
+    for (const age of ages) {
+      if (age < young.ageMa + tolerance) continue
+      let best: FlowPoint | null = null
+      for (const p of flank) {
+        if (!best || Math.abs(p.ageMa - age) < Math.abs(best.ageMa - age)) best = p
+      }
+      if (!best || Math.abs(best.ageMa - age) > tolerance) {
+        rejected['no crust of that age on the flank']++
+        continue
+      }
+      const b = snap(best.x, best.y, best.z)
+      if (!b || a.v.every((v, i) => v === b.v[i])) {
+        rejected['both halves are the same mesh point']++
+        continue
+      }
+      pairs.push({
+        a, b, ageMa: age, fromRidgeAKm: 0, fromRidgeBKm: best.fromRidgeKm,
+        track: trackOffset + index,
+      })
+    }
+  }
+  return { pairs, rejected }
 }
 
 /**

@@ -23,6 +23,7 @@ import {
   Raster, areaQuantile, downsample, downsampleField, loadRaster,
 } from './lib/raster.js'
 import { loadAgeGrid } from './lib/agegrid.js'
+import { FlowKind, isochronFlow } from './lib/isochron-flow.js'
 import { obliquityDeg, overDisc, spreadingDirection } from './lib/age-gradient.js'
 import {
   anchorGrooves, axisOf, grainConsensus, grainReference, grooveField, grooveLineaments,
@@ -43,8 +44,8 @@ import { flowField } from './lib/flowfield.js'
 import { subdivision } from './lib/resolution.js'
 import { unstretching } from './lib/unstretching.js'
 import { findIslands } from './lib/islands.js'
-import { conjugatePairs, faceSnapper, traceFlowLines } from './lib/flowlines.js'
-import { writeTracks } from '../shared/tracks.js'
+import { conjugatePairs, marginPairs, faceSnapper, traceFlowLines } from './lib/flowlines.js'
+import { ONE_SIDED, TWO_SIDED, writeTracks } from '../shared/tracks.js'
 import {
   PERMANENT_MA,
   R0_KM,
@@ -334,6 +335,39 @@ export const CONFIG = {
    */
   grooveFlow: Number(process.env.GROOVE_FLOW ?? 1) > 0,
   /**
+   * Whether the age grid's own structure anchors the travelled-direction
+   * field, beside the grooves. See tools/lib/isochron-flow.ts: a reader's
+   * three rules for a good flow line, read off the isochron terraces and the
+   * fracture-zone offsets in the age grid itself, at every cell of the field.
+   * The grooves stay in as the second witness. ISOCHRON_FLOW=0 measures
+   * the alternative.
+   */
+  isochronFlow: Number(process.env.ISOCHRON_FLOW ?? 1) > 0,
+  /**
+   * The weight, as a share of an anchor's, of a cell where the age grid has
+   * no line and only the regional climb speaks. Rule 1 alone, weakly.
+   */
+  isochronGradientShare: Number(process.env.ISOCHRON_GRADIENT ?? 0.3),
+  /**
+   * The interval along a path at which pairs are read, Ma; 0 for every frame.
+   *
+   * Twenty-five, so a path carries a handful of clear time marks rather than a
+   * pair at every five-million-year frame. PAIR_INTERVAL measures the
+   * alternative.
+   */
+  pairIntervalMa: Number(process.env.PAIR_INTERVAL ?? 25),
+  /**
+   * One-sided paths over the crust no two-sided path reaches -- the Pacific
+   * off California, the Weddell Sea, the sea west of Australia -- seeded where
+   * the two-sided ones leave a gap wider than this, walked to their young end
+   * and back out along the field. Their pairs pull and are never scored. See
+   * traceFlowLines. ONE_SIDED=0 measures the model without them.
+   */
+  oneSidedPaths: Number(process.env.ONE_SIDED ?? 1) > 0,
+  oneSidedCoverKm: Number(process.env.ONE_SIDED_COVER ?? 500),
+  oneSidedSeedKm: Number(process.env.ONE_SIDED_SEED ?? 500),
+  oneSidedMinAgeMa: Number(process.env.ONE_SIDED_MIN_AGE ?? 10),
+  /**
    * What a groove has to be to anchor the travelled-direction field.
    *
    * Every groove is drawn; only some of them get a vote. The first attempt gave
@@ -399,7 +433,7 @@ export const CONFIG = {
   grainSpreadDeg: Number(process.env.GRAIN_SPREAD ?? 15),
   grainOffDeg: Number(process.env.GRAIN_OFF ?? 15),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
-  drawnTracks: Number(process.env.DRAWN_TRACKS ?? 60),
+  drawnTracks: Number(process.env.DRAWN_TRACKS ?? 400),
   /**
    * Which classification the solver actually runs on. The depth-age fit only
    * reaches r2 ~ 0.18 against this particular height map, so interpolating ages
@@ -735,8 +769,25 @@ async function main() {
       return field
     })()
     : zones
-  const field = CONFIG.useFlowField && anchors && vgg
-    ? flowField(anchors, ageMa, ageFull.width, ageFull.height, vgg, R0_KM,
+  // The age grid's own structure as the first witness, the grooves as the
+  // second; where both speak for a cell their doubled angles are added.
+  const isochrons = CONFIG.isochronFlow
+    ? (() => {
+      const started = Date.now()
+      const read = isochronFlow(ageFull, { gradientShare: CONFIG.isochronGradientShare })
+      const kinds = [0, 0, 0, 0]
+      for (const k of read.kind) kinds[k]++
+      console.log(
+        `[build-data] isochron flow: ${kinds[FlowKind.Along]} cells on a line of the age grid, `
+          + `${kinds[FlowKind.Across]} across one, ${kinds[FlowKind.Gradient]} on the climb alone `
+          + `(${((Date.now() - started) / 1000).toFixed(0)} s)`,
+      )
+      return read
+    })()
+    : undefined
+  const witnesses = [isochrons, anchors].filter((w): w is NonNullable<typeof w> => !!w)
+  const field = CONFIG.useFlowField && witnesses.length && vgg
+    ? flowField(witnesses, ageMa, ageFull.width, ageFull.height, vgg, R0_KM,
         { passes: CONFIG.flowPasses, anchorWeight: CONFIG.flowAnchorWeight })
     : undefined
   if (field) {
@@ -764,19 +815,41 @@ async function main() {
       crestPull: CONFIG.crestPull,
       crestReachKm: CONFIG.crestReachKm,
       crestMaxShiftKm: CONFIG.crestMaxShiftKm,
+      oneSided: CONFIG.oneSidedPaths
+        ? {
+          coverKm: CONFIG.oneSidedCoverKm,
+          seedSpacingKm: CONFIG.oneSidedSeedKm,
+          minAgeMa: CONFIG.oneSidedMinAgeMa,
+        }
+        : undefined,
     },
   )
   console.log(
     `  ${traced.tracks.length} tracks from ${traced.seeds} ridge seeds; ` +
       Object.entries(traced.rejected).map(([why, n]) => `${n} ${why}`).join(', '),
   )
+  if (CONFIG.oneSidedPaths) {
+    console.log(
+      `  ${traced.oneSided.length} one-sided paths over crust no two-sided path came within `
+        + `${CONFIG.oneSidedCoverKm} km of; `
+        + Object.entries(traced.oneSidedRejected).map(([why, n]) => `${n} ${why}`).join(', '),
+    )
+  }
   const snapToFace = faceSnapper(shell.positions, shell.indices, vertexCount)
   const frameAges = Array.from(
     { length: Math.floor(CONFIG.endTimeMa / CONFIG.frameStepMa) + 1 },
     (_, i) => i * CONFIG.frameStepMa,
   )
+  // The ages the pairs are read at. A reader asked for a fixed interval along
+  // each path rather than a pair at every frame: fewer marks, further apart,
+  // each one a clear point on the path's own timeline. A pair still pulls at
+  // every frame up to its age (see closeConjugates in solve.ts), so the pull is
+  // not thinned by this; only the marks are.
+  const pairAges = CONFIG.pairIntervalMa > 0
+    ? frameAges.filter((age) => age > 0 && age % CONFIG.pairIntervalMa === 0)
+    : frameAges
   const conjugates = conjugatePairs(
-    traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa, CONFIG.pairSpacingKm,
+    traced.tracks, pairAges, snapToFace, CONFIG.conjugateToleranceMa, CONFIG.pairSpacingKm,
     CONFIG.pairsPerPath,
   )
   /**
@@ -791,7 +864,7 @@ async function main() {
     console.log('  spacing   pairs   Atlantic  Indian  Pacific  Southern')
     for (const spacingKm of [0, 100, 150, 200, 300, 400]) {
       const set = conjugatePairs(
-        traced.tracks, frameAges, snapToFace, CONFIG.conjugateToleranceMa, spacingKm,
+        traced.tracks, pairAges, snapToFace, CONFIG.conjugateToleranceMa, spacingKm,
         CONFIG.pairsPerPath,
       ).pairs
       const basins = new Map<string, number>()
@@ -894,7 +967,25 @@ async function main() {
   // tracks is written, because they are there to be looked at: a globe with
   // five hundred lines on it is a globe you cannot see.
   const stride = Math.max(1, Math.round(traced.tracks.length / CONFIG.drawnTracks))
-  const drawn = traced.tracks.filter((_, i) => i % stride === 0)
+  const twoSided = traced.tracks.filter((_, i) => i % stride === 0)
+  // The one-sided paths, numbered after the two-sided ones, and their pairs:
+  // each point at a pair age joined to the path's young end. These are the
+  // force a reader asked for over the basins that have no conjugate left, and
+  // never part of the score -- see pairPulls in shared/tracks.ts.
+  const margins = marginPairs(
+    traced.oneSided, pairAges, snapToFace, CONFIG.conjugateToleranceMa, twoSided.length,
+  )
+  if (CONFIG.oneSidedPaths) {
+    console.log(
+      `  ${margins.pairs.length} one-sided pairs, each a point joined to its path's young end; ` +
+        Object.entries(margins.rejected).map(([why, n]) => `${n} ${why}`).join(', '),
+    )
+  }
+  const drawn = [...twoSided, ...traced.oneSided]
+  const pairs = [
+    ...conjugates.pairs.map((pair) => ({ pair, kind: TWO_SIDED })),
+    ...margins.pairs.map((pair) => ({ pair, kind: ONE_SIDED })),
+  ]
   const offsets: number[] = [0]
   const ridge: number[] = []
   const pointVerts: number[] = []
@@ -936,17 +1027,21 @@ async function main() {
       pointWeights: Float32Array.from(pointWeights),
       ageMa: Float32Array.from(pointAge),
       fromRidgeKm: Float32Array.from(fromRidge),
-      pairAVerts: Uint32Array.from(conjugates.pairs.flatMap((p) => p.a.v)),
-      pairAWeights: Float32Array.from(conjugates.pairs.flatMap((p) => p.a.w)),
-      pairBVerts: Uint32Array.from(conjugates.pairs.flatMap((p) => p.b.v)),
-      pairBWeights: Float32Array.from(conjugates.pairs.flatMap((p) => p.b.w)),
-      pairAgeMa: Float32Array.from(conjugates.pairs, (p) => p.ageMa),
-      pairTrack: Uint32Array.from(conjugates.pairs, (p) => p.track),
+      pairAVerts: Uint32Array.from(pairs.flatMap(({ pair }) => pair.a.v)),
+      pairAWeights: Float32Array.from(pairs.flatMap(({ pair }) => pair.a.w)),
+      pairBVerts: Uint32Array.from(pairs.flatMap(({ pair }) => pair.b.v)),
+      pairBWeights: Float32Array.from(pairs.flatMap(({ pair }) => pair.b.w)),
+      pairAgeMa: Float32Array.from(pairs, ({ pair }) => pair.ageMa),
+      pairTrack: Uint32Array.from(pairs, ({ pair }) => pair.track),
+      trackKind: Uint32Array.from(drawn, (track) => (track.oneSided ? ONE_SIDED : TWO_SIDED)),
+      pairKind: Uint32Array.from(pairs, ({ kind }) => kind),
     })),
   )
   console.log(
-    `  wrote ${drawn.length} tracks -- ${pointAge.length} points on their own paths -- ` +
-      'for drawing, and every pair for measuring',
+    `  wrote ${twoSided.length} two-sided and ${traced.oneSided.length} one-sided tracks -- ` +
+      `${pointAge.length} points on their own paths -- for drawing, ` +
+      `${conjugates.pairs.length} conjugate pairs for pulling and measuring, ` +
+      `${margins.pairs.length} one-sided pairs for pulling alone`,
   )
 
   writeMesh(resolve(OUT, 'mesh.bin'), shell, solvedFaceAges, solvedVertexAges, crust, structure)

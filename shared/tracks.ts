@@ -57,7 +57,18 @@ export interface Tracks {
    * million years apart on the same walk say almost the same thing.
    */
   pairTrack: Uint32Array
+  /**
+   * What kind of path each drawn track is, and what kind each pair came off:
+   * TWO_SIDED, with a flank either side of a ridge, or ONE_SIDED, a single
+   * flank walked out from a margin the other flank went under. One-sided
+   * pairs pull and are never scored -- there is no conjugate to score against.
+   */
+  trackKind: Uint32Array
+  pairKind: Uint32Array
 }
+
+export const TWO_SIDED = 0
+export const ONE_SIDED = 1
 
 export function writeTracks(t: Tracks): ArrayBuffer {
   const trackCount = t.ridge.length
@@ -65,8 +76,8 @@ export function writeTracks(t: Tracks): ArrayBuffer {
   const pairCount = t.pairAgeMa.length
   // header, the offsets (one more than there are tracks), the ridge indices,
   // eight words per point -- three corners, three weights, an age and a
-  // distance -- and thirteen per pair.
-  const words = 3 + (trackCount + 1) + trackCount + pointCount * 8 + pairCount * 14
+  // distance -- fifteen per pair, and a kind per track.
+  const words = 3 + (trackCount + 1) + trackCount * 2 + pointCount * 8 + pairCount * 15
   const buffer = new ArrayBuffer(words * 4)
   const u32 = new Uint32Array(buffer)
   const f32 = new Float32Array(buffer)
@@ -85,7 +96,9 @@ export function writeTracks(t: Tracks): ArrayBuffer {
   u32.set(t.pairBVerts, at); at += pairCount * 3
   f32.set(t.pairBWeights, at); at += pairCount * 3
   f32.set(t.pairAgeMa, at); at += pairCount
-  u32.set(t.pairTrack, at)
+  u32.set(t.pairTrack, at); at += pairCount
+  u32.set(t.trackKind, at); at += trackCount
+  u32.set(t.pairKind, at)
   return buffer
 }
 
@@ -116,6 +129,8 @@ export function readTracks(buffer: ArrayBuffer): Tracks {
     pairBWeights: f32(pairCount * 3),
     pairAgeMa: f32(pairCount),
     pairTrack: u32(pairCount),
+    trackKind: u32(trackCount),
+    pairKind: u32(pairCount),
   }
 }
 
@@ -126,8 +141,10 @@ export function readTracks(buffer: ArrayBuffer): Tracks {
  * must not disagree: a pair the solver was told to close would look like a
  * triumph in the viewer and mean nothing. Split by track and not by pair --
  * two pairs a few million years apart on one walk are nearly the same claim.
+ * A one-sided pair always pulls: it has no conjugate, so it could never score.
  */
-export const pairPulls = (tracks: Tracks, i: number) => tracks.pairTrack[i] % 2 === 0
+export const pairPulls = (tracks: Tracks, i: number) =>
+  tracks.pairKind[i] === ONE_SIDED || tracks.pairTrack[i] % 2 === 0
 
 /**
  * A colour per pair, so the two ends of one claim can be told from its

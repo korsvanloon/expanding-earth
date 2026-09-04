@@ -8,7 +8,7 @@ import { buildReferenceRotations } from '@/frames'
 import {
   clock, describePicks, onClockMoved, useStore, VIEW_MODES, ZONE_LIMIT, type Pick,
 } from '@/store'
-import { pairPulls } from '@shared/tracks'
+import { ONE_SIDED, pairPulls } from '@shared/tracks'
 import { directionToUv } from '@shared/sphere'
 import { PERMANENT_MA, R0_KM } from '@shared/model'
 import { measureSeams } from '@shared/seams'
@@ -483,6 +483,9 @@ export function Globe({ data }: { data: Dataset }) {
     const path = overlay.pathLine
     let n = 0
     for (let k = 0; k + 1 < t.offsets.length; k++) {
+      // Magenta for a path with a flank either side of a ridge; orange for a
+      // one-sided one, which pulls the crust onto a margin and is never scored.
+      const oneSided = t.trackKind[k] === ONE_SIDED
       for (let i = t.offsets[k] + 1; i < t.offsets[k + 1]; i++) {
         place(at, i - 1)
         place(on, i)
@@ -490,9 +493,9 @@ export function Globe({ data }: { data: Dataset }) {
           path.points[n * 3] = end[0]
           path.points[n * 3 + 1] = end[1]
           path.points[n * 3 + 2] = end[2]
-          path.colours[n * 3] = 0.85
-          path.colours[n * 3 + 1] = 0.25
-          path.colours[n * 3 + 2] = 0.72
+          path.colours[n * 3] = oneSided ? 1 : 0.85
+          path.colours[n * 3 + 1] = oneSided ? 0.59 : 0.25
+          path.colours[n * 3 + 2] = oneSided ? 0.16 : 0.72
           n++
         }
       }
@@ -532,7 +535,7 @@ export function Globe({ data }: { data: Dataset }) {
           marks.points[m * 3 + 1] = at[1] + axis[1] * side * TICK_SIZE * radius * 1.6
           marks.points[m * 3 + 2] = at[2] + axis[2] * side * TICK_SIZE * radius * 1.6
           marks.colours[m * 3] = 1
-          marks.colours[m * 3 + 1] = 0.16
+          marks.colours[m * 3 + 1] = t.trackKind[k] === ONE_SIDED ? 0.59 : 0.16
           marks.colours[m * 3 + 2] = 0.16
           m++
         }

@@ -21,7 +21,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import jpeg from 'jpeg-js'
 import { directionToUv } from '../shared/sphere.js'
-import { pairHue, readTracks } from '../shared/tracks.js'
+import { ONE_SIDED, pairHue, readTracks } from '../shared/tracks.js'
 import { loadAgeGrid } from './lib/agegrid.js'
 import { ageWindow, fabricWindow, windowFromEnv, type Canvas, type Colour } from './lib/window-map.js'
 
@@ -88,7 +88,7 @@ async function main() {
         const at = canvas.at(a.lon, a.lat)
         const on = canvas.at(b.lon, b.lat)
         canvas.line({ px: at.px, py: at.py + lift }, { px: on.px, py: on.py + lift },
-          [236, 72, 200])
+          tracks.trackKind[t] === ONE_SIDED ? [255, 150, 40] : [236, 72, 200])
       }
     }
     if (seen) drawn++
@@ -103,8 +103,11 @@ async function main() {
       // alone had the one point that is *not* half of a pair looking like one
       // -- and a reader would have read coincidence points as scattered off the
       // ridges, which is the opposite of what the picture shows.
+      // A one-sided path's young end in the path's own orange: it is where the
+      // crust closes on the margin, not a ridge where two flanks were one.
+      const centre: Colour = tracks.trackKind[t] === ONE_SIDED ? [255, 150, 40] : [255, 40, 40]
       for (const radius of [7, 8, 9]) canvas.ring(at, [10, 10, 14], [radius])
-      for (const radius of [0, 1, 2, 3, 4, 5, 6]) canvas.ring(at, [255, 40, 40], [radius])
+      for (const radius of [0, 1, 2, 3, 4, 5, 6]) canvas.ring(at, centre, [radius])
     }
   }
 
@@ -123,8 +126,10 @@ async function main() {
     }
   }
 
+  let oneSided = 0
+  for (const kind of tracks.trackKind) if (kind === ONE_SIDED) oneSided++
   console.log(
-    `[paths] ${drawn} of ${tracks.offsets.length - 1} paths cross the window, `
+    `[paths] ${drawn} of ${tracks.offsets.length - 1} paths (${oneSided} one-sided) cross the window, `
       + `${inside} coincidence points in it, ${pairs} pairs`,
   )
   console.log(`[paths] ${canvas.write(resolve(OUT, 'paths.png'))}`)

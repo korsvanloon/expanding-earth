@@ -21,6 +21,8 @@ import { readChannel, readFrames, writeChannel, writeFrames } from '../shared/fr
 import { markCrust, measureFold, newFoldScratch, pullInward } from '../tools/lib/fold'
 import { directionToUv, lonLatToDirection } from '../shared/sphere'
 import { flowAt, flowField } from '../tools/lib/flowfield'
+import { FlowKind, isochronFlow } from '../tools/lib/isochron-flow'
+import { Raster } from '../tools/lib/raster'
 import { grooveField, walkGrooves } from '../tools/lib/grooves'
 import { axisDiff, bearingDeg } from '../tools/lib/bearing'
 import jpeg from 'jpeg-js'
@@ -624,6 +626,8 @@ describe('reading the stretch marks', () => {
       pairBWeights: Float32Array.from([0.1, 0.8, 0.1]),
       pairAgeMa: Float32Array.from([10]),
       pairTrack: Uint32Array.from([1]),
+      trackKind: Uint32Array.from([0, 1]),
+      pairKind: Uint32Array.from([1]),
     }
     const back = readTracks(writeTracks(tracks))
     for (const key of Object.keys(tracks) as (keyof typeof tracks)[]) {
@@ -1886,6 +1890,51 @@ describe('fitting a direction to the whole ocean', () => {
     // would say; far from it, it has gone back.
     const fromNorth = (deg: number) => Math.min(deg, 180 - deg)
     expect(fromNorth(near)).toBeGreaterThan(fromNorth(far) + 10)
+  })
+})
+
+describe('reading the travelled direction off the age grid itself', () => {
+  // A ridge along longitude zero with the crust spreading east and west of it
+  // at two million years a degree, and a fracture zone along the equator
+  // across which the southern flank's isochrons are offset by twenty million
+  // years. Half a degree a cell, like a coarse copy of the real grid.
+  const W = 720
+  const H = 360
+  const ages = new Raster(W, H, new Float32Array(W * H))
+  for (let r = 0; r < H; r++) {
+    const lat = 90 - ((r + 0.5) / H) * 180
+    for (let c = 0; c < W; c++) {
+      const lon = ((c + 0.5) / W) * 360 - 180
+      ages.data[r * W + c] = 2 * Math.abs(lon) + (lat < 0 ? 20 : 0)
+    }
+  }
+  const flow = isochronFlow(ages, { width: 180, height: 90 })
+  const at = (lonDeg: number, latDeg: number) => {
+    const i = Math.floor(((90 - latDeg) / 180) * 90) * 180 + Math.floor(((lonDeg + 180) / 360) * 180)
+    return { bearing: (flow.axis[i] / 256) * 180, kind: flow.kind[i], share: flow.ridgeness[i] }
+  }
+
+  // Rule 2: the jump along the equator is a line in the age grid, and the flow
+  // runs *along* it, not across it -- which is the case a regional gradient
+  // gets wrong, since across the jump is where the age changes most.
+  it('runs along a fracture-zone jump rather than across it', () => {
+    const on = at(30, 0.5)
+    expect(on.kind).toBe(FlowKind.Along)
+    expect(Math.min(on.bearing % 180, 180 - (on.bearing % 180))).toBeGreaterThan(80)
+    expect(on.share).toBe(1)
+  })
+
+  // Rule 1: away from the jump the isochrons are the only lines, and the flow
+  // crosses them, climbing steadily from young to old.
+  it('crosses the isochrons where the age climbs neatly', () => {
+    const off = at(30, 30)
+    expect(off.kind).toBe(FlowKind.Across)
+    expect(Math.abs(off.bearing - 90)).toBeLessThan(10)
+  })
+
+  // The two answers agree, which is the point: one direction, two reasons.
+  it('gives the same direction on the jump as beside it', () => {
+    expect(Math.abs(at(30, 0.5).bearing - at(30, 30).bearing)).toBeLessThan(10)
   })
 })
 

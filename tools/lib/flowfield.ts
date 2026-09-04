@@ -72,12 +72,19 @@ export interface FlowOptions {
  * is the age gradient corrected, everywhere, by every scarp within reach.
  */
 export function flowField(
-  zones: Lineaments,
+  /**
+   * The anchor fields, blended where more than one speaks for a cell. Each
+   * field's `ridgeness` is read as a share of the anchor weight, 0-1: a
+   * detected groove or a line read off the age grid has the whole of it, a
+   * cell the regional climb alone speaks for (see isochronFlow) less.
+   */
+  zones: Lineaments | Lineaments[],
   age: ArrayLike<number>, ageWidth: number, ageHeight: number,
   grid: Grid,
   r0: number,
   options: FlowOptions = {},
 ): FlowField {
+  const sources = Array.isArray(zones) ? zones : [zones]
   const width = options.width ?? 720
   const height = options.height ?? 360
   const passes = options.passes ?? 400
@@ -133,7 +140,9 @@ export function flowField(
     }
   }
 
-  // The anchors, which overwrite whatever the age grid said there.
+  // The anchors, which overwrite whatever the age grid said there. Two
+  // sources speaking for one cell are added as doubled-angle vectors, so
+  // agreement keeps its length and disagreement shortens it into doubt.
   for (let row = 0; row < height; row++) {
     for (let column = 0; column < width; column++) {
       const at = row * width + column
@@ -143,14 +152,23 @@ export function flowField(
       const x = c * Math.cos(lon)
       const y = Math.sin(lat)
       const z = -c * Math.sin(lon)
-      const [zc, zr] = directionToPixel(x, y, z, zones.width, zones.height)
-      const cell = zr * zones.width + zc
-      if (zones.ridgeness[cell] <= 0) continue
-      // The stored axis is already a bearing east of north.
-      const bearing = (zones.axis[cell] / 256) * Math.PI
-      toldC[at] = Math.cos(2 * bearing) * anchorWeight
-      toldS[at] = Math.sin(2 * bearing) * anchorWeight
-      weight[at] = anchorWeight
+      let sumC = 0, sumS = 0, sumW = 0
+      for (const source of sources) {
+        const [zc, zr] = directionToPixel(x, y, z, source.width, source.height)
+        const cell = zr * source.width + zc
+        const share = Math.min(1, source.ridgeness[cell])
+        if (share <= 0) continue
+        // The stored axis is already a bearing east of north.
+        const bearing = (source.axis[cell] / 256) * Math.PI
+        const w = anchorWeight * share
+        sumC += Math.cos(2 * bearing) * w
+        sumS += Math.sin(2 * bearing) * w
+        sumW += w
+      }
+      if (sumW <= 0) continue
+      toldC[at] = sumC
+      toldS[at] = sumS
+      weight[at] = Math.min(1, sumW)
     }
   }
 
