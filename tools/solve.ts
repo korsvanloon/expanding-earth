@@ -374,8 +374,32 @@ const CONFIG = {
   /**
    * How much of what the curtain pulls at becomes a turn of the plate it hangs
    * from. See `dragIslands`; `DRAG=0` switches it off.
+   *
+   * A tenth, at a reader's ask, after seeing what the ladder above it does.
+   *
+   * It was off, on a measurement taken at 40 Ma: there it moved the share of
+   * held-out pairs inside one triangle from 44% to 48%, left the median where
+   * it was, and paid for that with inside-out triangles at 0.31% against 0.12%
+   * and a dented surface point 3 km deep. The conclusion drawn was that the
+   * dilution it was built to fix was real and was not what held the gaps open.
+   *
+   * That measurement was taken where the mechanism has nothing to do. At 40 Ma
+   * almost nothing has been taken away yet; at 200 Ma more than half the crust
+   * is un-erupted and the curtain hanging under the margins is the largest
+   * thing in the model. Measured there, at full gain, it does what a reader
+   * said it would, including their prediction that California ends up against
+   * Australia: Australia comes from 2,089 km off North America to 129, with 5%
+   * of the margin in contact; Antarctica against South America from 15% of its
+   * margin in contact to 50%; North America against Africa from 1,252 km to
+   * 404; India against Africa from 1,208 to 600.
+   *
+   * And it opens the ocean the pairs already know about, South America against
+   * Africa going from 27 km apart to 1,101. Every gain between 0.35 and 1 is
+   * that same trade in different proportions, so this is not a compromise to
+   * be found by sweeping: it is how hard the Pacific side may be pushed before
+   * the Atlantic gives. A tenth is the gentle end of it.
    */
-  slabDrag: Number(process.env.DRAG ?? 0),
+  slabDrag: Number(process.env.DRAG ?? 0.1),
   /**
    * How near a conjugate pair a point has to be before the slab may not turn
    * its plate, km. Zero lets the drag act everywhere.
@@ -385,13 +409,12 @@ const CONFIG = {
    * nothing at this distance to a whole say at twice it, so there is no edge
    * for a plate to sit on.
    */
-  dragFreeKm: Number(process.env.DRAG_FREE ?? 600),
-  // Off. Measured at 40 Ma against 0, it moves the share of held-out pairs
-  // inside one triangle from 44% to 48% and leaves the median where it was,
-  // and it pays for that in the two things a reader had just asked to be rid
-  // of: inside-out triangles 0.12% -> 0.31% and the deepest dented surface
-  // point 0 km -> 3 km. So the dilution it was built to fix was real and was
-  // not what is holding the gaps open.
+  dragFreeKm: Number(process.env.DRAG_FREE ?? 0),
+  // Off, and measured: at 600 it keeps the Atlantic -- South America to Africa
+  // 15 km apart against 27 with no drag at all -- and loses the Pacific again,
+  // Australia back to 1,940 km off North America, because the Pacific has
+  // two-sided pairs of its own along the East Pacific Rise and they mask the
+  // drag out of the very water it was built for. DRAG_FREE=600 is that run.
   /**
    * How hard every triangle is held to its own area, 0 to 1.
    *

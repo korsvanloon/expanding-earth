@@ -457,9 +457,9 @@ construction, so the lines come out as lines.
 |---|---|---|---|---|
 | 0 Ma | 34 | 80 km | 100% | 0% |
 | 5 Ma | 75 | 64 km | 96% | 0% |
-| 30 Ma | 57 | 209 km | 49% | 0% |
-| 60 Ma | 30 | 283 km | 23% | 0% |
-| 120 Ma | 7 | 543 km | 14% | 0% |
+| 30 Ma | 57 | 195 km | 51% | 0% |
+| 60 Ma | 30 | 276 km | 37% | 0% |
+| 120 Ma | 7 | 650 km | 0% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -548,7 +548,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 165 blocks at its most divided and 1 at 200 Ma.
+The run finds 165 blocks at its most divided and 3 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -561,7 +561,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 23 km/Myr to 2.3, the block count from as many as 165 to 1, and the biggest block grows to 100% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 27 km/Myr to 3.8, the block count from as many as 165 to 3, and the biggest block grows to 63% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -589,10 +589,10 @@ data cannot answer.
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
 | 5 Ma | 1.019%/Myr | 15.0 km/Myr | 165 | 2% | 0.5% |
-| 30 Ma | 0.617%/Myr | 22.2 km/Myr | 153 | 3% | 1.0% |
-| 60 Ma | 0.408%/Myr | 15.4 km/Myr | 124 | 6% | 1.7% |
-| 120 Ma | 0.284%/Myr | 17.5 km/Myr | 84 | 13% | 2.4% |
-| 200 Ma | 0.000%/Myr | 2.3 km/Myr | 1 | 100% | 3.1% |
+| 30 Ma | 0.617%/Myr | 23.1 km/Myr | 156 | 2% | 1.1% |
+| 60 Ma | 0.408%/Myr | 16.9 km/Myr | 119 | 6% | 1.8% |
+| 120 Ma | 0.284%/Myr | 25.4 km/Myr | 111 | 5% | 2.6% |
+| 200 Ma | 0.000%/Myr | 3.8 km/Myr | 3 | 63% | 3.5% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -786,10 +786,10 @@ Then the detail. Four numbers per frame, none of them tuned:
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
 | 5 Ma | 6207 km | 0.62% | 0.04% | 0.000% | 0.00% | 0.07% | 1.1% |
-| 30 Ma | 5673 km | 2.24% | 0.15% | 0.000% | 0.00% | 0.19% | 2.6% |
-| 60 Ma | 5152 km | 4.57% | 0.35% | 0.000% | 0.03% | 0.29% | 3.9% |
-| 120 Ma | 4315 km | 10.32% | 1.57% | 0.227% | 0.50% | 0.58% | 7.5% |
-| 200 Ma | 3926 km | 13.19% | 3.47% | 1.344% | 0.98% | 0.94% | 10.9% |
+| 30 Ma | 5673 km | 2.24% | 0.15% | 0.000% | 0.00% | 0.20% | 2.5% |
+| 60 Ma | 5152 km | 4.51% | 0.39% | 0.000% | 0.02% | 0.33% | 4.3% |
+| 120 Ma | 4315 km | 9.91% | 1.98% | 0.414% | 0.88% | 0.70% | 8.4% |
+| 200 Ma | 3926 km | 12.98% | 4.44% | 1.449% | 1.73% | 1.15% | 13.4% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -803,14 +803,14 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 7% | +7 | 27 km | 5 km at 145 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 20% | +20 | 42 km | 3 km at 110 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1208 km | 1152 km at 200 Ma |
-| Greenland &ndash; North America | 60 Ma | 20% | 20% | +0 | 0 km | 0 km at 0 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1252 km | 815 km at 175 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 6% | +6 | 26 km | 5 km at 160 Ma |
-| Antarctica &ndash; South America | watched | 0% | 15% | +15 | 4 km | 0 km at 195 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 2089 km | 1821 km at 175 Ma |
+| South America &ndash; Africa | 180 Ma | 0% | 0% | +0 | 518 km | 23 km at 110 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 30% | +30 | 24 km | 3 km at 185 Ma |
+| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1041 km | 913 km at 135 Ma |
+| Greenland &ndash; North America | 60 Ma | 20% | 22% | +2 | 0 km | 0 km at 0 Ma |
+| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1045 km | 655 km at 175 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 7% | +7 | 18 km | 6 km at 150 Ma |
+| Antarctica &ndash; South America | watched | 0% | 14% | +14 | 11 km | 1 km at 120 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 1370 km | 1370 km at 200 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -2248,6 +2248,84 @@ scorecard, which is the independent check, is mixed &mdash; Antarctica against
 Africa closes to 8 km where it was 14, South America against Africa opens to 31
 where it was 6, Australia against Antarctica to 47 where it was 50.
 
+
+## The curtain turns the plates, and a reader had to say so
+
+A reader put the mechanism in five lines: take Africa as the anchor, and North
+America should push South America down; South America can then meet Africa
+with Natal against Nigeria; South America and Africa together should push
+Antarctica; Antarctica should push Australia. What the model did instead was
+leave every continent near its own latitude, so at 200 Ma they overlap.
+
+Their reading of the one-sided paths came with a prediction: follow the orange
+lines and California ends up against Australia.
+
+The mechanism was already written and switched off. `dragIslands` turns the
+pull of the curtain of un-erupted sea floor hanging under a margin into a turn
+of the plate it hangs from -- the only way that pull can reach a plate, since
+an island moves as one rotation fitted over all of its points and a pull on a
+five-thousand-point continent's shore is otherwise diluted to a few per cent.
+
+It had been measured at 40 Ma and turned off there, and that is the whole
+mistake: at 40 Ma almost nothing has been taken away, so the curtain is small
+and the mechanism has nothing to do. At 200 Ma more than half the crust is
+un-erupted and the curtain is the largest thing in the model. Measured over the
+whole run at full gain, it does what the reader said, prediction included:
+
+| at 200 Ma unless noted | no drag | full drag |
+|---|---|---|
+| Australia to North America | 2,089 km | **129 km, 5% in contact** |
+| Antarctica to South America | 4 km, 15% | 4 km, **50%** |
+| North America to Africa, 190 Ma | 1,252 km | **404 km** |
+| India to Africa, 120 Ma | 1,208 km | **600 km** |
+| South America to Africa, 180 Ma | **27 km, 7%** | 1,101 km, 0% |
+
+Every gain is on the Pacific side and the loss is the Atlantic, in the same
+proportions at every gain from 0.35 up. That is not a knob wanting tuning. It
+is two witnesses contradicting each other in the same water: a conjugate pair
+says how far apart two pieces of crust were at an age, and in the Atlantic
+they are dense enough to already know how that ocean opened, while the drag is
+the only claim there is about a Pacific whose western flank is gone.
+
+Weighting the drag by distance to the nearest conjugate pair -- `dragFreeKm`,
+so nothing within 600 km may turn its plate -- keeps the Atlantic and loses the
+Pacific again, because the Pacific has two-sided pairs of its own along the
+East Pacific Rise. It is measured and off.
+
+What ships is a tenth of the gain, at the reader's ask after seeing the ladder:
+
+| | no drag | a tenth |
+|---|---|---|
+| Australia to Antarctica, 100 Ma | 42 km, 20% | **24 km, 30%** |
+| Antarctica to Africa, 170 Ma | 26 km, 6% | **18 km, 7%** |
+| Australia to North America | 2,089 km | **1,370 km** |
+| North America to Africa, 190 Ma | 1,252 km | **1,045 km** |
+| India to Africa, 120 Ma | 1,208 km | **1,041 km** |
+| South America to Africa, 180 Ma | **27 km, 7%** | 518 km, 0% |
+| held-back pairs at 30 Ma | 209 km, 49% | **195 km, 51%** |
+| held-back pairs at 60 Ma | 283 km, 23% | **276 km, 37%** |
+| held-back pairs at 120 Ma | **543 km, 14%** | 650 km, 0% |
+| bare sphere at 200 Ma | 13.19% | **12.98%** |
+
+Five of the seven scorecard fits improve, the pairs improve where there are
+enough of them to mean something and get worse at 120 Ma where there are seven,
+and South America against Africa is the price. Which is worth stating without
+the softening: that fit was the model's best number and a tenth of drag takes
+it from 27 km to 518.
+
+It also has to be said that 27 km was never as good as it sounded. The second
+column is the share of the shorter margin actually in contact, and at 7% the
+two coasts graze at one point and miss along the rest -- as they do in every
+setting measured here, none of which reaches a tenth of a margin in contact.
+The reader who asked whether that could really be the best arrangement was
+right to doubt it.
+
+And the deeper thing the sweep says: the crust does not fit on the 200 Ma
+sphere in either arrangement. 13% of it is bare with no drag and 13 to 16% with,
+the reconstruction stops being one block once the drag is real -- 2 plates at
+200 Ma without it, 3 at a tenth, 13 to 30 at full gain -- and no pair of
+margins comes close to nesting. The drag moves the continents the way a reader
+says they should move. It does not make them fit.
 
 ## Known weaknesses
 
