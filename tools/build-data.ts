@@ -126,8 +126,22 @@ export const CONFIG = {
    * the paths themselves were spread 80 to 54 -- the paths were never the
    * problem. A reader put the rule plainly: an even spread, and never mind
    * that the points end up far apart.
+   *
+   * A hundred and fifty is the knee of the curve, swept with PAIR_SWEEP=1:
+   *
+   *     spacing   pairs   Atlantic  Indian  Pacific
+   *           0    2587        50%     30%      16%
+   *         150     905        40%     32%      24%
+   *         400     274        37%     32%      26%
+   *
+   * Four fifths of the balance for a third of the loss, and past it the trade
+   * turns bad -- three more points of balance for seventy per cent of the
+   * pairs. Past 150 the remaining imbalance is not a knob left loose: by area
+   * the Pacific is about 46% of the sea floor, and most of its crust has no
+   * surviving conjugate in the age grid at all, so no thinning rule can build
+   * a pair whose other half is absent.
    */
-  pairSpacingKm: Number(process.env.PAIR_SPACING ?? 400),
+  pairSpacingKm: Number(process.env.PAIR_SPACING ?? 150),
   /**
    * How far the gravity grid's lineaments may pull a traced step away from the
    * age gradient, at full coherence. Zero reads the age grid alone.
@@ -323,7 +337,7 @@ export const CONFIG = {
   anchorMinReadKm: Number(process.env.ANCHOR_KM ?? 200),
   anchorMaxOffDeg: Number(process.env.ANCHOR_OFF ?? 20),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
-  drawnTracks: 60,
+  drawnTracks: Number(process.env.DRAWN_TRACKS ?? 60),
   /**
    * Which classification the solver actually runs on. The depth-age fit only
    * reaches r2 ~ 0.18 against this particular height map, so interpolating ages
