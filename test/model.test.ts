@@ -645,7 +645,20 @@ describe('the built dataset', () => {
   // stride tore the globe open along the cuts and scrambled it further back in
   // time. These three files have to agree or nothing downstream can be right.
   const data = resolve(import.meta.dirname, '../public/data')
-  const present = existsSync(resolve(data, 'mesh.bin'))
+  /**
+   * Every file these tests read, not just the first one.
+   *
+   * The guard used to ask for `mesh.bin` alone, and the reconstruction arrives
+   * in two stages with a cache each: the mesh, whose key leaves the solver out,
+   * and the solve, whose key includes it. Change only the solver -- which is
+   * what changing the model usually is -- and the first cache hits while the
+   * second misses, so CI held a mesh with no `meta.json` beside it, the guard
+   * said the data was there, and the run failed on a missing file before it had
+   * built anything. The tests were right and the question they asked was too
+   * narrow.
+   */
+  const present = ['mesh.bin', 'meta.json', 'frames.bin', 'strain.bin']
+    .every((file) => existsSync(resolve(data, file)))
 
   it.runIf(present)('is internally consistent about how many vertices it has', () => {
     const mesh = readFileSync(resolve(data, 'mesh.bin'))
