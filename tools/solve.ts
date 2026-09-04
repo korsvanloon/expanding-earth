@@ -65,7 +65,7 @@ import { cellBuckets, coverage, probeCells, probeDirections, type Tiling } from 
 import { newContactScratch, separateIslands, type IslandContacts } from './lib/contact.js'
 import { distortion, shapePairs } from './lib/shape.js'
 import { conjugateFit } from './lib/flowlines.js'
-import { pairPulls as pairIsHeldIn, readTracks } from '../shared/tracks.js'
+import { ONE_SIDED, pairPulls as pairIsHeldIn, readTracks } from '../shared/tracks.js'
 import { unstretching } from './lib/unstretching.js'
 
 
@@ -119,6 +119,7 @@ const FOLDING = Number(process.env.FOLD_IN ?? 1) > 0
 export const KNOBS = [
   'AREA_K', 'AREA_TRACE', 'BREAKS_BELOW', 'CLOSE_K', 'CLOSE_TANGENT', 'COHERE',
   'COHERE_ROUNDS', 'COMPRESS_K', 'CONTACT_K', 'CONTACT_KM', 'CURTAIN_K', 'DRAG',
+  'DRAG_FREE',
   'EDGE_AGE', 'END_MA', 'FLAT_K', 'FLIP_PASSES', 'FLIP_TRUTH', 'FLOW_SMOOTH',
   'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'ISLAND_HOLD',
   'LAND_MARGIN', 'LIP_KM', 'MAX_RATE', 'OCEAN_K', 'PLATE_TOL', 'POLE_MEMORY',
@@ -375,6 +376,16 @@ const CONFIG = {
    * from. See `dragIslands`; `DRAG=0` switches it off.
    */
   slabDrag: Number(process.env.DRAG ?? 0),
+  /**
+   * How near a conjugate pair a point has to be before the slab may not turn
+   * its plate, km. Zero lets the drag act everywhere.
+   *
+   * See `dragWeight`: the pairs and the drag are two witnesses about the same
+   * motion, and where the pairs are dense they are the better one. Ramped from
+   * nothing at this distance to a whole say at twice it, so there is no edge
+   * for a plate to sit on.
+   */
+  dragFreeKm: Number(process.env.DRAG_FREE ?? 600),
   // Off. Measured at 40 Ma against 0, it moves the share of held-out pairs
   // inside one triangle from 44% to 48% and leaves the median where it was,
   // and it pays for that in the two things a reader had just asked to be rid
@@ -852,6 +863,112 @@ function main() {
     console.log(
       `[solve] ${pulling} conjugate pairs pull on the crust, ` +
         `${tracks.pairAgeMa.length - pulling} are held back to score it`,
+    )
+  }
+
+  /**
+   * Where the pairs have nothing to say, which is where the slab may pull.
+   *
+   * The two claims fight, and they should not both be believed in the same
+   * water. A conjugate pair says how far apart two pieces of crust were at an
+   * age, and in the Atlantic the pairs are dense: they already know how that
+   * ocean opened. The slab drag says a plate turns towards the curtain of
+   * un-erupted floor hanging under its margin, and in the Pacific that is the
+   * only claim there is, because a Pacific pair needs a western flank that is
+   * gone.
+   *
+   * Let both act everywhere and the stronger wins the water the other one
+   * knows about: at full drag, South America against Africa goes from 27 km
+   * apart to 1,101, while Australia against North America comes from 2,089 km
+   * to 129. Every gain between them is the same trade in different
+   * proportions, which is the shape of two witnesses contradicting each other
+   * rather than of a knob wanting tuning.
+   *
+   * So the drag is weighted by how far a point is from the nearest pair end.
+   * Nothing within `dragFreeKm` gets to turn its plate; from there it ramps to
+   * its whole say by twice that. Present-day places, because a pair's own
+   * position is where its crust is now and the mask is a statement about which
+   * survey covers which ocean, not about where anything has got to.
+   */
+  const dragWeight = new Float64Array(vertexCount).fill(1)
+  if (tracks && CONFIG.slabDrag > 0 && CONFIG.dragFreeKm > 0) {
+    const ends: number[] = []
+    const place = (verts: Uint32Array, weights: Float32Array, i: number) => {
+      let x = 0, y = 0, z = 0
+      for (let k = 0; k < 3; k++) {
+        const v = verts[i * 3 + k] * 3
+        const w = weights[i * 3 + k]
+        x += w * dirs[v]; y += w * dirs[v + 1]; z += w * dirs[v + 2]
+      }
+      const l = length3(x, y, z) || 1
+      return [x / l, y / l, z / l]
+    }
+    for (let i = 0; i < tracks.pairAgeMa.length; i++) {
+      // Conjugate pairs only. A one-sided pair is the crust that has no
+      // conjugate left, so it is not a second witness against the drag -- it
+      // is the same witness, saying the ocean beside it closed onto a margin,
+      // and masking the drag out where it speaks would silence the drag over
+      // exactly the water it was built for.
+      if (tracks.pairKind[i] === ONE_SIDED) continue
+      for (const verts of [
+        [tracks.pairAVerts, tracks.pairAWeights],
+        [tracks.pairBVerts, tracks.pairBWeights],
+      ] as [Uint32Array, Float32Array][]) {
+        ends.push(...place(verts[0], verts[1], i))
+      }
+    }
+    // Bucketed by a coarse cell, so each vertex looks at the pairs near it
+    // rather than at all five thousand of them.
+    const rows = 45
+    const cols = 90
+    const cellOf = (x: number, y: number, z: number) => {
+      const row = Math.min(rows - 1, Math.floor(
+        (Math.acos(Math.min(1, Math.max(-1, y))) / Math.PI) * rows,
+      ))
+      const lon = Math.atan2(-z, x) / (2 * Math.PI) + 0.5
+      return row * cols + Math.min(cols - 1, Math.floor(lon * cols))
+    }
+    const buckets: number[][] = Array.from({ length: rows * cols }, () => [])
+    for (let e = 0; e < ends.length; e += 3) {
+      buckets[cellOf(ends[e], ends[e + 1], ends[e + 2])].push(e)
+    }
+    const free = CONFIG.dragFreeKm / r0
+    const full = (2 * CONFIG.dragFreeKm) / r0
+    let held = 0
+    for (let v = 0; v < vertexCount; v++) {
+      const x = dirs[v * 3], y = dirs[v * 3 + 1], z = dirs[v * 3 + 2]
+      const row = Math.min(rows - 1, Math.floor(
+        (Math.acos(Math.min(1, Math.max(-1, y))) / Math.PI) * rows,
+      ))
+      const lon = Math.atan2(-z, x) / (2 * Math.PI) + 0.5
+      const col = Math.min(cols - 1, Math.floor(lon * cols))
+      // Two cells of slack either way covers twice the free radius at this
+      // grid, so nothing near enough to matter is missed.
+      const reach = 2 + Math.ceil((2 * CONFIG.dragFreeKm) / ((Math.PI * r0) / rows))
+      let nearest = Math.PI
+      for (let dr = -reach; dr <= reach; dr++) {
+        const r2 = row + dr
+        if (r2 < 0 || r2 >= rows) continue
+        for (let dc = -reach; dc <= reach; dc++) {
+          const c2 = ((col + dc) % cols + cols) % cols
+          for (const e of buckets[r2 * cols + c2]) {
+            const dot = Math.min(1, Math.max(-1,
+              x * ends[e] + y * ends[e + 1] + z * ends[e + 2]))
+            const angle = Math.acos(dot)
+            if (angle < nearest) nearest = angle
+          }
+        }
+      }
+      const w = nearest <= free ? 0
+        : nearest >= full ? 1
+          : (nearest - free) / (full - free)
+      dragWeight[v] = w
+      if (w < 1) held++
+    }
+    console.log(
+      `[solve] the slab may turn a plate on ${vertexCount - held} of ${vertexCount} points; `
+        + `the other ${held} are within ${2 * CONFIG.dragFreeKm} km of a conjugate pair, `
+        + 'which already says how their ocean opened',
     )
   }
 
@@ -1815,7 +1932,7 @@ function main() {
       if (CONFIG.foldInward && CONFIG.slabDrag > 0) {
         dragIslands(
           pos, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
-          shorePush, shoreCount, CONFIG.slabDrag,
+          shorePush, shoreCount, CONFIG.slabDrag, dragWeight,
         )
       }
     }
@@ -2156,6 +2273,8 @@ function dragIslands(
   shorePush: Float64Array,
   shoreCount: Float64Array,
   gain: number,
+  /** How much each point's own pull is believed; see `dragWeight`. */
+  weight: Float64Array,
 ) {
   if (count === 0) return
   const torque = new Float64Array(count * 3)
@@ -2165,7 +2284,9 @@ function dragIslands(
     if (c < 0 || !alive[i] || !shoreCount[i]) continue
     const l = length3(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1
     const ux = pos[i * 3] / l, uy = pos[i * 3 + 1] / l, uz = pos[i * 3 + 2] / l
-    const n = shoreCount[i]
+    const w = weight[i]
+    if (w <= 0) continue
+    const n = shoreCount[i] / w
     const px = shorePush[i * 3] / n, py = shorePush[i * 3 + 1] / n, pz = shorePush[i * 3 + 2] / n
     torque[c * 3] += uy * pz - uz * py
     torque[c * 3 + 1] += uz * px - ux * pz
