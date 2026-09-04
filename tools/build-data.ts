@@ -25,8 +25,8 @@ import {
 import { loadAgeGrid } from './lib/agegrid.js'
 import { obliquityDeg, overDisc, spreadingDirection } from './lib/age-gradient.js'
 import {
-  axisOf, grainReference, grooveField, grooveLineaments, grooveRaster, linkGrooves, readKm,
-  trimAgainst, trimEither, walkGrooves, type Groove,
+  anchorGrooves, axisOf, grainReference, grooveField, grooveLineaments, grooveRaster,
+  linkGrooves, readKm, trimEither, walkGrooves, type Groove,
 } from './lib/grooves.js'
 import {
   AGE_SAMPLES, encodeAge, momentOf, olderShare,
@@ -336,6 +336,19 @@ export const CONFIG = {
    */
   anchorMinReadKm: Number(process.env.ANCHOR_KM ?? 200),
   anchorMaxOffDeg: Number(process.env.ANCHOR_OFF ?? 20),
+  /**
+   * The second way a groove can earn a vote: shorter, but closely aligned.
+   *
+   * Length was only ever a proxy for confidence and a reader found where the
+   * proxy fails. In the equatorial Atlantic the grooves are the cleanest
+   * anywhere -- median bearing 84 degrees, half of them within 11 -- and not
+   * one qualified, because the great equatorial transforms chop the fabric
+   * into stretches averaging 194 km against the 200 km bar. So the field there
+   * had no evidence at all and guessed 31 degrees where the answer is 90, and
+   * paths leaving Brazil went north-east instead of east. See anchorGrooves.
+   */
+  anchorKeenReadKm: Number(process.env.ANCHOR_KEEN_KM ?? 100),
+  anchorKeenOffDeg: Number(process.env.ANCHOR_KEEN_OFF ?? 10),
   /** How many tracks the viewer is given to draw. A picture, not the dataset. */
   drawnTracks: Number(process.env.DRAWN_TRACKS ?? 60),
   /**
@@ -639,10 +652,12 @@ async function main() {
    */
   const anchors = CONFIG.grooveFlow
     ? (() => {
-      const long = grooves.grooves.filter(
-        (groove) => readKm(groove) >= CONFIG.anchorMinReadKm,
-      )
-      const { kept } = trimAgainst(long, grooves.spreading, CONFIG.anchorMaxOffDeg)
+      const kept = anchorGrooves(grooves.grooves, grooves.spreading, {
+        minReadKm: CONFIG.anchorMinReadKm,
+        maxOffDeg: CONFIG.anchorMaxOffDeg,
+        keenReadKm: CONFIG.anchorKeenReadKm,
+        keenOffDeg: CONFIG.anchorKeenOffDeg,
+      })
       const field = grooveLineaments(
         kept, structure.gravity.width, structure.gravity.height,
       )
@@ -651,7 +666,8 @@ async function main() {
       console.log(
         `[build-data] ${kept.length} of ${grooves.grooves.length} grooves anchor the flow `
           + `field -- ${CONFIG.anchorMinReadKm} km of read line and within `
-          + `${CONFIG.anchorMaxOffDeg} degrees of the spreading direction -- `
+          + `${CONFIG.anchorMaxOffDeg} degrees of the spreading direction, or `
+          + `${CONFIG.anchorKeenReadKm} km within ${CONFIG.anchorKeenOffDeg} -- `
           + `on ${((100 * lit) / field.ridgeness.length).toFixed(2)}% of the grid's cells`,
       )
       return field

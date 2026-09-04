@@ -25,7 +25,7 @@ import { loadAgeGrid } from './lib/agegrid.js'
 import { overDisc, spreadingDirection } from './lib/age-gradient.js'
 import { loadRaster } from './lib/raster.js'
 import {
-  axisOf, grainReference, grooveField, linkGrooves, readKm, trimAgainst, trimEither,
+  anchorGrooves, axisOf, grainReference, grooveField, linkGrooves, readKm, trimEither,
   walkGrooves, type Fabric, type Groove, type GroovePoint,
 } from './lib/grooves.js'
 import { ageWindow, fabricWindow, windowFromEnv, type Colour } from './lib/window-map.js'
@@ -383,10 +383,12 @@ async function main() {
    * what the model is actually being told, as against what was found.
    */
   if (Number(process.env.ANCHORS ?? 1) > 0) {
-    const long = grooves.filter(
-      (groove) => readKm(groove) >= Number(process.env.ANCHOR_KM ?? 400),
-    )
-    const anchors = trimAgainst(long, spreading, Number(process.env.ANCHOR_OFF ?? 20)).kept
+    const anchors = anchorGrooves(grooves, spreading, {
+      minReadKm: Number(process.env.ANCHOR_KM ?? 200),
+      maxOffDeg: Number(process.env.ANCHOR_OFF ?? 20),
+      keenReadKm: Number(process.env.ANCHOR_KEEN_KM ?? 100),
+      keenOffDeg: Number(process.env.ANCHOR_KEEN_OFF ?? 10),
+    })
     draw(anchors, [255, 210, 60])
     console.log(
       `[grooves] ${anchors.length} of ${grooves.length} would anchor the flow field, `
@@ -434,9 +436,9 @@ async function main() {
     console.log('  read km   off deg   grooves   read line   share of all read line')
     for (const minRead of [120, 160, 200, 280]) {
       for (const maxOff of [15, 20, 25, 30]) {
-        const set = trimAgainst(
-          grooves.filter((groove) => readKm(groove) >= minRead), spreading, maxOff,
-        ).kept
+        const set = anchorGrooves(grooves, spreading, {
+          minReadKm: minRead, maxOffDeg: maxOff, keenReadKm: minRead, keenOffDeg: 0,
+        })
         const km = set.reduce((sum: number, g: Groove) => sum + readKm(g), 0)
         console.log(
           `  ${String(minRead).padStart(7)}   ${String(maxOff).padStart(7)}   `

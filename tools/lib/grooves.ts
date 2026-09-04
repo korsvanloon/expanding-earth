@@ -1136,3 +1136,54 @@ export function grooveLineaments(
   }
   return { width, height, axis, coherence, ridgeness, known }
 }
+
+/**
+ * The grooves allowed to anchor the travelled-direction field.
+ *
+ * Every groove is drawn; only some get a vote, because a fit takes a vote and
+ * dense wrong anchors outvote sparse right ones -- giving all ten thousand a
+ * vote made the model worse on every measure. So the bar is the old detector's
+ * own: a long line, and within twenty degrees of the way the crust travelled.
+ *
+ * But length alone was a bad gate, and a reader found where it broke. In the
+ * equatorial Atlantic the grooves are the cleanest anywhere -- a median
+ * bearing of 84 degrees with half of them within 11 -- and *none* of them
+ * qualified, because the big equatorial transforms chop the fabric into
+ * stretches averaging 194 km against a 200 km bar. The region with the best
+ * direction evidence on Earth contributed nothing, the field there was left
+ * guessing, and it guessed 31 degrees where the answer is 90. Paths leaving
+ * Brazil went north-east instead of east.
+ *
+ * Length was only ever a proxy for confidence. Alignment measures it directly,
+ * so a short groove that agrees closely with the spreading direction is
+ * admitted on that agreement instead: `keenKm` of read line within `keenDeg`.
+ * A groove has to earn its vote, and there is more than one way to earn it.
+ */
+export function anchorGrooves(
+  grooves: Groove[],
+  reference: (at: GroovePoint) => number | null,
+  options: {
+    minReadKm?: number
+    maxOffDeg?: number
+    keenReadKm?: number
+    keenOffDeg?: number
+    stepKm?: number
+  } = {},
+): Groove[] {
+  const minReadKm = options.minReadKm ?? 200
+  const maxOffDeg = options.maxOffDeg ?? 20
+  const keenReadKm = options.keenReadKm ?? 100
+  const keenOffDeg = options.keenOffDeg ?? 10
+  return grooves.filter((groove) => {
+    const read = readKm(groove, options.stepKm)
+    if (read < keenReadKm) return false
+    const mine = axisOf(groove)
+    const should = reference(mine.at)
+    // No opinion available: not admitted. Elsewhere an unreadable reference
+    // means a groove is not condemned, but a vote is a positive claim and
+    // wants positive evidence.
+    if (should === null) return false
+    const off = axisDiff(mine.axis, should)
+    return (read >= minReadKm && off <= maxOffDeg) || off <= keenOffDeg
+  })
+}
