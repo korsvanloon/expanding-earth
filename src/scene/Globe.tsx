@@ -49,8 +49,6 @@ export function Globe({ data }: { data: Dataset }) {
   const showMesh = useStore((s) => s.showMesh)
   const showSection = useStore((s) => s.showSection)
   const showTracks = useStore((s) => s.showTracks)
-  const allPairs = useStore((s) => s.allPairs)
-  const showPaths = useStore((s) => s.showPaths)
   const showZones = useStore((s) => s.showZones)
   const pickedZones = useStore((s) => s.pickedZones)
   const toggleZone = useStore((s) => s.toggleZone)
@@ -238,28 +236,23 @@ export function Globe({ data }: { data: Dataset }) {
    */
   const LIFT = 1.004
   /**
-   * How many straight pieces a pair's join is drawn as.
+   * How far each side of itself a path is drawn, as a fraction of the radius.
    *
-   * A segment is a chord in three dimensions, and a chord between two points a
-   * few thousand kilometres apart on a sphere passes *through* it. Which is
-   * what a hundred-kilometre residual never revealed: the join follows the
-   * sphere instead, in eight pieces, each short enough that its own sag is well
-   * under a kilometre on the longest pair there is.
+   * WebGL draws every line one pixel wide whatever the material asks for, so a
+   * thicker line has to be more lines: each segment is drawn three times, at
+   * the centre and offset this far either side, square to itself and lying on
+   * the shell. Four thousandths of the radius is about twenty-five kilometres,
+   * which comes out near three pixels of band at the zoom the globe opens at.
+   * The flat map thickens its own lines the same way and for the same reason.
    */
-  const ARC = 8
-  /**
-   * A cross at each end of a pair, in pieces, so a nearly closed one can be
-   * seen at all.
-   *
-   * One-pixel lines are what plain line segments give, and a residual of a
-   * hundred kilometres is four pixels long: at the very moment a pair is being
-   * scored it is at its least visible. The ends get a small cross apiece, which
-   * reads at one pixel where a four-pixel line cannot be had.
-   */
-  const TICK = 4
-  /** How big that cross is, as a fraction of the globe's radius. */
-  const TICK_SIZE = 0.013
+  const PATH_WIDTH = 0.004
+  /** How big a dot is, in pixels: a pair's mark, and a path's own point. */
+  const MARK_PX = 7
+  const POINT_PX = 13
   const size = useThree((state) => state.size)
+  // A point sprite's size is in device pixels, so the dots have to be told the
+  // ratio or they come out half the size on a retina screen.
+  const dpr = useThree((state) => state.viewport.dpr)
   const overlay = useMemo(() => {
     const t = data.tracks
     if (!t) return null
@@ -314,7 +307,57 @@ export function Globe({ data }: { data: Dataset }) {
         colours: geometry.getAttribute('color').array as Float32Array,
       }
     }
-    // Every pair gets room; only the ones due at the drawn frame are written.
+    /**
+     * Round dots, in pixels, which is what a reader asked the marks to be.
+     *
+     * A point sprite rather than a ring of segments: it is one vertex instead
+     * of a dozen, it stays the same size however far the globe is zoomed, and
+     * it cannot shrink to nothing the way a short line does. The shader throws
+     * away the corners of the square sprite to make it round and darkens the
+     * last of the radius, so a dot reads on top of the path it sits on -- the
+     * same near-black ring the flat map draws round its own dots.
+     */
+    const dots = (count: number, px: number) => {
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array(count * 3), 3))
+      geometry.setAttribute('color', new THREE.BufferAttribute(new Float32Array(count * 3), 3))
+      geometry.setDrawRange(0, 0)
+      const material = new THREE.ShaderMaterial({
+        depthWrite: false,
+        toneMapped: false,
+        uniforms: { uSize: { value: px * dpr } },
+        vertexShader: `
+          attribute vec3 color;
+          varying vec3 vColor;
+          uniform float uSize;
+          void main() {
+            vColor = color;
+            gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = uSize;
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vColor;
+          void main() {
+            float r = length(gl_PointCoord - vec2(0.5)) * 2.0;
+            if (r > 1.0) discard;
+            gl_FragColor = vec4(mix(vColor, vec3(0.04, 0.04, 0.06),
+              smoothstep(0.66, 0.9, r)), 1.0);
+          }
+        `,
+      })
+      const object = new THREE.Points(geometry, material)
+      object.frustumCulled = false
+      object.renderOrder = 3
+      return {
+        geometry,
+        material,
+        object,
+        points: geometry.getAttribute('position').array as Float32Array,
+        colours: geometry.getAttribute('color').array as Float32Array,
+      }
+    }
+    // Every pair gets room; only the ones on the ladder are written.
     //
     // The paths were taken out of here once, on the reader's own observation
     // that they told the same claim twice: a track is the path one piece of
@@ -331,38 +374,38 @@ export function Globe({ data }: { data: Dataset }) {
       segments += Math.max(0, t.offsets[k + 1] - t.offsets[k] - 1)
     }
     return {
-      gapLine: line(t.pairAgeMa.length * 2 * (ARC + TICK), '#ffffff'),
-      pathLine: line(segments * 2, '#ffffff'),
-      ridgeLine: line((t.offsets.length - 1) * 4, '#ffffff'),
+      // Three parallel copies of every segment, for a line thick enough to see.
+      pathLine: line(segments * 2 * 3, '#ffffff'),
+      marks: dots(t.pairAgeMa.length * 2, MARK_PX),
+      points: dots(t.offsets.length - 1, POINT_PX),
     }
-  }, [data])
+  }, [data, dpr])
 
   useEffect(() => () => {
-    for (const l of [overlay?.gapLine, overlay?.pathLine, overlay?.ridgeLine]) {
+    for (const l of [overlay?.pathLine, overlay?.marks, overlay?.points]) {
       l?.geometry.dispose()
       l?.material.dispose()
     }
   }, [overlay])
 
   /**
-   * Draw each conjugate pair as an arc on the shell, in its own colour.
+   * Draw a dot at each end of every pair on the ladder, coloured by its age.
    *
-   * Both ends are places inside a triangle, so each is mixed from that
-   * triangle's three corners by weight -- the point the residual is measured
-   * at, rather than the nearest vertex, which used to put the visible gap up to
-   * a triangle's width from the one being scored. The corners carry the shell's
-   * radius, because the globe shrinks by having its points moved inward and not
-   * by being scaled: a line put back at radius one on a planet at two thirds of
-   * it floats a thousand kilometres over its own crust.
+   * The join between the two ends is gone, on a reader's ask, and what is lost
+   * with it is worth naming: that line was the residual the model is scored on,
+   * drawn. It is still in the numbers -- the pairs table in MODEL.md and the
+   * readout on a right-click -- and what a reader wanted from the globe was the
+   * form the flat map has, points on a path rather than a mat of joins across
+   * the oceans. Both ends are places inside a triangle, mixed from that
+   * triangle's three corners by weight, so a dot sits where the residual is
+   * measured and deforms with the crust rather than sliding over it.
    */
-  const drawPairs = (
-    line: { geometry: THREE.BufferGeometry; points: Float32Array; colours: Float32Array },
-    wanted: (i: number) => boolean,
-  ) => {
+  const drawMarks = () => {
     const t = data.tracks
+    const mark = overlay?.marks
+    if (!mark || !t) return
+    const at3 = [0, 0, 0] as [number, number, number]
     let at = 0
-    const a: [number, number, number] = [0, 0, 0]
-    const b: [number, number, number] = [0, 0, 0]
     const place = (
       into: [number, number, number], verts: Uint32Array, weights: Float32Array, i: number,
     ) => {
@@ -376,6 +419,10 @@ export function Globe({ data }: { data: Dataset }) {
         y += buffers.positions[v + 1] * w
         z += buffers.positions[v + 2] * w
       }
+      // The corners carry the shell's radius, because the globe shrinks by
+      // having its points moved inward and not by being scaled: a dot put back
+      // at radius one on a planet at two thirds of it floats over its own
+      // crust.
       const corner = verts[i * 3] * 3
       const shell = Math.hypot(
         buffers.positions[corner], buffers.positions[corner + 1], buffers.positions[corner + 2],
@@ -385,66 +432,27 @@ export function Globe({ data }: { data: Dataset }) {
       into[1] = y * scale
       into[2] = z * scale
     }
-    for (let i = 0; t && i < t.pairAgeMa.length; i++) {
-      if (!wanted(i)) continue
-      place(a, t.pairAVerts, t.pairAWeights, i)
-      place(b, t.pairBVerts, t.pairBWeights, i)
-      // Orange where the crust is young, blue where it is old, so the ladder
-      // of ages along a path reads at a glance.
+    for (let i = 0; i < t.pairAgeMa.length; i++) {
+      if (!isMarked(t.pairAgeMa[i])) continue
       const [red, green, blue] = pairAgeColour(t.pairAgeMa[i], data.meta.endTimeMa)
-      const radius = (Math.hypot(a[0], a[1], a[2]) + Math.hypot(b[0], b[1], b[2])) / 2
-      for (let piece = 0; piece < ARC; piece++) {
-        for (const step of [piece, piece + 1]) {
-          if ((at + 1) * 3 > line.points.length) break
-          const f = step / ARC
-          const x = a[0] + (b[0] - a[0]) * f
-          const y = a[1] + (b[1] - a[1]) * f
-          const z = a[2] + (b[2] - a[2]) * f
-          // Straight in, then back out to the shell: a chord's midpoint pushed
-          // to the right radius is the arc, to well under a pixel.
-          const scale = radius / (Math.hypot(x, y, z) || 1)
-          line.points[at * 3] = x * scale
-          line.points[at * 3 + 1] = y * scale
-          line.points[at * 3 + 2] = z * scale
-          line.colours[at * 3] = red
-          line.colours[at * 3 + 1] = green
-          line.colours[at * 3 + 2] = blue
-          at++
-        }
-      }
-      // Two short strokes across each end, square to the join and to the
-      // surface, so the pair is findable when the join itself is a few pixels.
-      for (const end of [a, b]) {
-        const out = [end[0] / radius, end[1] / radius, end[2] / radius]
-        let along = [b[0] - a[0], b[1] - a[1], b[2] - a[2]]
-        const dot = along[0] * out[0] + along[1] * out[1] + along[2] * out[2]
-        along = [along[0] - dot * out[0], along[1] - dot * out[1], along[2] - dot * out[2]]
-        const l = Math.hypot(along[0], along[1], along[2]) || 1
-        along = [along[0] / l, along[1] / l, along[2] / l]
-        const across = [
-          out[1] * along[2] - out[2] * along[1],
-          out[2] * along[0] - out[0] * along[2],
-          out[0] * along[1] - out[1] * along[0],
-        ]
-        for (const axis of [along, across]) {
-          for (const side of [-1, 1]) {
-            if ((at + 1) * 3 > line.points.length) break
-            line.points[at * 3] = end[0] + axis[0] * side * TICK_SIZE * radius
-            line.points[at * 3 + 1] = end[1] + axis[1] * side * TICK_SIZE * radius
-            line.points[at * 3 + 2] = end[2] + axis[2] * side * TICK_SIZE * radius
-            line.colours[at * 3] = red
-            line.colours[at * 3 + 1] = green
-            line.colours[at * 3 + 2] = blue
-            at++
-          }
-        }
+      for (const ends of [
+        [t.pairAVerts, t.pairAWeights],
+        [t.pairBVerts, t.pairBWeights],
+      ] as [Uint32Array, Float32Array][]) {
+        if ((at + 1) * 3 > mark.points.length) break
+        place(at3, ends[0], ends[1], i)
+        mark.points[at * 3] = at3[0]
+        mark.points[at * 3 + 1] = at3[1]
+        mark.points[at * 3 + 2] = at3[2]
+        mark.colours[at * 3] = red
+        mark.colours[at * 3 + 1] = green
+        mark.colours[at * 3 + 2] = blue
+        at++
       }
     }
-    // Written straight into the attributes' own arrays, so all that is left is
-    // to say how much of them is live and that the GPU copy is stale.
-    line.geometry.getAttribute('position').needsUpdate = true
-    line.geometry.getAttribute('color').needsUpdate = true
-    line.geometry.setDrawRange(0, at)
+    mark.geometry.getAttribute('position').needsUpdate = true
+    mark.geometry.getAttribute('color').needsUpdate = true
+    mark.geometry.setDrawRange(0, at)
   }
 
   /**
@@ -458,7 +466,7 @@ export function Globe({ data }: { data: Dataset }) {
    */
   const drawPaths = () => {
     const t = data.tracks
-    if (!overlay?.pathLine || !overlay.ridgeLine || !t) return
+    if (!overlay?.pathLine || !overlay.points || !t) return
     const at: [number, number, number] = [0, 0, 0]
     const on: [number, number, number] = [0, 0, 0]
     const place = (into: [number, number, number], i: number) => {
@@ -487,17 +495,35 @@ export function Globe({ data }: { data: Dataset }) {
       // Magenta for a path with a flank either side of a ridge; orange for a
       // one-sided one, which pulls the crust onto a margin and is never scored.
       const oneSided = t.trackKind[k] === ONE_SIDED
+      const red = oneSided ? 1 : 0.85
+      const green = oneSided ? 0.59 : 0.25
+      const blue = oneSided ? 0.16 : 0.72
       for (let i = t.offsets[k] + 1; i < t.offsets[k + 1]; i++) {
         place(at, i - 1)
         place(on, i)
-        for (const end of [at, on]) {
-          path.points[n * 3] = end[0]
-          path.points[n * 3 + 1] = end[1]
-          path.points[n * 3 + 2] = end[2]
-          path.colours[n * 3] = oneSided ? 1 : 0.85
-          path.colours[n * 3 + 1] = oneSided ? 0.59 : 0.25
-          path.colours[n * 3 + 2] = oneSided ? 0.16 : 0.72
-          n++
+        // Square to the segment and lying on the shell, which is the segment
+        // crossed with the radius here: the direction to offset the copies in
+        // so the band is a band and not a helix.
+        let ax = on[0] - at[0], ay = on[1] - at[1], az = on[2] - at[2]
+        let sx = ay * at[2] - az * at[1]
+        let sy = az * at[0] - ax * at[2]
+        let sz = ax * at[1] - ay * at[0]
+        const sl = Math.hypot(sx, sy, sz) || 1
+        const radius = Math.hypot(at[0], at[1], at[2]) || 1
+        sx = (sx / sl) * PATH_WIDTH * radius
+        sy = (sy / sl) * PATH_WIDTH * radius
+        sz = (sz / sl) * PATH_WIDTH * radius
+        for (const side of [-1, 0, 1]) {
+          for (const end of [at, on]) {
+            if ((n + 1) * 3 > path.points.length) break
+            path.points[n * 3] = end[0] + sx * side
+            path.points[n * 3 + 1] = end[1] + sy * side
+            path.points[n * 3 + 2] = end[2] + sz * side
+            path.colours[n * 3] = red
+            path.colours[n * 3 + 1] = green
+            path.colours[n * 3 + 2] = blue
+            n++
+          }
         }
       }
     }
@@ -505,71 +531,32 @@ export function Globe({ data }: { data: Dataset }) {
     path.geometry.getAttribute('color').needsUpdate = true
     path.geometry.setDrawRange(0, n)
 
-    const marks = overlay.ridgeLine
+    // The one point on a path that is not half of a pair: where its two
+    // halves were a single point, or, on a one-sided path, the young end its
+    // crust closed onto. One big dot, in the path's own colour, so it reads as
+    // belonging to the line rather than as another pair.
+    const points = overlay.points
     let m = 0
     for (let k = 0; k + 1 < t.offsets.length; k++) {
+      if ((m + 1) * 3 > points.points.length) break
       place(at, t.ridge[k])
-      const radius = Math.hypot(at[0], at[1], at[2]) || 1
-      // Two strokes square to each other and to the radius here, which is what
-      // a cross on a sphere is.
-      const up: [number, number, number] = Math.abs(at[1] / radius) < 0.9
-        ? [0, 1, 0]
-        : [1, 0, 0]
-      const across: [number, number, number] = [
-        up[1] * at[2] - up[2] * at[1],
-        up[2] * at[0] - up[0] * at[2],
-        up[0] * at[1] - up[1] * at[0],
-      ]
-      const acrossLength = Math.hypot(across[0], across[1], across[2]) || 1
-      const along: [number, number, number] = [
-        at[1] * across[2] - at[2] * across[1],
-        at[2] * across[0] - at[0] * across[2],
-        at[0] * across[1] - at[1] * across[0],
-      ]
-      const alongLength = Math.hypot(along[0], along[1], along[2]) || 1
-      for (const axis of [
-        [across[0] / acrossLength, across[1] / acrossLength, across[2] / acrossLength],
-        [along[0] / alongLength, along[1] / alongLength, along[2] / alongLength],
-      ]) {
-        for (const side of [-1, 1]) {
-          marks.points[m * 3] = at[0] + axis[0] * side * TICK_SIZE * radius * 1.6
-          marks.points[m * 3 + 1] = at[1] + axis[1] * side * TICK_SIZE * radius * 1.6
-          marks.points[m * 3 + 2] = at[2] + axis[2] * side * TICK_SIZE * radius * 1.6
-          marks.colours[m * 3] = 1
-          marks.colours[m * 3 + 1] = t.trackKind[k] === ONE_SIDED ? 0.59 : 0.16
-          marks.colours[m * 3 + 2] = 0.16
-          m++
-        }
-      }
+      points.points[m * 3] = at[0]
+      points.points[m * 3 + 1] = at[1]
+      points.points[m * 3 + 2] = at[2]
+      points.colours[m * 3] = 1
+      points.colours[m * 3 + 1] = t.trackKind[k] === ONE_SIDED ? 0.59 : 0.18
+      points.colours[m * 3 + 2] = t.trackKind[k] === ONE_SIDED ? 0.16 : 0.22
+      m++
     }
-    marks.geometry.getAttribute('position').needsUpdate = true
-    marks.geometry.getAttribute('color').needsUpdate = true
-    marks.geometry.setDrawRange(0, m)
+    points.geometry.getAttribute('position').needsUpdate = true
+    points.geometry.getAttribute('color').needsUpdate = true
+    points.geometry.setDrawRange(0, m)
   }
 
   const refreshOverlay = () => {
     if (!overlay || !data.tracks) return
-    const frameMa = Math.round(clock.timeMa / data.meta.frameStepMa) * data.meta.frameStepMa
-    // Every pair, or only the ones whose crust formed at the moment on screen.
-    // Due-now is the error: these should be closed by now and what is left of
-    // each is the residual the model is scored on. All of them at 0 Ma is the
-    // other picture entirely -- the whole ocean each pair has to close, which is
-    // what tools/draw-pairs.ts draws flat.
-    // Thinned when all of them are asked for, the way tools/draw-pairs.ts
-    // thins its own subset: two thousand joins across the oceans is a mat, and
-    // the point of a colour per pair is that one can be followed.
-    const stride = allPairs ? Math.max(1, Math.round(data.tracks.pairAgeMa.length / 400)) : 1
-    drawPairs(
-      overlay.gapLine,
-      (i) => (allPairs
-        ? isMarked(data.tracks!.pairAgeMa[i]) && i % stride === 0
-        : data.tracks!.pairAgeMa[i] === frameMa),
-    )
-    if (showPaths) drawPaths()
-    else {
-      overlay.pathLine?.geometry.setDrawRange(0, 0)
-      overlay.ridgeLine?.geometry.setDrawRange(0, 0)
-    }
+    drawPaths()
+    drawMarks()
   }
 
   // Built here rather than declared in JSX so the wireframe overlay can draw
@@ -635,7 +622,7 @@ export function Globe({ data }: { data: Dataset }) {
   useEffect(() => invalidate(), [overlay, size, invalidate])
   useEffect(
     () => invalidate(),
-    [invalidate, mode, showGrid, showMesh, showTracks, allPairs, showPaths,
+    [invalidate, mode, showGrid, showMesh, showTracks,
       surfaceMap, referenceFrame, data],
   )
   // Turning the overlay on has to fill it: the positions are only rewritten
@@ -643,7 +630,7 @@ export function Globe({ data }: { data: Dataset }) {
   useEffect(() => {
     if (showTracks) refreshOverlay()
     // eslint-disable-next-line react-hooks/exhaustive-deps -- reads live buffers
-  }, [showTracks, allPairs, showPaths, overlay, rotations])
+  }, [showTracks, overlay, rotations])
 
   const drawnFrame = useRef(-1)
   /** The clock reading the vertex buffers currently hold. */
@@ -909,15 +896,12 @@ export function Globe({ data }: { data: Dataset }) {
       </mesh>
       {showTracks && overlay && (
         <>
-          {/* The whole path each pair sits on, in magenta because nothing in
-              the age ramp or the satellite imagery is, with a red cross where
-              its two halves were one point. Drawn under the pairs, which are
-              the measurement. */}
+          {/* The path, in magenta because nothing in the age ramp or the
+              satellite imagery is, or orange where it is one-sided. Drawn
+              first, so the dots that mark it sit on top of their own line. */}
           <primitive object={overlay.pathLine.object} />
-          <primitive object={overlay.ridgeLine.object} />
-          {/* One segment per pair that was a single point at this moment, so its
-              length is the model's error, drawn. */}
-          <primitive object={overlay.gapLine.object} />
+          <primitive object={overlay.marks.object} />
+          <primitive object={overlay.points.object} />
         </>
       )}
       {showMesh && (

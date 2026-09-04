@@ -50,7 +50,7 @@ export function Panel({ data }: { data: Dataset }) {
   const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
     showSection, setShowSection,
     surfaceMap, setSurfaceMap, referenceFrame, setReferenceFrame,
-    showTracks, setShowTracks, allPairs, setAllPairs, showPaths, setShowPaths,
+    showTracks, setShowTracks,
     showZones, setShowZones } = useStore()
   const [showMethod, setShowMethod] = useState(false)
 
@@ -208,65 +208,29 @@ export function Panel({ data }: { data: Dataset }) {
               checked={showTracks}
               onChange={(e) => setShowTracks(e.target.checked)}
             />
-            Conjugate pairs
+            Paths and their points
           </label>
           {showTracks && (
-            <>
-              <label className="toggle nested">
-                <input
-                  type="checkbox"
-                  checked={allPairs}
-                  onChange={(e) => setAllPairs(e.target.checked)}
-                />
-                All of them, not just the ones due now
-              </label>
-              <p className="caption">
-                {allPairs
-                  ? 'Every pair, so at 0 Ma each line is the whole ocean it has '
-                    + 'to close — hundreds to thousands of kilometres. Wind the '
-                    + 'clock back and watch them shorten.'
-                  : 'Only the pairs whose crust formed at the moment on screen, '
-                    + 'drawn where the reconstruction has put them. Each line is '
-                    + 'what is left of a join that should be closed by now — the '
-                    + 'error, not the ocean, so short is good and the direction '
-                    + 'of a nearly closed one means nothing. They string out '
-                    + 'along the spreading axis because pairs of one age sit the '
-                    + 'same distance either side of it.'}
-                {' '}Coloured by the age of the crust: orange where it is
-                young, blue where it is old. Both ends of one pair are the same
-                age and so the same colour, and only every twenty-fifth million
-                years is marked, so a path reads as a ladder of ages.
-              </p>
-              <label className="toggle nested">
-                <input
-                  type="checkbox"
-                  checked={showPaths}
-                  onChange={(e) => setShowPaths(e.target.checked)}
-                />
-                The whole path each pair sits on
-              </label>
-              <p className="caption">
-                In magenta: the path one piece of crust took away from its
-                ridge, from the flank it ended on, through the ridge, to the
-                flank it left. The cross is the one point on it that is not
-                half of a pair &mdash; where the two halves were a single point.
-                A path should run square to the age bands, because that is what
-                spreading means, and two paths should not cross except on a
-                ridge: crossing anywhere else would be two pieces of crust
-                passing through each other, so a crossing is a fault in the
-                direction field showing itself.
-              </p>
-              <p className="caption">
-                In orange: a one-sided path, over crust whose other flank is
-                gone &mdash; the Pacific off California, the Weddell Sea, the
-                sea west of Australia. There is no conjugate left to pair it
-                with, so its cross is not a ridge but the young end its crust
-                closed onto, and its pairs pull the reconstruction without ever
-                scoring it. A path with no other half could never be a test of
-                anything. The same form as{' '}
-                <code>tools/draw-paths.ts</code> draws flat.
-              </p>
-            </>
+            <p className="caption">
+              In magenta: the path one piece of crust took away from its ridge,
+              from the flank it ended on, through the ridge, to the flank it
+              left. In orange: a one-sided path, over crust whose other flank
+              is gone &mdash; the Pacific off California, the Weddell Sea, the
+              sea west of Australia. There is no conjugate left to pair that
+              crust with, so a one-sided path pulls the reconstruction and
+              never scores it: a path with no other half could never be a test
+              of anything. The big dot on a path is where its two halves were
+              a single point, or, on a one-sided one, the young end its crust
+              closed onto.
+              {' '}The small dots are the conjugate pairs, every twenty-fifth
+              million years along the path, coloured by the age of their crust
+              &mdash; orange where it is young, blue where it is old. Both ends
+              of one pair are the same age and so the same colour, so a path
+              reads as a ladder of ages, and the two dots of one pair should be
+              the same distance either side of the ridge. The same form as{' '}
+              <code>tools/draw-paths.ts</code> draws flat, which is where they
+              are judged.
+            </p>
           )}
           <label className="toggle">
             <input
