@@ -59,7 +59,9 @@ import {
   foldShape, markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
 } from './fold.js'
 import { cellBuckets, coverage, probeCells, probeDirections, type Tiling } from './coverage.js'
-import { newContactScratch, separateIslands, type IslandContacts } from './contact.js'
+import {
+  newContactScratch, separateIslands, touchingBodies, type IslandContacts,
+} from './contact.js'
 import { distortion, shapePairs } from './shape.js'
 import { conjugateFit } from './conjugates.js'
 import { ONE_SIDED, pairPulls as pairIsHeldIn, readTracks } from '../../shared/tracks.js'
@@ -171,6 +173,7 @@ let FOLDING = Number(ENV.FOLD_IN ?? 1) > 0
 export const KNOBS = [
   'AREA_K', 'AREA_TRACE', 'BREAKS_BELOW', 'CLOSE_K', 'CLOSE_TANGENT', 'COHERE',
   'COHERE_ROUNDS', 'COMPRESS_K', 'CONTACT_K', 'CONTACT_KM', 'CURTAIN_K', 'DRAG',
+  'DRAG_TOGETHER',
   'DRAG_FREE',
   'EDGE_AGE', 'END_MA', 'FLAT_K', 'FLIP_PASSES', 'FLIP_TRUTH', 'FLOW_SMOOTH',
   'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'HOLD_STRENGTH',
@@ -491,6 +494,22 @@ function readConfig() {
    * for a plate to sit on.
    */
   dragFreeKm: Number(ENV.DRAG_FREE ?? 0),
+  /**
+   * Drag continents that have met as one body, 0 or 1.
+   *
+   * Every island is handed its own slab torque, which is right while they are
+   * apart and wrong the moment they are not. At 140 Ma the curtain under
+   * Africa's eastern margin turns Africa east and the curtain under South
+   * America's western margin turns it west, and the Atlantic seam they had
+   * just closed is pulled open from the middle: at full drag those two reach
+   * 20 km apart at 100 Ma and 1,587 km by 140. Two continents in contact are
+   * one plate, and a plate has one motion.
+   *
+   * The grouping is redone every step from where the crust has actually got
+   * to, and it is only about the slab's pull: nothing is welded, and each
+   * island still keeps its own shape.
+   */
+  dragTogether: Number(ENV.DRAG_TOGETHER ?? 0) > 0,
   // Off, and measured: at 600 it keeps the Atlantic -- South America to Africa
   // 15 km apart against 27 with no drag at all -- and loses the Pacific again,
   // Australia back to 1,940 km off North America, because the Pacific has
@@ -1886,6 +1905,9 @@ export function solve(): void {
   let easedTotal = 0
   let foldedNow = 0
   let contacts: IslandContacts = { found: 0, deepestKm: 0, tests: 0, bucketed: 0 }
+  /** Room for the per-step grouping of islands into bodies; see CONFIG.dragTogether. */
+  const dragAs = new Int32Array(vertexCount)
+  let joinedLast = -1
   let contactTests = 0
   let contactBucketed = 0
   let contactsTotal = 0
@@ -1963,6 +1985,38 @@ export function solve(): void {
       // So the area is sampled in its own right, over sixteen equal pieces.
       restAreaNow[f] = (restArea[f]
         * olderShare(faceAgeSamples, f * AGE_SAMPLES, moment)) / stretched
+    }
+
+    /**
+     * Which body each point is dragged with, this step.
+     *
+     * The islands themselves while they are apart, and one body per group of
+     * them once they have met -- see `touchingBodies`. Worked out once a step,
+     * because a sweep moves a margin by a kilometre or two and this is a
+     * question about continents being in contact at all.
+     */
+    let dragBody = islands.vertexIsland
+    let dragBodies = islands.count
+    if (CONFIG.dragTogether && CONFIG.slabDrag > 0 && islands.count > 0) {
+      const bodies = touchingBodies(
+        pos, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
+        rNext, CONTACT_KM,
+      )
+      if (bodies.count < islands.count) {
+        for (let v = 0; v < vertexCount; v++) {
+          const island = islands.vertexIsland[v]
+          dragAs[v] = island < 0 ? -1 : bodies.of[island]
+        }
+        dragBody = dragAs
+        dragBodies = bodies.count
+        if (bodies.count !== joinedLast) {
+          joinedLast = bodies.count
+          console.log(
+            `[drag] ${t} Ma  ${islands.count} islands are ${bodies.count} bodies; `
+            + 'continents that have met are pulled by their slabs as one',
+          )
+        }
+      }
     }
 
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
@@ -2111,7 +2165,7 @@ export function solve(): void {
       }
       if (CONFIG.foldInward && CONFIG.slabDrag > 0) {
         dragIslands(
-          pos, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
+          pos, dragBody, dragBodies, vertexCount, mesh.vertexAlive,
           shorePush, shoreCount, CONFIG.slabDrag, dragWeight,
         )
       }

@@ -25,7 +25,7 @@
  * push is out by the shallowest way it got in.
  */
 
-import { bucketFace, cellOf, inside, type Tiling } from './coverage.js'
+import { GRID_COLS, GRID_ROWS, bucketFace, cellOf, inside, type Tiling } from './coverage.js'
 
 export interface IslandContacts {
   /** How many points of one island were found inside a triangle of another. */
@@ -358,4 +358,101 @@ function solveSymmetric(
     (D * tx + B * ty + F * tz) / det,
     (E * tx + F * ty + C * tz) / det,
   ]
+}
+
+/**
+ * Which islands have met, so that the drag can pull them as one body.
+ *
+ * Two continents that have come together are one plate, and the model had no
+ * way of saying so. Every island is handed its own slab torque, so at 140 Ma
+ * the curtain hanging under Africa's eastern margin turns Africa east while
+ * the curtain under South America's western margin turns it west -- and the
+ * Atlantic seam they had just closed is pulled open from the middle. Measured
+ * at full drag: South America and Africa reach 20 km apart at 100 Ma and are
+ * 1,587 km apart by 140. It is not the closing that fails, it is what happens
+ * after.
+ *
+ * So islands whose crust is within `withinKm` of each other are collected into
+ * one body, every step, from where they have actually got to. Nothing is
+ * welded: this says which continents share a slab's pull for the length of one
+ * step, not that their shapes are now one shape.
+ */
+export function touchingBodies(
+  pos: Float64Array,
+  /** Which island each vertex belongs to, 0-based; -1 for none. */
+  vertexIsland: Int32Array,
+  islandCount: number,
+  vertexCount: number,
+  alive: ArrayLike<number>,
+  radiusKm: number,
+  withinKm: number,
+): { of: Int32Array; count: number } {
+  const of = Int32Array.from({ length: islandCount }, (_, i) => i)
+  const find = (i: number): number => {
+    let root = i
+    while (of[root] !== root) root = of[root]
+    // Flatten on the way back, so the next island up the chain answers at once.
+    while (of[i] !== root) { const next = of[i]; of[i] = root; i = next }
+    return root
+  }
+  const join = (a: number, b: number) => {
+    const ra = find(a), rb = find(b)
+    if (ra !== rb) of[Math.max(ra, rb)] = Math.min(ra, rb)
+  }
+
+  const cells = new Map<number, number[]>()
+  const members: number[] = []
+  for (let v = 0; v < vertexCount; v++) {
+    if (vertexIsland[v] < 0 || !alive[v]) continue
+    members.push(v)
+    const cell = cellOf(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2])
+    const held = cells.get(cell)
+    if (held) held.push(v)
+    else cells.set(cell, [v])
+  }
+
+  const near = Math.cos(withinKm / radiusKm)
+  const rowReach = Math.max(1, Math.ceil((withinKm / radiusKm) / (Math.PI / GRID_ROWS)))
+  for (const v of members) {
+    const at = v * 3
+    const l = Math.hypot(pos[at], pos[at + 1], pos[at + 2]) || 1
+    const x = pos[at] / l, y = pos[at + 1] / l, z = pos[at + 2] / l
+    const cell = cellOf(x, y, z)
+    const row = Math.floor(cell / GRID_COLS)
+    const col = cell % GRID_COLS
+    // A cell is as wide in longitude as the latitude allows, so the columns to
+    // look at are however many cover the distance *there*: two at the equator
+    // and every one of them beside the pole.
+    const cosLat = Math.max(1e-3, Math.sqrt(Math.max(0, 1 - y * y)))
+    const colReach = Math.min(
+      GRID_COLS >> 1,
+      Math.max(1, Math.ceil((withinKm / radiusKm) / ((2 * Math.PI / GRID_COLS) * cosLat))),
+    )
+    for (let dr = -rowReach; dr <= rowReach; dr++) {
+      const r2 = row + dr
+      if (r2 < 0 || r2 >= GRID_ROWS) continue
+      for (let dc = -colReach; dc <= colReach; dc++) {
+        const c2 = ((col + dc) % GRID_COLS + GRID_COLS) % GRID_COLS
+        const held = cells.get(r2 * GRID_COLS + c2)
+        if (!held) continue
+        for (const w of held) {
+          // Asked again each time rather than kept: a join a moment ago may
+          // have put these two in the same body already.
+          if (find(vertexIsland[w]) === find(vertexIsland[v])) continue
+          const to = w * 3
+          const m = Math.hypot(pos[to], pos[to + 1], pos[to + 2]) || 1
+          if ((x * pos[to] + y * pos[to + 1] + z * pos[to + 2]) / m >= near) {
+            join(vertexIsland[v], vertexIsland[w])
+          }
+        }
+      }
+    }
+  }
+
+  // Number the bodies from zero, so the caller can size an array by the count.
+  const roots = Int32Array.from({ length: islandCount }, (_, i) => find(i))
+  const number = new Map<number, number>()
+  for (const root of roots) if (!number.has(root)) number.set(root, number.size)
+  for (let i = 0; i < islandCount; i++) of[i] = number.get(roots[i])!
+  return { of, count: number.size }
 }

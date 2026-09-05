@@ -42,8 +42,8 @@
  * reporting gaps that were not there.
  */
 
-const GRID_ROWS = 90
-const GRID_COLS = 180
+export const GRID_ROWS = 90
+export const GRID_COLS = 180
 
 /** What a mesh has to offer for its coverage to be measured. */
 export interface Tiling {
