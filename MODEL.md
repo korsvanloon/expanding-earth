@@ -803,11 +803,15 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 180 Ma | 0% | 6% | +6 | 18 km | 3 km at 120 Ma |
+| South America &ndash; Africa | 140 Ma | 0% | 5% | +5 | 26 km | 3 km at 120 Ma |
 | Australia &ndash; Antarctica | 100 Ma | 0% | 24% | +24 | 29 km | 1 km at 175 Ma |
-| India &ndash; Africa | 120 Ma | 0% | 0% | +0 | 1159 km | 913 km at 200 Ma |
-| Greenland &ndash; North America | 60 Ma | 20% | 20% | +0 | 0 km | 0 km at 0 Ma |
-| North America &ndash; Africa | 190 Ma | 0% | 0% | +0 | 1141 km | 691 km at 175 Ma |
+| India &ndash; Africa | 165 Ma | 0% | 0% | +0 | 1009 km | 913 km at 200 Ma |
+| Greenland &ndash; North America | 65 Ma | 20% | 22% | +2 | 0 km | 0 km at 0 Ma |
+| North America &ndash; Africa | 195 Ma | 0% | 0% | +0 | 1194 km | 691 km at 175 Ma |
+| India &ndash; Madagascar | 90 Ma | 0% | 0% | +0 | 1237 km | 1110 km at 195 Ma |
+| Madagascar &ndash; Africa | 160 Ma | 88% | 91% | +3 | 0 km | 0 km at 0 Ma |
+| Arabia &ndash; Africa | 30 Ma | 31% | 38% | +8 | 0 km | 0 km at 0 Ma |
+| Iberia &ndash; North America | 130 Ma | 0% | 0% | +0 | 1286 km | 1161 km at 155 Ma |
 | Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 16 km | 2 km at 155 Ma |
 | Antarctica &ndash; South America | watched | 0% | 18% | +18 | 8 km | 2 km at 195 Ma |
 | Australia &ndash; North America | watched | 0% | 0% | +0 | 1930 km | 1660 km at 175 Ma |
@@ -2409,6 +2413,79 @@ obvious ideas and someone will have them again:
   was 1,024, and North America to Africa is 1,314 km where it was 157. The two
   witnesses contradict each other over the same crust, and no masking rule
   divides them. Still off by default.
+
+## The dates were checked, and three of them were wrong
+
+The scorecard is the only ruler here that does not move when the solver does,
+and its dates had never been checked against anything. A research pass read
+them against the geology, and three do not survive -- two of them wrong in this
+model's favour, which is the shape of an error nobody inside the project could
+have found. See RESEARCH-FINDINGS.md, which carries a source and a status for
+every row.
+
+| Join | Was | Geology says | What that meant |
+|---|---|---|---|
+| South America &ndash; Africa | 180 Ma | **140 &plusmn; 5** | Extension runs to ~126 Ma and no oceanic crust exists before 133, so 180 left forty million years in which the fit could not fail |
+| India &ndash; Africa | 120 Ma | **165 &plusmn; 5** | By 120 the West Somali Basin had finished opening: the model was being asked to shut an ocean the geology says was there |
+| Greenland &ndash; North America | 60 Ma | **65** | Spreading began at ~63 Ma in the Labrador Sea, so 60 asked for about a hundred kilometres of ocean to be closed &mdash; wrong against the model |
+| North America &ndash; Africa | 190 Ma | **195 &plusmn; 5** | 190 is the breakup instant itself |
+
+Re-scored on the corrected dates, the run that ships is barely touched: South
+America against Africa is 26 km at 140 Ma where it was 18 at 180, and Greenland
+gains two points of margin. What changed is that two of the numbers can now
+fail.
+
+Four joins were added whose dates were never derived from this model &mdash;
+India&ndash;Madagascar 90 &plusmn; 2, Madagascar&ndash;Africa 160 &plusmn; 5,
+Arabia&ndash;Africa 30 &plusmn; 2, Iberia&ndash;Newfoundland 130 &plusmn; 5.
+Two of them turn out to be the same kind of check as Greenland: Madagascar and
+Arabia are already 88% and 31% against Africa today, so they cannot fail and do
+not. The other two are real, and both fail &mdash; India against Madagascar by
+1,237 km with no margin in contact, Iberia against Newfoundland by 1,286 km.
+They fail in the same two places everything else does: India's departure, and
+the northern assembly.
+
+## The radius curve, against somebody else's
+
+The same pass found the one independent check on the curve. Maxlow's 2001
+thesis derives a radius the way this model does &mdash; from the area of dated
+sea floor, digitised off Larson et al. 1985, an entirely different age grid
+&mdash; and publishes the measured radii in a table.
+
+| | mean distance from Maxlow's measured radii |
+|---|---|
+| `nearest-age`, which ships | 112 km, and below his at every chron |
+| `permanent` | **48 km** |
+| `depth-age` | 109 km |
+
+That is a reason to solve the classification this model does not solve, which
+*Known weaknesses* has listed as affordable and unanswered since the ensemble
+was built. Solved:
+
+| | nearest-age | permanent |
+|---|---|---|
+| held-back pairs at 20 Ma | 120 km, 62% | 122 km, **65%** |
+| at 40 Ma | **168 km, 56%** | 199 km, 52% |
+| at 60 Ma | **243 km, 43%** | 280 km, 23% |
+| at 80 Ma | 411 km, 39% | **374 km**, 39% |
+| at 120 Ma | 731 km, 14% | **559 km**, 14% |
+| South America &ndash; Africa at 140 Ma | 26 km, 5% | **12 km, 7%** |
+| North America &ndash; Africa at 195 Ma | 1,194 km | **950 km** |
+| Australia &ndash; Antarctica at 100 Ma | **29 km, 24%** | 58 km, 18% |
+| bare sphere at 200 Ma | 11.89% | **10.33%** |
+| crust on crust | 4.11% | **3.16%** |
+| two islands at once | 1.68% | **0.92%** |
+| craton strain | 2.04% | **1.76%** |
+| radius at 200 Ma | 3,926 km | 4,056 km (Maxlow measured 4,038 at 205) |
+
+It covers the sphere better, deforms the crust less, and lands 18 km from an
+independent measurement of the same quantity where the shipped curve lands 112
+km away. And it reconstructs the best-measured stretch of time worse: the
+held-back pairs at 40 and 60 Ma, where the pairs are densest, go the wrong way,
+and 23% within 200 km at 60 Ma against 43% is not a rounding difference. The
+pairs are the score, so it does not ship. `CRUST_MODEL=permanent` is the run,
+and it is published beside the shipped one so the two can be looked at rather
+than argued about.
 
 ## Known weaknesses
 
