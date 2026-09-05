@@ -52,24 +52,24 @@ export default defineConfig({
      * them. RUN_STORE='' falls back to this site's own data folder.
      */
     __RUN_STORE__: JSON.stringify(
-      process.env.RUN_STORE
-      ?? 'https://cdn.jsdelivr.net/gh/korsvanloon/expanding-earth@runs',
+      process.env.RUN_STORE ?? 'https://d2kg6eor9wjvxh.cloudfront.net',
     ),
     /**
-     * And where the list of them is, which is not always the same place.
+     * And where the list of them is, which was not always the same place.
      *
      * Everything under `runs/` is written once and never rewritten, so a CDN
-     * may hold it forever -- but the index is the one file that changes, and
-     * jsDelivr caches a branch for twelve hours at the edge, where no request
-     * header can reach it. It served a list naming a run that had already been
-     * deleted. So while the store is a branch, the index is read from
-     * raw.githubusercontent, which offers five minutes; a blob container sets
-     * its own Cache-Control per file and needs no such split.
+     * may hold it forever -- but the index is the one file that changes, and a
+     * store has to be able to say so. jsDelivr caches a branch for twelve
+     * hours at the edge, where no request header reaches, and served a list
+     * naming a run that had already been deleted; while the store was a
+     * branch, the index was read from raw.githubusercontent instead, which
+     * offers five minutes. A bucket sets its own Cache-Control per object -- a
+     * minute for the index, a year for the rest -- so the two are one place
+     * again, and this is here for the next store that cannot.
      */
     __RUN_INDEX__: JSON.stringify(
-      process.env.RUN_STORE
-        ? `${process.env.RUN_STORE.replace(/\/$/, '')}/runs.json`
-        : 'https://raw.githubusercontent.com/korsvanloon/expanding-earth/runs/runs.json',
+      `${(process.env.RUN_STORE ?? 'https://d2kg6eor9wjvxh.cloudfront.net').replace(/\/$/, '')}`
+      + '/runs.json',
     ),
   },
   resolve: {
