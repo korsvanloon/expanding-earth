@@ -53,4 +53,6 @@ comparing a frame against, and any data set that could be read the way the age
 grid and ECM1 are read now.
 
 A reader asked for this to be kept and brought up at exactly that moment, so it
-is a standing item, not a suggestion made once.
+is a standing item, not a suggestion made once. What that pass should go after
+is written out in RESEARCH.md: ten questions, what a usable answer to each looks
+like, and the artefacts worth hunting for.

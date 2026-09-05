@@ -1,0 +1,82 @@
+# What to go and find out
+
+A standing item in CLAUDE.md asks for a research pass on Expanding Earth at the
+moment the next step stops being obvious. This is what that pass should go
+after, written down so that whoever runs it does not have to re-derive it from
+the model.
+
+Two rules for that session.
+
+**Constructive, not judgemental.** MODEL.md already carries the case against the
+hypothesis, in its own words, and nobody needs it rehearsed. What is wanted is
+the other side: which motions the literature proposes, what is said to drive
+them, what the globe is supposed to look like at 200 Ma, and what can be
+measured.
+
+**Artefacts, not summaries.** A paragraph explaining what Carey thought is worth
+nothing here. A radius-versus-time curve as numbers, a pole with an A95, a
+dataset with a URL and a grid convention, a figure with a page reference and a
+distance that can be read off it -- those change what the model does. The
+questions below are phrased so that a good answer is a thing rather than an
+account of a thing.
+
+They were gathered by reading the model's own weaknesses, its failing fits, its
+inputs and its invented constants, and are ordered by how much the answer would
+change.
+
+# 1. The ten questions, sharpest first
+
+**Q1 — An externally-picked conjugate set.** Is there a published compilation of magnetic-anomaly picks / isochron identifications, with per-pick positional uncertainty, that can be converted to (lon, lat, lon, lat, age) conjugate quadruples? And what is the published spread of conjugate misfit after a best-fit rotation, and the real distribution of the angle between a conjugate join and the local spreading direction?
+Why it changes things: the pairs that pull and the pairs that score come off the same tracer, so no interior number can see a tracing bias; a foreign pick set is the only cure. The uncertainty turns a uniform spring stiffness into an inverse-variance weight, and the obliquity distribution decides whether the 45° pair-rejection gate is in the right place.
+
+**Q2 — Continental joins with a date from the geology.** Which joins beyond the seven now scored have a defensible age — rift onset, breakup unconformity, first marine incursion, salt-basin age, LIP age (CAMP ~201, Karoo–Ferrar ~183, Paraná–Etendeka ~134) — with an uncertainty, from geology or magnetic isochrons rather than from a plate-model output? And what are the accepted dates and error bars for the six already used (180, 100, 120, 60, 190, 170 Ma), which are currently unsourced?
+Why: the scorecard is the only ruler that does not move when the solver changes, and it carries four real tests. Each new dated join is a constraint that cannot be tuned against.
+
+**Q3 — Paleolatitude, and anything at all older than 120 Ma.** What do published apparent polar wander paths (with A95) give for Africa, India, Antarctica, Australia, South America at 200, 170, 120 and 60 Ma, and what non-seafloor evidence — pole paths, orogenic-belt and basement-province matches, terrane ages — could constrain a reconstruction between 200 and 120 Ma? Separately: the paleomagnetic *paleoradius* literature and its method.
+Why: past 120 Ma the held-back pairs run out (7 pairs at 120, 2 at 160, none at 200), so exactly the interval where India, North America and Australia are supposed to arrive is unscored. Inclination gives an angle, which is radius-independent — one of the very few outside constraints that survives the hypothesis.
+
+**Q4 — The hypothesis's own globe, as numbers.** Is there a published radius-versus-time curve in km and Ma, and a published set of joins at named dates, from the constructive Expanding Earth literature? What is the 200 Ma globe supposed to *look* like, and which figures are worth comparing a rendered frame against?
+Why: R(t) is written to meta.json at 1 Ma steps for three crust models, so any published curve is comparable by interpolation alone, and named joins land straight in the fit table. This is the standing item in the working agreements.
+
+**Q5 — The three motions the model does not have.** What motion and sequence does the Expanding Earth literature give (a) India between 200 and 80 Ma, on a globe with no Indian Ocean to open into; (b) the Central Atlantic and the northern assembly — does any published sequence close North America onto north-west Africa *after* the South Atlantic rather than before; (c) the Pacific hemisphere at 200 Ma — how wide is the Australia-to-North-America gap and what shuts it?
+Why: the failures sort cleanly by geography, which is what a missing motion looks like rather than a noisy solver. India misses by 913 km with zero margin contact at all 41 frames and every variant tried lands in the same 600–1,200 km band; North America and Australia both *reverse* after 175 Ma. No parameter reaches these.
+
+**Q6 — The age grid itself, and therefore A(t).** Is there a successor to Müller 2019 v2.0, or a companion per-cell age-uncertainty grid? What does the 338.81 Ma tail represent, and is the Herodotus Basin calibration still right? Are there published basement ages for the basins the grid leaves undated (Amerasia/Canada, Weddell, Enderby, eastern Mediterranean, South China Sea, western Pacific back-arcs)? Do model-derived age grids past 200 Ma exist, and on what assumptions?
+Why: R(t) = √(A/4π) is an integral over this grid and nothing else. 2.8% of the globe is undated deep water and how it is counted is worth 4.8% of the radius at 200 Ma; the oldest tail sets the deepest, least-constrained end of the curve.
+
+**Q7 — Stretching factors and breakup timing.** What are published β factors for the world's rifted margins (subsidence backstripping, wide-angle transects), is there a global grid of β or of sediment-corrected basement thickness, what shortening do balanced cross-sections allow in the major orogens, and what are the rift-onset and breakup ages per margin?
+Why: the un-stretching correction is the second-largest influence on the radius curve after the age grid and every constant in it is invented — a 2.5 stretch cap, a 1.6 shortening cap, an unextended reference taken as the median shield thickness, a rift date taken from the nearest sea floor and spread inland over exactly twelve rings of the face graph.
+
+**Q8 — A measured strength field.** Is there a continuous global proxy for lithospheric strength — effective elastic thickness from gravity–topography coherence/admittance, integrated yield strength, lithospheric thickness — and how does oceanic Te vary with age?
+Why: eleven hand-assigned rigidity values decide which crust deforms and which is a rigid island, and the one value that matters was refitted on the score (normal ocean 0.60 → 0.10 because it moved the pairs 222 → 183 km). A Te field would replace the table and the untested 0.70 island threshold with a measurement, and would settle whether old Pacific floor should be stiff while young Atlantic floor is soft — a distinction the model cannot currently make.
+
+**Q9 — Where deformation belongs, and how much is allowed.** What fraction of the surface do published strain-rate models and plate-boundary-zone compilations put inside deforming zones, how wide are diffuse boundaries and collision zones, what residual intraplate velocity is observed inside a plate, how much areal strain can a passive margin, shelf or arc actually absorb, what is the maximum crustal thickening measured in an orogen, and how long does a stage pole stay fixed?
+Why: the model's open problem is that deformation spreads evenly instead of concentrating into belts, and every threshold that decides this is invented — the 0.65/0.85/0.35 rigidity cuts, a 200 km contact distance derived from triangle size and then used as a physical and a scoring threshold at once, a 0.5 land-crush margin licensing more crushed continent than there is unclosed ocean, a 4 km/Myr plate tolerance, and a pole memory whose value (τ ≈ 1.4 Myr) contradicts its own comment ("tens of millions of years").
+
+**Q10 — The descending sheet: force and geometry.** What fraction of a plate's motion is attributed to slab pull against ridge push and basal drag, in a quantified torque balance? What geometry does descending lithosphere take with depth — dip distributions, stagnation at 660 km? What bending radius and elastic thickness do outer-rise flexure studies give, and over what horizontal distance is the bend accommodated? What is the compressive-versus-tensile strength asymmetry of young oceanic lithosphere? And does any expanding-Earth account quantify the returning curtain directly rather than by analogy?
+Why: the drag gain is the largest discretionary lever in the model — at full gain it closes the Pacific and destroys the Atlantic, at zero the reverse, and it was set by preference because no interior criterion can choose it. The fold's depth law, the 150 km hang length ("one mesh spacing"), the right-angle surface fold and the 0.9 compressive resistance are all conveniences that a measured length or ratio would replace.
+
+*Dropped:* the two-islands packing, mesh grading, the grid-catalogue and bathymetry-swap items (software, not literature); the subducted-area-versus-62% comparison and the geodetic radius bound (verdict, not construction — though a citation for the bound is listed below).
+
+# 2. What a usable answer looks like
+
+1. A named, downloadable pick database with lon/lat/anomaly-id/age and a quoted per-pick error in km; plus two numbers — median conjugate misfit after best-fit rotation, and the 50th/90th percentile obliquity of a conjugate join to the spreading direction.
+2. A table: continent A, continent B, joined-by age in Ma, ±, one-line geological basis, citation — plus lat/lon boxes for any new continent, and the same for the six dates in use.
+3. A pole table or APWP with age, pole lat/lon, A95 per plate, from which paleolatitude of a named point at 200/170/120/60 Ma can be read as an angle with an error bar.
+4. A curve of R against t in km and Ma at any sampling, with a citation; plus figure references (author, work, page/plate) of the 200 Ma globe, ideally with a stated margin-to-margin distance somewhere.
+5. Prose plus a figure per case: the claimed path of India, the claimed order of Central Atlantic versus South Atlantic closure, and a published Pacific-hemisphere figure at 200 Ma with the Australia–North America gap stated or measurable off it.
+6. A dataset name and version with a URL, its registration and fill convention; a citation identifying the oldest in-situ crust and what the ~339 Ma tail is; per-basin basement ages with method; and, for anything past 200 Ma, an explicit statement of what is modelled versus measured.
+7. Per-margin β values with method and uncertainty (a table is fine); a global grid if one exists, with resolution and units; per-orogen areal shortening; per-margin rift-onset and breakup ages.
+8. A global grid of Te in km (or lithospheric thickness), stated resolution and method, plus the published Te(age) relation for oceanic lithosphere with its coefficients.
+9. Four numbers with sources: percentage of Earth's surface inside deforming zones, typical diffuse-boundary width in km, intraplate residual velocity in mm/yr, and a stage-pole duration in Myr — plus a deforming-zone map that could be read per-cell the way the crustal model is.
+10. A slab-pull fraction of the driving torque (a ratio with a citation), a depth scale or stalling depth in km, a trench bending radius of curvature and bulge width in km, and a compressive/tensile yield-strength ratio for ~7 km crust plus mantle lid.
+
+# 3. Artefacts worth hunting for
+
+**Expanding-Earth reconstructions and their illustrators (for Q4, Q5).** Hilgenberg 1933, *Vom wachsenden Erdball* — the original globe plates. Klaus Vogel's transparent nested globe models (small-Earth radius stated as a fraction of present). S. W. Carey, *The Expanding Earth* (1976) and *Theories of the Earth and Universe* (1988) — orocline and megashear treatment of the Pacific, "Pacifica". James Maxlow, *Terra Non Firma Earth* and later work — the most useful of the set here, because he derives small-Earth models from the same EarthByte age grids and publishes an explicit radius-versus-time curve; get the curve as numbers if possible, and his 200 Ma globe as the frame to compare against. Giancarlo Scalera's papers in *Annals of Geophysics* and the Scalera & Jacob *Why Expanding Earth?* volume — the closest thing to a quantitative literature, including paleomagnetic paleoradius attempts. Neal Adams's animations only as a picture of the claimed Pacific closure, not as a source. Specific things to check a published figure against: Australia sitting against North America, and California against Australia.
+
+**Mainstream comparators (for Q3, Q5, Q9).** EarthByte/GPlates full-plate models — Müller et al. 2016 and 2019 (the latter with deforming-plate networks and explicit deformation zones, which is the map wanted for Q9); Matthews et al. 2016 for 410–0 Ma plate boundaries; Merdith et al. 2021 for the billion-year model; Young et al. 2019; Scotese/PALEOMAP maps; Torsvik & Cocks, *Earth History and Palaeogeography*. Note the exclusion rule: these are comparators and sources of *dates*, not inputs — a rotation file has nothing in this pipeline to attach to.
+
+**Datasets readable the way the age grid is read.** GSFML — the Global Seafloor Fabric and Magnetic Lineation database (Wessel, Matthews, Müller, Mazzoni): fracture-zone traces, discordant zones, propagating-ridge and V-anomaly traces as lon/lat polylines, plus the Seton et al. global magnetic-pick compilation (~10⁵ picks with anomaly ids). This is the single highest-value item on the page: the polylines drop into the existing groove reader, the picks answer Q1, and both are hand-curated from the same gravity field the detector uses. Matthews et al. 2011 fracture-zone traces from VGG. Seamount catalogues for labelling false positives — Kim & Wessel 2011, and the newer CryoSat-2/SARAL census. Hotspot and seamount-trail geometries (Wessel & Kroenke; Doubrovine et al. moving-hotspot frame) as the third witness where conjugate pairs do not exist, i.e. the Pacific. LIP polygons with ages — the LIP Commission catalogue, and the Johansson/Zahirovic/Müller digital compilation. GlobSed (Straume et al. 2019) sediment thickness at 5 arcmin, and NOAA total sediment thickness, for classifying undated deep water. CRUST1.0 and LITHO1.0 for crustal and lithospheric thickness. Global Te grids — Audet & Bürgmann-type coherence inversions, Tesauro/Kaban for continents. GSRM v2.1 (Kreemer et al.) strain rates on a 0.25° grid and Bird's PB2002 plate-boundary-zone model with per-zone areas. Slab2 (Hayes et al. 2018) for slab geometry. SRTM15+ (Tozer et al.) as the replacement for the uncalibrated height-map JPEG — already the un-fetched `relief` entry in the fetcher. EMAG2v3 / WDMAM for magnetic anomaly. All of these want to arrive global equirectangular on a regular graticule, ≤ ~10 MB after int16 quantisation, at 6 arcmin for a field or 1° for a per-face classification — finer needs a stated reason involving something narrower than 40 km.
+
+**Published quantities that could serve as independent checks.** A paleomagnetic paleoradius estimate with its stated uncertainty (Ward's method and its critics — McElhinny and successors — plus Scalera's re-treatments). Global paleomagnetic pole compilations with A95: the GPMDB, Torsvik et al. 2012 APWPs, MagIC. Granot's magnetic-anomaly identification of Permo-Carboniferous oceanic crust beneath the eastern Mediterranean — this is very likely what the grid's ~339 Ma tail is, which would make the model's "280 Ma Herodotus" calibration paragraph stale; verify it first, since every date in the model scales with that reading. ODP Site 801 in the Pigafetta Basin as the oldest in-situ Pacific crust, for the other end of the same check. EarthByte's age-uncertainty grid shipped alongside v2.0, if it exists in the form claimed. Bradley's passive-margin database for breakup ages; gravity-inversion crustal-thickness and β maps (Kusznir group) for un-stretching. For the honesty section, a citable geodetic bound on mean-radius change — the ITRF scale-rate results are the standard source, quoted as a value ± uncertainty in mm/yr, to be set beside this model's own implied ~12 mm/yr average. And, if the subducted-area comparison is ever revived, the "Atlas of the Underworld" slab-remnant volumes are the independent accounting.
