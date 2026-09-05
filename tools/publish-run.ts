@@ -34,6 +34,7 @@ import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { allInputs, hashOf } from './lib/inputs.js'
 import type { Meta } from '../shared/model.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -256,6 +257,27 @@ async function main() {
   const meta = JSON.parse(readFileSync(sourceOf('meta.json'), 'utf8')) as Parameters<
     typeof summarise
   >[0] & { builtAt: string; overrides: string[] }
+  // The stamp says which inputs this run was solved from, and the deploy trusts
+  // it to decide it may skip solving: a run whose stamp does not match the tree
+  // it is published from would be restored, disbelieved, and solved again, and
+  // the eight minutes that buys nothing would be spent every deploy until
+  // somebody noticed. So it is checked here, where it is cheap, rather than
+  // discovered there. `--from` publishes an experiment, which drops the stamp
+  // entirely and is never restored as the model.
+  if (!arg('from')) {
+    const stamped = existsSync(join(DATA, 'inputs.sha'))
+      ? readFileSync(join(DATA, 'inputs.sha'), 'utf8').trim()
+      : ''
+    const hash = hashOf(ROOT, allInputs(ROOT))
+    if (stamped !== hash) {
+      throw new Error(
+        `public/data was solved from ${stamped.slice(0, 12) || 'nothing recorded'} and this `
+        + `tree hashes to ${hash.slice(0, 12)}: solve again, or publish it as an experiment `
+        + 'with --from public/data',
+      )
+    }
+  }
+
   const files = collect().filter(
     // An experiment is not the model, and `inputs.sha` is what the deploy
     // trusts to decide it may skip solving. Publishing a sweep with the
