@@ -32,11 +32,12 @@
  *     pnpm tsx tools/publish-run.ts --to s3 --label "drag 1, no sharing"
  */
 import { execFileSync } from 'node:child_process'
-import { createHash, createHmac } from 'node:crypto'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { allInputs, hashOf } from './lib/inputs.js'
+import { signed } from './lib/s3.js'
 import type { Meta } from '../shared/model.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -389,80 +390,6 @@ async function main() {
   console.log(`[publish] ${id}  ${run.label}  ${(bytes / 1e6).toFixed(1)} MB`)
   console.log(`[publish] ${index.runs.length} runs listed, default ${index.default}`)
   console.log(`[publish] ${base}/runs.json`)
-}
-
-/**
- * A request signed the way S3 wants it, and nothing else.
- *
- * Signature Version 4 is a chain of hashes rather than a secret handshake: the
- * request is written out in a canonical form, that form is hashed into a
- * string to sign, and the key is derived from the secret by hashing the date,
- * the region and the service in turn -- so the credential that travels is only
- * ever good for one request on one day. Writing it out is fifty lines against
- * a dependency of tens of megabytes, and this file is the only thing in the
- * project that talks to a bucket.
- */
-async function signed(
-  method: 'GET' | 'PUT' | 'DELETE',
-  url: string,
-  body: Uint8Array | string = '',
-  extra: Record<string, string> = {},
-) {
-  const key = process.env.AWS_ACCESS_KEY_ID
-  const secret = process.env.AWS_SECRET_ACCESS_KEY
-  if (!key || !secret) {
-    throw new Error('AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are not set')
-  }
-  const target = new URL(url)
-  // `https://<bucket>.s3.<region>.amazonaws.com`, which is where the region
-  // comes from; a bucket in us-east-1 may leave it out and is read as such.
-  const region = target.hostname.split('.')[2] === 'amazonaws' ? 'us-east-1' : target.hostname.split('.')[2]
-  const bytes = typeof body === 'string' ? Buffer.from(body) : Buffer.from(body)
-  const sha = createHash('sha256').update(bytes).digest('hex')
-  const now = new Date().toISOString().replace(/[-:]|\.\d{3}/g, '')
-  const day = now.slice(0, 8)
-
-  // Lower-cased and sorted, which is what the canonical form is: the same
-  // request written the same way by both sides.
-  const headers = Object.fromEntries(
-    Object.entries({
-      host: target.host,
-      'x-amz-content-sha256': sha,
-      'x-amz-date': now,
-      ...extra,
-    }).map(([name, value]) => [name.toLowerCase(), value.trim()]),
-  )
-  const names = Object.keys(headers).sort()
-  const canonicalHeaders = names.map((name) => `${name}:${headers[name]}\n`).join('')
-  const signedHeaders = names.join(';')
-  // The path is signed as it is sent, so each segment is escaped once and the
-  // slashes between them are left alone.
-  const path = target.pathname.split('/').map((part) => encodeURIComponent(decodeURIComponent(part))).join('/')
-  const query = [...target.searchParams.entries()]
-    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join('&')
-  const canonical = [method, path, query, canonicalHeaders, signedHeaders, sha].join('\n')
-
-  const scope = `${day}/${region}/s3/aws4_request`
-  const toSign = [
-    'AWS4-HMAC-SHA256', now, scope, createHash('sha256').update(canonical).digest('hex'),
-  ].join('\n')
-  const hmac = (k: Buffer | string, data: string) => createHmac('sha256', k).update(data).digest()
-  const signature = createHmac(
-    'sha256',
-    hmac(hmac(hmac(hmac(`AWS4${secret}`, day), region), 's3'), 'aws4_request'),
-  ).update(toSign).digest('hex')
-
-  return fetch(url, {
-    method,
-    headers: {
-      ...headers,
-      Authorization: `AWS4-HMAC-SHA256 Credential=${key}/${scope}, `
-        + `SignedHeaders=${signedHeaders}, Signature=${signature}`,
-    },
-    body: method === 'PUT' ? bytes : undefined,
-  })
 }
 
 /** What a browser should be told each kind of file is. */
