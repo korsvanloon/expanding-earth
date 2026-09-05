@@ -126,9 +126,9 @@ export function Globe({ data }: { data: Dataset }) {
    */
   const [arrived, setArrived] = useState(0)
   useEffect(() => {
-    if (mode !== 'strain' || data.strain) return
+    if (mode !== 'strain' || data.strain || data.layerBase === null) return
     let live = true
-    void fetchLayer('strain').then((bytes) => {
+    void fetchLayer(data.layerBase, 'strain').then((bytes) => {
       if (!live || !bytes) return
       data.strain = bytes
       sampledTime.current = Number.NaN

@@ -1,5 +1,8 @@
 import { useEffect, useState } from 'react'
 import { loadDataset, type Dataset } from '@/data'
+import {
+  OWN_RUN, chosenRun, loadRunIndex, rememberRun, runBase, type RunIndex,
+} from '@/runs'
 import { Loader } from '@/ui/Loader'
 import { Scene } from '@/scene/Scene'
 import { Panel } from '@/ui/Panel'
@@ -23,15 +26,47 @@ export default function App() {
   const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 760)
 
   /**
-   * How far the first load has got. Sixteen megabytes arrive before anything
-   * can be drawn, so the wait needs something that visibly moves.
+   * How far the load has got. Twenty megabytes arrive before anything can be
+   * drawn, so the wait needs something that visibly moves -- and it happens
+   * again, in full, every time a different run is chosen.
    */
   const [loading, setLoading] = useState({ share: 0, note: '' })
 
+  /**
+   * The runs on offer, and which one is on screen.
+   *
+   * The store is asked first and answers in a few hundred bytes; if it says
+   * nothing -- unreachable, empty, not configured -- the viewer loads this
+   * site's own data folder exactly as it did before there was a store.
+   */
+  const [runs, setRuns] = useState<RunIndex | null>(null)
+  const [run, setRun] = useState<string | undefined>()
+
   useEffect(() => {
-    loadDataset((share, note) => setLoading({ share, note }))
-      .then(setData, (e: unknown) => setError(String(e)))
+    void loadRunIndex().then((index) => {
+      setRuns(index)
+      setRun(chosenRun(index))
+    })
   }, [])
+
+  useEffect(() => {
+    if (run === undefined) return
+    let live = true
+    setError(undefined)
+    setLoading({ share: 0, note: '' })
+    loadDataset(runBase(run, runs), (share, note) => { if (live) setLoading({ share, note }) })
+      .then(
+        (next) => {
+          if (!live) return
+          // A different run is a different reconstruction, so anything the
+          // explorer had put on screen belongs to the one being left.
+          setShipped(undefined)
+          setData(next)
+        },
+        (e: unknown) => { if (live) setError(String(e)) },
+      )
+    return () => { live = false }
+  }, [run, runs])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -80,6 +115,13 @@ export default function App() {
       {panelOpen && (
         <Panel
           data={data}
+          runs={runs}
+          run={run ?? OWN_RUN}
+          onRun={(id) => {
+            rememberRun(id)
+            setData(undefined)
+            setRun(id)
+          }}
           exploring={shipped !== undefined}
           onExplore={(next) => {
             setShipped(shipped ?? data)

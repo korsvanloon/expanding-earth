@@ -54,10 +54,12 @@ const WAITING: Record<ExploreStage['phase'], string> = {
   solving: 'Walking forwards through the run. About ten seconds in all.',
 }
 
-export function Explore({ onRun, onRevert, exploring }: {
+export function Explore({ onRun, onRevert, exploring, base }: {
   onRun: (data: Dataset, seconds: number) => void
   onRevert: () => void
   exploring: boolean
+  /** Which run's coarse mesh to solve on; see src/runs.ts. */
+  base: string
 }) {
   const [knobs, setKnobs] = useState<Knobs>({ ...EXPLORER_KNOBS })
   const [stage, setStage] = useState<ExploreStage | null>(null)
@@ -70,7 +72,7 @@ export function Explore({ onRun, onRevert, exploring }: {
     // The worker's own bundle has to be fetched and compiled before it can say
     // anything, so the wait starts before there is a share of it to show.
     setStage({ phase: 'starting', share: null })
-    const job = explore(knobs, 4, setStage)
+    const job = explore(knobs, 4, setStage, base)
     running.current = job
     job.promise.then(
       ({ data, seconds }) => {

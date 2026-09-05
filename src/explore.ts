@@ -63,6 +63,12 @@ export function explore(
   knobs: Knobs,
   level: number,
   onProgress: (stage: ExploreStage) => void,
+  /**
+   * Which run's coarse mesh to solve on; the empty string is this site's own
+   * data folder. A published run keeps its own, cut from its own data, so the
+   * explorer explores the run that is on screen. See src/runs.ts.
+   */
+  base = '',
 ): { promise: Promise<ExploreResult>; cancel: () => void } {
   const worker = new Worker(new URL('./explore-worker.ts', import.meta.url), { type: 'module' })
   const promise = new Promise<ExploreResult>((resolve, reject) => {
@@ -91,7 +97,9 @@ export function explore(
         topology: message.topology,
         tracks: message.tracks,
         sink: message.sink ?? undefined,
-      })
+        // Solved here and now, so there is nowhere to fetch a strain map from
+        // -- and the shipped one is a different mesh entirely.
+      }, null)
       console.log(
         `[explore] ${built.vertexCount} points over ${built.meta.frameCount} frames `
         + `in ${message.seconds.toFixed(1)} s`,
@@ -105,7 +113,9 @@ export function explore(
     urls: Object.fromEntries(
       ['mesh.bin', 'tracks.bin', 'crust-age.bin', 'meta.partial.json'].map((name) => [
         name,
-        new URL(asset(`data/preview/${level}/${name}`), document.baseURI).href,
+        base
+          ? `${base}/preview/${level}/${name}`
+          : new URL(asset(`data/preview/${level}/${name}`), document.baseURI).href,
       ]),
     ),
     knobs: {

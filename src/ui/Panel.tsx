@@ -5,6 +5,7 @@ import {
 } from '@shared/crust'
 import { R0_KM, REGIONS, surfaceGravity } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
+import { OWN_RUN, runBase, type RunIndex } from '@/runs'
 import { PINNED } from '@/frames'
 import { describePicks, describeZones, useStore, ZONE_LIMIT, type ViewMode } from '@/store'
 import { Chart, valueAt } from './Chart'
@@ -47,12 +48,17 @@ const MODES: { id: ViewMode; label: string; hint: string }[] = [
 
 ]
 
-export function Panel({ data, exploring, onExplore, onRevert }: {
+export function Panel({ data, exploring, onExplore, onRevert, runs, run, onRun }: {
   data: Dataset
   /** Whether what is on screen is the explorer's run rather than the shipped one. */
   exploring: boolean
   onExplore: (data: Dataset) => void
   onRevert: () => void
+  /** What the store is offering, if anything; see src/runs.ts. */
+  runs: RunIndex | null
+  /** Which of them is on screen. */
+  run: string
+  onRun: (id: string) => void
 }) {
   const timeMa = useClockTime(8)
   const { mode, setMode, showGrid, setShowGrid, showMesh, setShowMesh,
@@ -165,6 +171,35 @@ export function Panel({ data, exploring, onExplore, onRevert }: {
       <p className="caption">{paintingNote}</p>
       {mode === 'crust' && <CrustLegend />}
       {mode === 'strain' && <StrainLegend />}
+
+      {runs && runs.runs.length > 0 && (
+        <>
+          <label className="field">
+            <span>Reconstruction</span>
+            <select value={run} onChange={(e) => onRun(e.target.value)} disabled={exploring}>
+              {runs.runs.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.label}
+                  {r.id === runs.default ? ' (current)' : ''}
+                </option>
+              ))}
+              <option value={OWN_RUN}>This site&rsquo;s own build</option>
+            </select>
+          </label>
+          <p className="caption">
+            {(() => {
+              const showing = runs.runs.find((r) => r.id === run)
+              if (!showing) {
+                return 'The reconstruction this deploy carries, rather than one from the store.'
+              }
+              return `${showing.note ? `${showing.note} ` : ''}Solved ${
+                showing.solvedAt.slice(0, 10)} at ${showing.commit}${
+                showing.overrides.length ? `, with ${showing.overrides.join(', ')} set` : ''
+              }. Switching fetches ${(showing.bytes / 1e6).toFixed(0)} MB.`
+            })()}
+          </p>
+        </>
+      )}
 
       <label className="field">
         <span>Hold still</span>
@@ -477,6 +512,7 @@ export function Panel({ data, exploring, onExplore, onRevert }: {
           exploring={exploring}
           onRun={(next) => onExplore(next)}
           onRevert={onRevert}
+          base={runBase(run, runs)}
         />
       </section>
 

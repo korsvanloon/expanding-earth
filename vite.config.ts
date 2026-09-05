@@ -39,7 +39,23 @@ export default defineConfig({
   // GitHub Pages serves the site from a sub-path; local development does not.
   base: process.env.BASE_PATH ?? '/',
   plugins: [react()],
-  define: { __DATA_VERSION__: JSON.stringify(dataVersion()) },
+  define: {
+    __DATA_VERSION__: JSON.stringify(dataVersion()),
+    /**
+     * Where solved runs are published; see tools/publish-run.ts.
+     *
+     * A solve takes eight minutes and the deploy used to spend the same eight
+     * minutes on the same answer. Now the run is pushed to a store and the
+     * viewer fetches it, so a new reconstruction costs a push rather than a
+     * build -- and, because every run keeps its own immutable folder there,
+     * the viewer can offer several of them at once and be switched between
+     * them. RUN_STORE='' falls back to this site's own data folder.
+     */
+    __RUN_STORE__: JSON.stringify(
+      process.env.RUN_STORE
+      ?? 'https://cdn.jsdelivr.net/gh/korsvanloon/expanding-earth@runs',
+    ),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

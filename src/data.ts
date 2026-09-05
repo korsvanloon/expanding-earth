@@ -10,6 +10,17 @@ import { readChannel, readFrames } from '@shared/frames'
 export interface Dataset {
   meta: Meta
   /**
+   * Where the rest of this run's files are, or null if there are none to
+   * fetch.
+   *
+   * The strain and the plate map arrive later, when something asks for them,
+   * and they have to come from the same run as the frames -- a published run
+   * keeps its own immutable folder in the store (see src/runs.ts), and the
+   * explorer's run was solved in the browser and has no folder at all. The
+   * empty string is this site's own data folder.
+   */
+  layerBase: string | null
+  /**
    * Vertices in the cut mesh, read from mesh.bin rather than taken from the
    * metadata. The mesh file is the authority on its own shape: cutting the
    * shell into fragments duplicates vertices, so a count computed anywhere
@@ -113,16 +124,23 @@ export function buildIndex(
  */
 export type LoadProgress = (share: number, note: string) => void
 
-export async function loadDataset(onProgress?: LoadProgress): Promise<Dataset> {
+export async function loadDataset(
+  /**
+   * Where the run's files are, or the empty string for this site's own data
+   * folder. Runs published to the store each have their own; see src/runs.ts.
+   */
+  base = '',
+  onProgress?: LoadProgress,
+): Promise<Dataset> {
   const inline = inlineData()
-  const parts = inline ? await inline : await fetchDataset(onProgress)
+  const parts = inline ? await inline : await fetchDataset(base, onProgress)
   // Unpacking sixteen megabytes of typed arrays holds the main thread for
   // long enough to be seen, and a loader that freezes on its last frame reads
   // as a page that has died. One turn of the event loop lets the note paint
   // before the work that it is about starts.
   onProgress?.(1, 'unpacking')
   await new Promise((wake) => setTimeout(wake))
-  return buildDataset(parts)
+  return buildDataset(parts, base)
 }
 
 /**
@@ -135,6 +153,8 @@ export async function loadDataset(onProgress?: LoadProgress): Promise<Dataset> {
  */
 export function buildDataset(
   { meta, mesh, frames, strain, plates, topology, tracks, sink }: InlineData,
+  /** See Dataset.layerBase; null for a run that was solved in the browser. */
+  layerBase: string | null = '',
 ): Dataset {
 
   const [vertexCount, faceCount, , cutPairCount] = new Uint32Array(mesh, 0, 4)
@@ -213,6 +233,7 @@ export function buildDataset(
     crustType: vertexType,
     gravity: gravityFabric,
     gravityRoughness,
+    layerBase,
     sink: sink ? readChannel(sink, vertexCount) : null,
     tracks: tracks ? readTracks(tracks) : undefined,
     radiusKm: meta.crustModels[0].radiusKm,
@@ -247,7 +268,7 @@ const SHARES: Record<string, number> = {
  * length, which counts different bytes than the stream hands back -- fall back
  * to that file's weight arriving whole when it lands.
  */
-function counted(paths: string[], onProgress?: LoadProgress) {
+function counted(base: string, paths: string[], onProgress?: LoadProgress) {
   const expected = new Map<string, number>()
   const got = new Map<string, number>()
   const whole = new Set<string>()
@@ -281,7 +302,10 @@ function counted(paths: string[], onProgress?: LoadProgress) {
   const skip = (path: string) => { whole.add(path); report() }
 
   const read = async (path: string, optional = false) => {
-    const response = await fetch(asset(path))
+    // A published run's folder is immutable, so its files need no fingerprint
+    // on the end and want the plain path; this site's own folder is rewritten
+    // in place by every build and needs one. See src/runs.ts.
+    const response = await fetch(base ? `${base}/${path.replace('data/', '')}` : asset(path))
     if (!response.ok) {
       if (optional) { skip(path); return undefined }
       throw new Error(`${path} is not there (${response.status})`)
@@ -315,7 +339,7 @@ function counted(paths: string[], onProgress?: LoadProgress) {
   return { read, skip }
 }
 
-async function fetchDataset(onProgress?: LoadProgress): Promise<InlineData> {
+async function fetchDataset(base: string, onProgress?: LoadProgress): Promise<InlineData> {
   // Everything the globe cannot be drawn without, and nothing else. The strain
   // and the plate map belong to one view mode and one right-click, and between
   // them they were a third of the wait.
@@ -323,7 +347,7 @@ async function fetchDataset(onProgress?: LoadProgress): Promise<InlineData> {
     'data/meta.json', 'data/mesh.bin', 'data/frames.bin',
     'data/topology.bin', 'data/tracks.bin', 'data/sink.bin',
   ]
-  const { read, skip } = counted(wanted, onProgress)
+  const { read, skip } = counted(base, wanted, onProgress)
   // All five asked for at once; the metadata is only awaited first because the
   // sixth file depends on what it says.
   const text = read('data/meta.json')
@@ -352,9 +376,11 @@ async function fetchDataset(onProgress?: LoadProgress): Promise<InlineData> {
  * broken globe: without the strain the strain mode is flat, and without the
  * plate map a right-click says nothing about blocks.
  */
-export async function fetchLayer(name: 'strain' | 'plates'): Promise<Uint8Array | null> {
+export async function fetchLayer(
+  base: string, name: 'strain' | 'plates',
+): Promise<Uint8Array | null> {
   try {
-    const response = await fetch(asset(`data/${name}.bin`))
+    const response = await fetch(base ? `${base}/${name}.bin` : asset(`data/${name}.bin`))
     if (!response.ok) return null
     return new Uint8Array(await response.arrayBuffer())
   } catch {
