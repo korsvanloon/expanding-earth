@@ -55,6 +55,8 @@ export interface RunSummary {
   endTimeMa: number
   subdivision: number
   vertexCount: number
+  /** Which reading of the crust the radius curve came from; see the publisher. */
+  crustModel?: string
   radiusKm: number
   pairs: { timeMa: number; medianKm: number; within: number }[]
   fits: { a: string; b: string; atMa: number; watched?: true; km: number; matched: number }[]

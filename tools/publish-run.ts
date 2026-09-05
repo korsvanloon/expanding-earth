@@ -42,6 +42,12 @@ import { signed } from './lib/s3.js'
 import type { Meta } from '../shared/model.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+/** What was asked for on the command line, if anything. */
+const arg = (name: string) => {
+  const at = process.argv.indexOf(`--${name}`)
+  return at > 0 ? process.argv[at + 1] : undefined
+}
+
 /**
  * The bucket to publish into, for `--to s3`.
  *
@@ -52,19 +58,22 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
  * leave the machine that publishes.
  */
 const BUCKET = process.env.S3_BUCKET_URL
+/** Which store this publish is for, which decides how many runs it keeps. */
+const TO = arg('to') ?? process.env.PUBLISH_TO ?? (BUCKET ? 's3' : 'branch')
 const DATA = resolve(ROOT, 'public/data')
 const WORK = resolve(ROOT, '.stage/publish')
 const BRANCH = process.env.PUBLISH_BRANCH ?? 'runs'
 /**
  * How many runs the store keeps.
  *
- * What falls off the list is deleted, and that matters more here than it
- * would elsewhere: the store is a branch of this repository, so every run kept
- * is thirty megabytes that everyone who clones pays for. Three is enough to
- * hold the shipped run and two to compare it against. A real blob store has
- * no such limit -- point `RUN_STORE` at one and raise this.
+ * What falls off the list is deleted, and how much that costs depends on which
+ * store it is. On a branch every run kept is thirty megabytes that everyone
+ * who clones pays for, so three -- the shipped run and two to compare it
+ * against -- is as far as that goes. A bucket charges a few cents a month for
+ * the same thirty megabytes and nobody clones it, so it keeps enough that an
+ * experiment worth looking at again is still there a week later.
  */
-const KEEP = Number(process.env.PUBLISH_KEEP ?? 3)
+const KEEP = Number(process.env.PUBLISH_KEEP ?? (TO === 's3' ? 8 : 3))
 
 /**
  * Everything the site serves for one run.
@@ -134,6 +143,15 @@ export interface RunSummary {
   endTimeMa: number
   subdivision: number
   vertexCount: number
+  /**
+   * Which reading of the crust the radius curve was integrated from.
+   *
+   * Not a knob in the solver's sense -- it is chosen before the solve, when
+   * the sea floor is classified -- so it never shows up in `overrides`, and a
+   * run made with a different one would otherwise be indistinguishable from
+   * the shipped model in this list. It is the thing that moves the radius.
+   */
+  crustModel: string
   /** The sphere at the end of the run, km. */
   radiusKm: number
   /** Held-back conjugate pairs: median km and the share within 200 km. */
@@ -161,11 +179,6 @@ export interface RunIndex {
 const git = (...args: string[]) =>
   execFileSync('git', args, { cwd: ROOT, encoding: 'utf8' }).trim()
 
-const arg = (name: string) => {
-  const at = process.argv.indexOf(`--${name}`)
-  return at > 0 ? process.argv[at + 1] : undefined
-}
-
 /**
  * Read the summary out of a run's own metadata.
  *
@@ -179,6 +192,7 @@ function summarise(meta: Meta & {
   subdivision: number
   vertexCount: number
   diagnostics: Record<string, number>[]
+  solvedModel?: string
   scorecard: {
     a: string; b: string; joinedByMa: number | null
     separationKm: number[]; matchedFraction: number[]
@@ -191,6 +205,7 @@ function summarise(meta: Meta & {
     endTimeMa: meta.endTimeMa,
     subdivision: meta.subdivision,
     vertexCount: meta.vertexCount,
+    crustModel: meta.solvedModel ?? 'nearest-age',
     radiusKm: Math.round(end?.radiusKm ?? 0),
     pairs: [20, 60, 120].flatMap((timeMa) => {
       const d = at(timeMa)
@@ -250,8 +265,12 @@ function collect() {
   }
   // The coarse meshes the in-browser explorer solves on travel with the run,
   // because they are cut from the same data and a run's explorer should be
-  // exploring that run.
-  const preview = join(DATA, 'preview')
+  // exploring that run. A measurement run usually has none of its own -- it
+  // solved one mesh and nothing else -- and then it borrows the built ones,
+  // which is wrong in the small way that the explorer inside an experiment is
+  // exploring the shipped data. Better than shipping no explorer at all, and
+  // fixed for any run that does bring its own.
+  const preview = sourceOf('preview')
   if (existsSync(preview)) {
     for (const level of readdirSync(preview)) {
       for (const name of readdirSync(join(preview, level))) {
@@ -320,7 +339,7 @@ async function main() {
     summary: summarise(meta),
   }
 
-  if ((arg('to') ?? process.env.PUBLISH_TO ?? 'branch') === 's3') {
+  if (TO === 's3') {
     await toBucket(files, run)
     return
   }

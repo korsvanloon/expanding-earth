@@ -813,7 +813,10 @@ function RunCard({ runs, run }: { runs: RunIndex; run: string }) {
       <p className="caption">
         {showing.note ? `${showing.note} ` : ''}
         Solved {showing.solvedAt.slice(0, 10)} at {showing.commit}
-        {showing.overrides.length ? `, with ${showing.overrides.join(', ')} set` : ''}.
+        {showing.overrides.length ? `, with ${showing.overrides.join(', ')} set` : ''}
+        {summary?.crustModel && summary.crustModel !== 'nearest-age'
+          ? `, off the ${summary.crustModel} reading of the crust`
+          : ''}.
         {' '}Switching fetches {(showing.bytes / 1e6).toFixed(0)} MB.
       </p>
       {summary && (
@@ -865,6 +868,10 @@ function RunCard({ runs, run }: { runs: RunIndex; run: string }) {
                   '%',
                 )}
               </td>
+            </tr>
+            <tr>
+              <th>Sphere at {summary.endTimeMa} Ma</th>
+              <td colSpan={2}>{versus(summary.radiusKm, against?.radiusKm, ' km')}</td>
             </tr>
             <tr>
               <th>Two continents at once</th>
