@@ -1058,18 +1058,29 @@ export function solve(): void {
       const l = length3(x, y, z) || 1
       return [x / l, y / l, z / l]
     }
+    /**
+     * Where the survey has a one-sided path instead of a conjugate pair.
+     *
+     * Both are collected, because the mask is a question of which witness is
+     * nearer and not of whether a conjugate pair exists somewhere about. A
+     * one-sided path is the crust whose partner was swallowed, which is the
+     * drag's own claim rather than an argument against it: it says the ocean
+     * beside this crust closed onto a margin. Masking where one of those is
+     * the nearest thing the survey has to say is silencing the drag over
+     * exactly the water it was built for -- and that is not hypothetical. The
+     * East Pacific Rise has conjugate pairs of its own, so a mask that only
+     * counts distance to a pair switches the drag off along the American
+     * margins, and every masked run measured lost the Pacific: North America
+     * to Africa at 190 Ma went to 2,535 km where full drag reaches 157.
+     */
+    const lonely: number[] = []
     for (let i = 0; i < tracks.pairAgeMa.length; i++) {
-      // Conjugate pairs only. A one-sided pair is the crust that has no
-      // conjugate left, so it is not a second witness against the drag -- it
-      // is the same witness, saying the ocean beside it closed onto a margin,
-      // and masking the drag out where it speaks would silence the drag over
-      // exactly the water it was built for.
-      if (tracks.pairKind[i] === ONE_SIDED) continue
+      const into = tracks.pairKind[i] === ONE_SIDED ? lonely : ends
       for (const verts of [
         [tracks.pairAVerts, tracks.pairAWeights],
         [tracks.pairBVerts, tracks.pairBWeights],
       ] as [Uint32Array, Float32Array][]) {
-        ends.push(...place(verts[0], verts[1], i))
+        into.push(...place(verts[0], verts[1], i))
       }
     }
     // Bucketed by a coarse cell, so each vertex looks at the pairs near it
@@ -1083,10 +1094,15 @@ export function solve(): void {
       const lon = Math.atan2(-z, x) / (2 * Math.PI) + 0.5
       return row * cols + Math.min(cols - 1, Math.floor(lon * cols))
     }
-    const buckets: number[][] = Array.from({ length: rows * cols }, () => [])
-    for (let e = 0; e < ends.length; e += 3) {
-      buckets[cellOf(ends[e], ends[e + 1], ends[e + 2])].push(e)
+    const bucketUp = (list: number[]) => {
+      const into: number[][] = Array.from({ length: rows * cols }, () => [])
+      for (let e = 0; e < list.length; e += 3) {
+        into[cellOf(list[e], list[e + 1], list[e + 2])].push(e)
+      }
+      return into
     }
+    const buckets = bucketUp(ends)
+    const lonelyBuckets = bucketUp(lonely)
     const free = CONFIG.dragFreeKm / r0
     const full = (2 * CONFIG.dragFreeKm) / r0
     let held = 0
@@ -1100,30 +1116,39 @@ export function solve(): void {
       // Two cells of slack either way covers twice the free radius at this
       // grid, so nothing near enough to matter is missed.
       const reach = 2 + Math.ceil((2 * CONFIG.dragFreeKm) / ((Math.PI * r0) / rows))
-      let nearest = Math.PI
-      for (let dr = -reach; dr <= reach; dr++) {
-        const r2 = row + dr
-        if (r2 < 0 || r2 >= rows) continue
-        for (let dc = -reach; dc <= reach; dc++) {
-          const c2 = ((col + dc) % cols + cols) % cols
-          for (const e of buckets[r2 * cols + c2]) {
-            const dot = Math.min(1, Math.max(-1,
-              x * ends[e] + y * ends[e + 1] + z * ends[e + 2]))
-            const angle = Math.acos(dot)
-            if (angle < nearest) nearest = angle
+      const nearestIn = (where: number[][], list: number[]) => {
+        let nearest = Math.PI
+        for (let dr = -reach; dr <= reach; dr++) {
+          const r2 = row + dr
+          if (r2 < 0 || r2 >= rows) continue
+          for (let dc = -reach; dc <= reach; dc++) {
+            const c2 = ((col + dc) % cols + cols) % cols
+            for (const e of where[r2 * cols + c2]) {
+              const dot = Math.min(1, Math.max(-1,
+                x * list[e] + y * list[e + 1] + z * list[e + 2]))
+              const angle = Math.acos(dot)
+              if (angle < nearest) nearest = angle
+            }
           }
         }
+        return nearest
       }
-      const w = nearest <= free ? 0
-        : nearest >= full ? 1
-          : (nearest - free) / (full - free)
+      const nearest = nearestIn(buckets, ends)
+      // The nearer witness wins. Where a one-sided path is closer than any
+      // conjugate pair, what the survey says about this crust is that its
+      // partner is gone, and the drag keeps its whole say.
+      const w = nearestIn(lonelyBuckets, lonely) <= nearest ? 1
+        : nearest <= free ? 0
+          : nearest >= full ? 1
+            : (nearest - free) / (full - free)
       dragWeight[v] = w
       if (w < 1) held++
     }
     console.log(
       `[solve] the slab may turn a plate on ${vertexCount - held} of ${vertexCount} points; `
-        + `the other ${held} are within ${2 * CONFIG.dragFreeKm} km of a conjugate pair, `
-        + 'which already says how their ocean opened',
+        + `the other ${held} are nearer a conjugate pair than a one-sided path `
+        + `and within ${2 * CONFIG.dragFreeKm} km of it, so the pair already says `
+        + 'how their ocean opened',
     )
   }
 
