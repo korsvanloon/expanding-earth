@@ -118,27 +118,41 @@ jobs:
           RUN_STORE: ${{ vars.RUN_STORE }}
         run: |
           set -e
-          if [ -n "$RUN_STORE" ]; then
-            curl -fsSL "$RUN_STORE/runs.json" -o runs.json
-            id=$(node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).default")
-            node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).runs.find((r) => r.id === '$id').files.join('\n')" > files.txt
+          # Every way of getting a run is allowed to fail, and each failure
+          # falls through to the next: the store, then the branch, then solving
+          # it here. A store that is unreachable -- a bucket whose policy is
+          # halfway, a distribution still deploying -- should cost the old ten
+          # minutes and not the deploy.
+          restore_from_store() {
+            curl -fsSL "$RUN_STORE/runs.json" -o runs.json || return 1
+            id=$(node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).default") || return 1
+            node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).runs.find((r) => r.id === '$id').files.join('\n')" > files.txt || return 1
             while read -r file; do
               mkdir -p "public/data/$(dirname "$file")"
               # --compressed, because a run is stored gzipped: the site serves
               # these from its own origin as a fallback, and would serve the
               # packed bytes without the header that says so.
-              curl -fsSL --compressed "$RUN_STORE/runs/$id/$file" -o "public/data/$file"
+              curl -fsSL --compressed "$RUN_STORE/runs/$id/$file" -o "public/data/$file" || return 1
             done < files.txt
             rm -f runs.json files.txt
-          else
-            git fetch --depth 1 origin runs:refs/remotes/origin/runs || exit 0
-            git worktree add --force --detach .stage/store origin/runs
-            id=$(node -p "JSON.parse(require('fs').readFileSync('.stage/store/runs.json','utf8')).default")
+          }
+          restore_from_branch() {
+            git fetch --depth 1 origin runs:refs/remotes/origin/runs || return 1
+            git worktree add --force --detach .stage/store origin/runs || return 1
+            id=$(node -p "JSON.parse(require('fs').readFileSync('.stage/store/runs.json','utf8')).default") || return 1
             mkdir -p public/data
             cp -r ".stage/store/runs/$id/." public/data/
             git worktree remove --force .stage/store
+          }
+          id=
+          if [ -n "$RUN_STORE" ] && restore_from_store; then
+            echo "restored $id from $RUN_STORE"
+          elif restore_from_branch; then
+            echo "restored $id from the runs branch"
+          else
+            echo "no published run could be restored; the build will solve one"
           fi
-          echo "restored $id: $(du -sh public/data | cut -f1)"
+          [ -n "$id" ] && du -sh public/data | cut -f1
 
       - run: pnpm typecheck
       - run: pnpm test
