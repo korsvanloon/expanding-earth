@@ -1,17 +1,10 @@
 {
-  "typescript.tsdk": "./node_modules/typescript/lib",
+  "js/ts.tsdk.path": "./node_modules/typescript/lib",
   "editor.codeActionsOnSave": {
-    "source.fixAll": true,
-    "source.organizeImports": true
+    "source.fixAll": "explicit",
+    "source.organizeImports": "explicit"
   },
-  "eslint.validate": ["typescript", "javascript"],
-  "eslint.packageManager": "pnpm",
-  "typescript.updateImportsOnFileMove.enabled": "always",
-  "typescript.preferences.importModuleSpecifier": "non-relative",
-  "cSpell.words": ["delaunator", "equirectangular", "glsl", "lerp", "raycaster", "wireframe"],
-  "eslint.options": {
-    "parserOptions": {
-      "project": ["${workspaceFolder}/tsconfig.json"]
-    }
-  }
+  "js/ts.updateImportsOnFileMove.enabled": "always",
+  "js/ts.preferences.importModuleSpecifier": "non-relative",
+  "cSpell.words": ["delaunator", "equirectangular", "glsl", "lerp", "raycaster", "wireframe"]
 }

@@ -17,3 +17,8 @@ dist
 # TypeScript incremental build state
 *.tsbuildinfo
 /.stage
+
+# Reference figures and raw datasets gathered by the research pass (RESEARCH-FINDINGS.md):
+# third-party material, kept local. research/README.md carries the manifest and fetch commands.
+/research/data/
+/research/figures/
