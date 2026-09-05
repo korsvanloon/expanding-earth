@@ -16,21 +16,23 @@
  *
  * Two stores, the same layout in both:
  *
- * - **Azure Blob** (`--to azure`), which is where these belong: nothing enters
- *   the repository, so a run costs nobody a slower clone and as many can be
- *   kept as are worth keeping. It needs `AZURE_BLOB_SAS` -- a container URL
- *   with a shared access signature that may read, write, delete and list.
- *   That is a secret and belongs in the environment, never in the repository.
+ * - **A bucket** (`--to s3`), which is where these belong: nothing enters the
+ *   repository, so a run costs nobody a slower clone and as many can be kept
+ *   as are worth keeping. It wants `S3_BUCKET_URL` and a key pair in
+ *   `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`, which are secrets and
+ *   belong in the environment, never in the repository. Requests are signed
+ *   here rather than by an SDK: it is one signature, described in full below,
+ *   against a dependency that would be tens of megabytes.
  * - **A branch of this repository** (`--to branch`, the default until the
- *   container exists), served by jsDelivr, which needs no credentials this
+ *   bucket exists), served by jsDelivr, which needs no credentials this
  *   machine does not already have. It is a branch with no history: each
  *   publish writes one orphan commit holding the runs worth keeping.
  *
  *     pnpm tsx tools/publish-run.ts --label "shared slab, drag 0.1"
- *     pnpm tsx tools/publish-run.ts --to azure --label "drag 1, no sharing"
+ *     pnpm tsx tools/publish-run.ts --to s3 --label "drag 1, no sharing"
  */
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
+import { createHash, createHmac } from 'node:crypto'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -39,14 +41,15 @@ import type { Meta } from '../shared/model.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /**
- * A container URL with a shared access signature on the end, for `--to azure`.
+ * The bucket to publish into, for `--to s3`.
  *
- * Read, write, delete and list: publishing puts a run there, rewrites the
- * index, and deletes what has fallen off the list. The viewer needs none of
- * this -- it reads the container anonymously -- so this signature never leaves
- * the machine that publishes.
+ * The URL says which bucket and which region, both of which the signature
+ * needs: `https://<bucket>.s3.<region>.amazonaws.com`. The key pair that goes
+ * with it may write, delete and list that one bucket and nothing else. The
+ * viewer needs none of it -- it reads the bucket anonymously -- so these never
+ * leave the machine that publishes.
  */
-const SAS = process.env.AZURE_BLOB_SAS
+const BUCKET = process.env.S3_BUCKET_URL
 const DATA = resolve(ROOT, 'public/data')
 const WORK = resolve(ROOT, '.stage/publish')
 const BRANCH = process.env.PUBLISH_BRANCH ?? 'runs'
@@ -304,8 +307,8 @@ async function main() {
     summary: summarise(meta),
   }
 
-  if ((arg('to') ?? process.env.PUBLISH_TO ?? 'branch') === 'azure') {
-    void toAzure(files, run)
+  if ((arg('to') ?? process.env.PUBLISH_TO ?? 'branch') === 's3') {
+    await toBucket(files, run)
     return
   }
 
@@ -388,6 +391,80 @@ async function main() {
   console.log(`[publish] ${base}/runs.json`)
 }
 
+/**
+ * A request signed the way S3 wants it, and nothing else.
+ *
+ * Signature Version 4 is a chain of hashes rather than a secret handshake: the
+ * request is written out in a canonical form, that form is hashed into a
+ * string to sign, and the key is derived from the secret by hashing the date,
+ * the region and the service in turn -- so the credential that travels is only
+ * ever good for one request on one day. Writing it out is fifty lines against
+ * a dependency of tens of megabytes, and this file is the only thing in the
+ * project that talks to a bucket.
+ */
+async function signed(
+  method: 'GET' | 'PUT' | 'DELETE',
+  url: string,
+  body: Uint8Array | string = '',
+  extra: Record<string, string> = {},
+) {
+  const key = process.env.AWS_ACCESS_KEY_ID
+  const secret = process.env.AWS_SECRET_ACCESS_KEY
+  if (!key || !secret) {
+    throw new Error('AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are not set')
+  }
+  const target = new URL(url)
+  // `https://<bucket>.s3.<region>.amazonaws.com`, which is where the region
+  // comes from; a bucket in us-east-1 may leave it out and is read as such.
+  const region = target.hostname.split('.')[2] === 'amazonaws' ? 'us-east-1' : target.hostname.split('.')[2]
+  const bytes = typeof body === 'string' ? Buffer.from(body) : Buffer.from(body)
+  const sha = createHash('sha256').update(bytes).digest('hex')
+  const now = new Date().toISOString().replace(/[-:]|\.\d{3}/g, '')
+  const day = now.slice(0, 8)
+
+  // Lower-cased and sorted, which is what the canonical form is: the same
+  // request written the same way by both sides.
+  const headers = Object.fromEntries(
+    Object.entries({
+      host: target.host,
+      'x-amz-content-sha256': sha,
+      'x-amz-date': now,
+      ...extra,
+    }).map(([name, value]) => [name.toLowerCase(), value.trim()]),
+  )
+  const names = Object.keys(headers).sort()
+  const canonicalHeaders = names.map((name) => `${name}:${headers[name]}\n`).join('')
+  const signedHeaders = names.join(';')
+  // The path is signed as it is sent, so each segment is escaped once and the
+  // slashes between them are left alone.
+  const path = target.pathname.split('/').map((part) => encodeURIComponent(decodeURIComponent(part))).join('/')
+  const query = [...target.searchParams.entries()]
+    .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
+    .join('&')
+  const canonical = [method, path, query, canonicalHeaders, signedHeaders, sha].join('\n')
+
+  const scope = `${day}/${region}/s3/aws4_request`
+  const toSign = [
+    'AWS4-HMAC-SHA256', now, scope, createHash('sha256').update(canonical).digest('hex'),
+  ].join('\n')
+  const hmac = (k: Buffer | string, data: string) => createHmac('sha256', k).update(data).digest()
+  const signature = createHmac(
+    'sha256',
+    hmac(hmac(hmac(hmac(`AWS4${secret}`, day), region), 's3'), 'aws4_request'),
+  ).update(toSign).digest('hex')
+
+  return fetch(url, {
+    method,
+    headers: {
+      ...headers,
+      Authorization: `AWS4-HMAC-SHA256 Credential=${key}/${scope}, `
+        + `SignedHeaders=${signedHeaders}, Signature=${signature}`,
+    },
+    body: method === 'PUT' ? bytes : undefined,
+  })
+}
+
 /** What a browser should be told each kind of file is. */
 const TYPES: Record<string, string> = {
   json: 'application/json',
@@ -398,45 +475,33 @@ const TYPES: Record<string, string> = {
 }
 
 /**
- * The same layout, in a container.
+ * The same layout, in a bucket.
  *
- * The URL carries its own signature, so every request is that URL with a path
- * in front of the query. Nothing here is clever: a block blob is a single PUT
- * as long as it is under 256 MB, and the largest file in a run is ten.
+ * Nothing here is clever: one PUT per file, since the largest in a run is ten
+ * megabytes and a single PUT carries five gigabytes.
  */
-async function toAzure(files: { name: string; bytes: Uint8Array }[], run: PublishedRun) {
-  if (!SAS) {
+async function toBucket(files: { name: string; bytes: Uint8Array }[], run: PublishedRun) {
+  if (!BUCKET) {
     throw new Error(
-      'AZURE_BLOB_SAS is not set: it wants a container URL with a shared access '
-      + 'signature that may read, write, delete and list',
+      'S3_BUCKET_URL is not set: it wants https://<bucket>.s3.<region>.amazonaws.com',
     )
   }
-  const [container, query] = SAS.split('?')
-  const at = (path: string, extra = '') =>
-    `${container.replace(/\/$/, '')}/${path}?${extra}${extra ? '&' : ''}${query}`
+  const root = BUCKET.replace(/\/$/, '')
+  const at = (path: string) => `${root}/${path}`
 
   const send = async (path: string, body: Uint8Array | string, cache: string) => {
     const type = TYPES[path.split('.').pop() ?? ''] ?? 'application/octet-stream'
-    const response = await fetch(at(path), {
-      method: 'PUT',
-      headers: {
-        'x-ms-blob-type': 'BlockBlob',
-        'x-ms-blob-content-type': type,
-        // Set here rather than on the container, because the two kinds of file
-        // want opposite answers: a run's folder is never rewritten and may be
-        // kept forever, while the index is the one thing that changes.
-        'x-ms-blob-cache-control': cache,
-        'content-type': type,
-      },
-      // The view's own bytes, which is what fetch wants; a Uint8Array read
-      // from disk can sit in a larger buffer, and handing that over would
-      // upload the whole buffer.
-      body: typeof body === 'string'
-        ? body
-        : new Uint8Array(body.buffer, body.byteOffset, body.byteLength).slice(),
+    // Cache-Control is set per object, because the two kinds of file want
+    // opposite answers: a run's folder is never rewritten and may be kept
+    // forever, while the index is the one thing that changes.
+    const response = await signed('PUT', at(path), body, {
+      'content-type': type,
+      'cache-control': cache,
     })
     if (!response.ok) {
-      throw new Error(`${path}: ${response.status} ${(await response.text()).slice(0, 200)}`)
+      // S3 answers a bad signature with the canonical request it expected,
+      // which is the whole of what is needed to find the difference.
+      throw new Error(`${path}: ${response.status} ${(await response.text()).slice(0, 800)}`)
     }
   }
 
@@ -445,12 +510,12 @@ async function toAzure(files: { name: string; bytes: Uint8Array }[], run: Publis
     ? await held.json() as RunIndex
     : { version: 1, default: run.id, runs: [] }
 
+  const total = files.reduce((sum, file) => sum + file.bytes.byteLength, 0)
   let done = 0
   for (const file of files) {
     await send(`runs/${run.id}/${file.name}`, file.bytes, 'public, max-age=31536000, immutable')
     done += file.bytes.byteLength
-    process.stdout.write(`\r[publish] ${(done / 1e6).toFixed(1)} MB of ${
-      (files.reduce((sum, f) => sum + f.bytes.byteLength, 0) / 1e6).toFixed(1)} MB`)
+    process.stdout.write(`\r[publish] ${(done / 1e6).toFixed(1)} of ${(total / 1e6).toFixed(1)} MB`)
   }
   process.stdout.write('\n')
 
@@ -459,24 +524,24 @@ async function toAzure(files: { name: string; bytes: Uint8Array }[], run: Publis
   index.default = arg('default') === 'no' ? index.default : run.id
   if (!index.runs.some((r) => r.id === index.default)) index.default = index.runs[0].id
   // The index goes last: until it names the run, the run is not there as far
-  // as anyone reading is concerned, and a publish that fails halfway has
-  // uploaded some unreferenced blobs rather than broken the site.
+  // as anyone reading is concerned, so a publish that fails halfway leaves
+  // some unreferenced objects rather than a broken site.
   await send('runs.json', `${JSON.stringify(index, null, 2)}\n`, 'max-age=60')
 
   for (const old of dropped) {
-    const listing = await fetch(
-      at('', `restype=container&comp=list&prefix=${encodeURIComponent(`runs/${old.id}/`)}`),
+    const listing = await signed(
+      'GET', `${root}?list-type=2&prefix=${encodeURIComponent(`runs/${old.id}/`)}`,
     )
     if (!listing.ok) continue
-    for (const [, name] of (await listing.text()).matchAll(/<Name>([^<]+)<\/Name>/g)) {
-      await fetch(at(name), { method: 'DELETE' })
+    for (const [, name] of (await listing.text()).matchAll(/<Key>([^<]+)<\/Key>/g)) {
+      await signed('DELETE', at(name))
     }
     console.log(`[publish] dropped ${old.id} (${old.label})`)
   }
 
   console.log(`[publish] ${run.id}  ${run.label}  ${(run.bytes / 1e6).toFixed(1)} MB`)
   console.log(`[publish] ${index.runs.length} runs listed, default ${index.default}`)
-  console.log(`[publish] ${container.replace(/\/$/, '')}/runs.json`)
+  console.log(`[publish] ${root}/runs.json`)
 }
 
 await main()
