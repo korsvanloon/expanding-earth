@@ -34,13 +34,32 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DATA = resolve(ROOT, 'public/data')
 const WORK = resolve(ROOT, '.stage/publish')
 const BRANCH = process.env.PUBLISH_BRANCH ?? 'runs'
-/** How many runs the store keeps. Older ones fall off the list and out of the repository. */
-const KEEP = Number(process.env.PUBLISH_KEEP ?? 6)
+/**
+ * How many runs the store keeps.
+ *
+ * What falls off the list is deleted, and that matters more here than it
+ * would elsewhere: the store is a branch of this repository, so every run kept
+ * is thirty megabytes that everyone who clones pays for. Three is enough to
+ * hold the shipped run and two to compare it against. A real blob store has
+ * no such limit -- point `RUN_STORE` at one and raise this.
+ */
+const KEEP = Number(process.env.PUBLISH_KEEP ?? 3)
 
-/** Everything the viewer asks for, in the order it asks. */
+/**
+ * Everything the site serves for one run.
+ *
+ * The rasters are in here even though they come from the survey rather than
+ * from the solve, and are the same in every run. A published run is meant to
+ * be a whole site's worth of data: the deploy restores one and builds nothing,
+ * so anything missing here is missing from the site.
+ */
 const FILES = [
   'meta.json', 'mesh.bin', 'frames.bin', 'topology.bin',
   'tracks.bin', 'sink.bin', 'strain.bin', 'plates.bin',
+  'fabric.jpg', 'zones.png', 'crust.png',
+  // The hash of every input this run was solved from, which is what lets the
+  // deploy check that the run it restored is the one this code would make.
+  'inputs.sha',
 ]
 
 export interface PublishedRun {
@@ -164,7 +183,10 @@ function main() {
 
   const inside = (...args: string[]) =>
     execFileSync('git', args, { cwd: WORK, encoding: 'utf8' }).trim()
-  inside('checkout', '--orphan', BRANCH)
+  // A name of its own rather than the branch's, which the last publish will
+  // have left behind here; what matters is the commit, and where it is pushed.
+  const temporary = `publish-${id}`
+  inside('checkout', '--orphan', temporary)
   inside('add', '-A')
   inside(
     '-c', 'user.name=publish-run', '-c', 'user.email=noreply@github.com',
@@ -175,8 +197,13 @@ function main() {
       + 'as one commit, so the repository carries what is listed and not every\n'
       + 'run ever made. Paths under runs/<id>/ are never rewritten.\n',
   )
-  inside('push', '--force', 'origin', `${BRANCH}:${BRANCH}`)
+  inside('push', '--force', 'origin', `HEAD:${BRANCH}`)
   git('worktree', 'remove', '--force', WORK)
+  try {
+    git('branch', '-D', temporary)
+  } catch {
+    // Already gone with the worktree; nothing depends on it either way.
+  }
 
   const base = `https://cdn.jsdelivr.net/gh/${
     git('remote', 'get-url', 'origin').replace(/.*github\.com[:/]/, '').replace(/\.git$/, '')

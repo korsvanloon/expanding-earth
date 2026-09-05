@@ -5,10 +5,10 @@
  * work anyway.
  */
 import { spawnSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
-import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { allInputs, hashOf } from './lib/inputs.js'
 import { subdivision } from './lib/resolution.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -16,58 +16,18 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 /**
  * Every source the pipeline reads, found rather than listed.
  *
- * The list used to be written out by hand, and it had drifted: the dynamic mesh
- * was not on it, so changing how the triangulation collapses and flips -- which
- * is most of what the solver does -- left the data untouched and the viewer
- * quietly serving the run before. A stale build that looks like a change with
- * no effect is worse than a slow one.
+ * Twice found the wrong way. A hand-written list drifted -- the dynamic mesh
+ * was not on it, so changing how the triangulation collapses and flips left the
+ * data untouched and the viewer quietly serving the run before. Every file in
+ * `tools/` and `shared/` cannot drift but is too wide, and that started costing
+ * the moment runs were published from here: editing the publisher changed the
+ * hash of the reconstruction it had just published, and the deploy would solve
+ * eight minutes to reach the same answer. It is the import graph of the
+ * programs that write data; see tools/lib/inputs.ts.
  */
-const sources = (dir: string): string[] =>
-  readdirSync(resolve(ROOT, dir), { withFileTypes: true }).flatMap((entry) =>
-    entry.isDirectory()
-      ? sources(`${dir}/${entry.name}`)
-      : entry.name.endsWith('.ts')
-        ? [resolve(ROOT, dir, entry.name)]
-        : [],
-  )
+const inputs = allInputs(ROOT)
 
-const inputs = [
-  ...sources('tools'),
-  ...sources('shared'),
-  resolve(ROOT, 'public/textures/height-map.jpg'),
-  // The datasets fetched by hand and committed: the crustal model and the
-  // gravity grid. Refetching one has to rebuild, for the same reason changing
-  // the code does.
-  ...readdirSync(resolve(ROOT, 'data-src')).map((name) => resolve(ROOT, 'data-src', name)),
-]
-
-/**
- * What the inputs are, by content rather than by clock.
- *
- * This used to compare modification times, and that is wrong in the one place
- * it matters most. A fresh checkout writes every file at the same instant, so
- * in the Pages workflow "is the output newer than every input" is a coin toss
- * -- and a restored build cache arrives with new timestamps too. A hash is the
- * same answer on a laptop, on a runner, and after a cache restore.
- *
- * It also closes the failure this file's own comment warns about from the other
- * side: a change with no effect on the data now provably has none, because the
- * hash is unchanged, rather than merely appearing to.
- */
-const hashOf = (paths: string[]) => {
-  const digest = createHash('sha256')
-  for (const path of [...paths].sort()) {
-    digest.update(path.slice(ROOT.length))
-    try {
-      digest.update(readFileSync(path))
-    } catch {
-      digest.update('missing')
-    }
-  }
-  return digest.digest('hex')
-}
-
-const inputHash = hashOf(inputs)
+const inputHash = hashOf(ROOT, inputs)
 
 /**
  * The same, for the first stage alone: everything but the solver.
@@ -93,7 +53,7 @@ const inputHash = hashOf(inputs)
  * mesh away again and pay two minutes for nothing.
  */
 const SOLVER = ['tools/solve.ts', 'tools/lib/solver.ts'].map((p) => resolve(ROOT, p))
-const stageHash = hashOf(inputs.filter((path) => !SOLVER.includes(path)))
+const stageHash = hashOf(ROOT, inputs.filter((path) => !SOLVER.includes(path)))
 
 const META = resolve(ROOT, 'public/data/meta.json')
 /** The hash the data on disk was built from, written after a successful run. */

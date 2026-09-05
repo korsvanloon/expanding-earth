@@ -9,6 +9,7 @@ import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { loadAgeGrid } from '../tools/lib/agegrid'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
 import { newContactScratch, separateIslands } from '../tools/lib/contact'
+import { sourceGraph } from '../tools/lib/inputs'
 import { distortion, shapePairs } from '../tools/lib/shape'
 import {
   conjugateFit, conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper,
@@ -33,7 +34,7 @@ import {
   zoneRaster,
 } from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
-import { dirname, resolve } from 'node:path'
+import { resolve } from 'node:path'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 
 describe('icosphere', () => {
@@ -743,19 +744,36 @@ describe('the built dataset', () => {
   // solver change would leave a stale mesh behind and look like a change with
   // no effect -- the exact failure tools/run.ts was written to stop.
   it('builds the mesh without reference to the solver', () => {
-    const seen = new Set<string>()
-    const walk = (file: string) => {
-      if (seen.has(file)) return
-      seen.add(file)
-      const source = readFileSync(resolve(import.meta.dirname, '..', file), 'utf8')
-      for (const match of source.matchAll(/from '(\.[^']+)'/g)) {
-        const target = resolve(dirname(file), match[1]).replace(/\.js$/, '.ts')
-        walk(target.slice(resolve(import.meta.dirname, '..').length + 1))
-      }
+    const root = resolve(import.meta.dirname, '..')
+    const seen = sourceGraph(root, ['build-data.ts']).map((file) => file.slice(root.length + 1))
+    expect(seen.filter((file) => file.endsWith('solve.ts'))).toEqual([])
+    expect(seen.length).toBeGreaterThan(5)
+  })
+
+  /**
+   * The same hash now decides whether the deploy may skip solving altogether:
+   * a run published from elsewhere is trusted exactly when its stamp matches
+   * what this checkout hashes to. Too wide and a change that cannot touch the
+   * data throws away twenty-five megabytes of run and eight minutes of
+   * solving; too narrow and a stale reconstruction ships. This states both
+   * edges, since neither is visible in the hash itself.
+   */
+  it('hashes the programs that make data, and only those', () => {
+    const root = resolve(import.meta.dirname, '..')
+    const seen = sourceGraph(root).map((file) => file.slice(root.length + 1))
+    for (const file of [
+      'tools/solve.ts', 'tools/lib/solver.ts', 'tools/lib/dynamic-mesh.ts',
+      'tools/build-data.ts', 'tools/build-preview.ts', 'shared/model.ts',
+    ]) {
+      expect(seen, `${file} decides what the data is`).toContain(file)
     }
-    walk('tools/build-data.ts')
-    expect([...seen].filter((file) => file.endsWith('solve.ts'))).toEqual([])
-    expect(seen.size).toBeGreaterThan(5)
+    for (const file of [
+      // Publishes a run, draws a picture of one, writes about one: none of
+      // them can change what the run is.
+      'tools/publish-run.ts', 'tools/write-docs.ts', 'tools/run.ts',
+    ]) {
+      expect(seen, `${file} cannot change the data`).not.toContain(file)
+    }
   })
 
   // The list the run reports its overrides from is written by hand next to the

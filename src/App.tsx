@@ -118,7 +118,7 @@ export default function App() {
           runs={runs}
           run={run ?? OWN_RUN}
           onRun={(id) => {
-            rememberRun(id)
+            rememberRun(id, runs)
             setData(undefined)
             setRun(id)
           }}

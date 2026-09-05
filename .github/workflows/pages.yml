@@ -91,6 +91,33 @@ jobs:
             'public/textures/height-map.jpg', 'data-src/**') }}
 
 
+      # The reconstruction, solved somewhere else.
+      #
+      # It used to be solved here, and that is eight minutes of this runner
+      # reaching an answer that already exists: the run is solved on the machine
+      # where it was measured, and published to a store the viewer fetches from
+      # (tools/publish-run.ts). This restores that same run into public/data, so
+      # the site also serves it from its own origin and every check below still
+      # has a run to check.
+      #
+      # Nothing here decides whether the run is *right*. `public/data/inputs.sha`
+      # is the hash of every input it was solved from, the solver included, and
+      # `tools/run.ts` compares it to what this checkout hashes to. Match, and
+      # the build does nothing. Mismatch -- a solver change that was never
+      # published, an age grid that moved -- and it solves, exactly as it did
+      # before, and the caches below are still there for it. A forgotten publish
+      # costs the old ten minutes; it cannot ship the wrong model.
+      - name: Restore the published run
+        run: |
+          set -e
+          git fetch --depth 1 origin runs:refs/remotes/origin/runs || exit 0
+          git worktree add --force --detach .stage/store origin/runs
+          id=$(node -p "JSON.parse(require('fs').readFileSync('.stage/store/runs.json','utf8')).default")
+          mkdir -p public/data
+          cp -r ".stage/store/runs/$id/." public/data/
+          git worktree remove --force .stage/store
+          echo "restored $id: $(du -sh public/data | cut -f1)"
+
       - run: pnpm typecheck
       - run: pnpm test
 

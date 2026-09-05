@@ -81,9 +81,12 @@ export function chosenRun(index: RunIndex | null): string {
  * different way, and a back button that walked through every run someone tried
  * would be in the way of leaving the site.
  */
-export function rememberRun(id: string) {
+export function rememberRun(id: string, index: RunIndex | null) {
   const url = new URL(window.location.href)
-  if (id === OWN_RUN) url.searchParams.delete('run')
+  // The default gets a clean address and everything else is named, so that
+  // any run someone is actually looking at -- this site's own build included
+  // -- is a link they can send.
+  if (index && id === index.default) url.searchParams.delete('run')
   else url.searchParams.set('run', id)
   window.history.replaceState({}, '', url)
 }
