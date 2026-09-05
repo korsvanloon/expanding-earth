@@ -20,17 +20,28 @@ import { fileURLToPath } from 'node:url'
 import { configure, setHost, solve } from './lib/solver.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const OUT = resolve(ROOT, 'public/data')
+const IN = resolve(ROOT, 'public/data')
 const STAGE = resolve(ROOT, '.stage')
+/**
+ * Where the answers go, `public/data` unless told otherwise.
+ *
+ * A sweep is several runs of the same eight minutes, and on a machine with
+ * cores to spare they may as well be taken at once -- which they cannot be
+ * while every one of them writes `frames.bin` to the same place. The inputs
+ * never move: the mesh and the age grid are what the runs have in common, and
+ * only what they conclude is different. `DATA_OUT` is the same variable
+ * tools/build-data.ts already takes for the same reason.
+ */
+const OUT = resolve(ROOT, process.env.DATA_OUT ?? 'public/data')
 
-/** Where each name the solver asks for lives. */
+/** Where each name the solver asks for is read from. */
 const pathOf = (name: string) =>
-  resolve(name === 'meta.partial.json' ? STAGE : OUT, name)
+  resolve(name === 'meta.partial.json' ? STAGE : IN, name)
 
 setHost({
   read: (name) => readFileSync(pathOf(name)),
   readText: (name) => readFileSync(pathOf(name), 'utf8'),
-  write: (name, data) => writeFileSync(pathOf(name), data),
+  write: (name, data) => writeFileSync(resolve(OUT, name), data),
 })
 configure(process.env)
 solve()
