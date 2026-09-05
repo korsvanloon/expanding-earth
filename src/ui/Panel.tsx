@@ -852,7 +852,7 @@ function RunCard({ runs, run }: { runs: RunIndex; run: string }) {
                   {' – '}
                   {REGIONS.find((r) => r.id === fit.b)?.label ?? fit.b}
                 </th>
-                <td>{fit.atMa} Ma</td>
+                <td>{fit.watched ? `${fit.atMa} Ma*` : `${fit.atMa} Ma`}</td>
                 <td>{versus(fit.km, against?.fits[i]?.km, ' km')}</td>
               </tr>
             ))}
@@ -878,6 +878,12 @@ function RunCard({ runs, run }: { runs: RunIndex; run: string }) {
             </tr>
           </tbody>
         </table>
+      )}
+      {summary?.fits.some((fit) => fit.watched) && (
+        <p className="caption">
+          * Watched rather than scored: the geology gives no date for those two,
+          so they are read at the end of the run.
+        </p>
       )}
       {against && (
         <p className="caption">

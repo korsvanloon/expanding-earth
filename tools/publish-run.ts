@@ -122,8 +122,14 @@ export interface RunSummary {
   radiusKm: number
   /** Held-back conjugate pairs: median km and the share within 200 km. */
   pairs: { timeMa: number; medianKm: number; within: number }[]
-  /** Each scorecard fit at the date the geology gives it. */
-  fits: { a: string; b: string; atMa: number; km: number; matched: number }[]
+  /**
+   * Each scorecard fit, at the date the geology gives it.
+   *
+   * Some have no such date -- they are watched rather than scored -- and are
+   * read at the end of the run instead, where they are worth looking at. They
+   * say so, because a number with no date behind it is not a check.
+   */
+  fits: { a: string; b: string; atMa: number; watched?: true; km: number; matched: number }[]
   /** Of the sphere at the end: bare, and under two islands at once. */
   bare: number
   islandOverlap: number
@@ -181,14 +187,17 @@ function summarise(meta: Meta & {
         : []
     }),
     fits: meta.scorecard.map((fit) => {
-      // A fit with no date is watched rather than scored, and the end of the
-      // run is where it is worth looking at.
-      const atMa = fit.joinedByMa ?? meta.endTimeMa
+      // Zero is how the scorecard says "no date from the geology": watched
+      // rather than scored. Read at the end of the run, where two continents
+      // that never parted should be together if they ever will be.
+      const watched = !fit.joinedByMa
+      const atMa = watched ? meta.endTimeMa : fit.joinedByMa
       const frame = Math.round(atMa / meta.frameStepMa)
       return {
         a: fit.a,
         b: fit.b,
         atMa,
+        ...(watched ? { watched: true as const } : {}),
         km: Math.round(fit.separationKm[frame]),
         matched: Number(fit.matchedFraction[frame].toFixed(3)),
       }

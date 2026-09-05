@@ -49,7 +49,7 @@ export interface RunSummary {
   vertexCount: number
   radiusKm: number
   pairs: { timeMa: number; medianKm: number; within: number }[]
-  fits: { a: string; b: string; atMa: number; km: number; matched: number }[]
+  fits: { a: string; b: string; atMa: number; watched?: true; km: number; matched: number }[]
   bare: number
   islandOverlap: number
 }
