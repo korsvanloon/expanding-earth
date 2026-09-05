@@ -115,7 +115,12 @@ jobs:
       # entry lists its files, so nothing here has to know what a run contains.
       - name: Restore the published run
         env:
-          RUN_STORE: ${{ vars.RUN_STORE }}
+          # A repository *variable* is where this belongs -- the store's URL is
+          # not a secret -- but a secret of the same name is read too, since
+          # that is the other place someone reasonably puts it and an empty
+          # value here is invisible: the deploy simply falls back and looks
+          # merely slow.
+          RUN_STORE: ${{ vars.RUN_STORE || secrets.RUN_STORE }}
         run: |
           set -e
           # Every way of getting a run is allowed to fail, and each failure
@@ -180,7 +185,7 @@ jobs:
           # Where the viewer fetches runs from, and what the run picker lists.
           # Unset, it falls back to the branch that jsDelivr serves; see
           # vite.config.ts.
-          RUN_STORE: ${{ vars.RUN_STORE }}
+          RUN_STORE: ${{ vars.RUN_STORE || secrets.RUN_STORE }}
 
       # Again, now that there is a run to check. Every test that reads
       # public/data is written as "if the data is there", and on a fresh
