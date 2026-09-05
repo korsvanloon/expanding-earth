@@ -508,8 +508,15 @@ function readConfig() {
    * The grouping is redone every step from where the crust has actually got
    * to, and it is only about the slab's pull: nothing is welded, and each
    * island still keeps its own shape.
+   *
+   * On, because the score says so at the drag this model ships. The held-back
+   * pairs improve at 20, 40, 60 and 80 Ma -- 43% of them within 200 km at
+   * 60 Ma against 33% -- and lose only the median at 120 with the share equal.
+   * Turning the drag up on top of it does not buy the Pacific and does cost
+   * those pairs, so this is the whole of the change. DRAG_TOGETHER=0 is the
+   * run without it.
    */
-  dragTogether: Number(ENV.DRAG_TOGETHER ?? 0) > 0,
+  dragTogether: Number(ENV.DRAG_TOGETHER ?? 1) > 0,
   // Off, and measured: at 600 it keeps the Atlantic -- South America to Africa
   // 15 km apart against 27 with no drag at all -- and loses the Pacific again,
   // Australia back to 1,940 km off North America, because the Pacific has

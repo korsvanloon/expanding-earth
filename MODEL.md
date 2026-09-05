@@ -2327,6 +2327,89 @@ the reconstruction stops being one block once the drag is real -- 2 plates at
 margins comes close to nesting. The drag moves the continents the way a reader
 says they should move. It does not make them fit.
 
+## Two continents that have met are one plate
+
+The drag turns each island by the curtain of un-erupted floor hanging under its
+own margins, and that is right for as long as the islands are apart. The moment
+they are not, it tears them: at 140 Ma the curtain under Africa's eastern margin
+turns Africa east while the curtain under South America's western margin turns
+it west, and the seam between them is pulled open from the middle. At full drag
+the series says it without room for interpretation -- the two come to 20 km
+apart at 100 Ma and are 1,587 km apart by 140. It is not the closing that
+fails. It is what happens after.
+
+So islands whose crust is within `CONTACT_KM` of each other are collected into
+one body every step, from wherever they have actually got to, and the slab
+pulls the body rather than its halves. Nothing is welded: this is one step's
+worth of sharing a slab's pull, not a statement that two shapes are now one
+shape, and the grouping comes apart again if the continents do. Seventeen
+islands are thirteen bodies at 1 Ma and twelve for most of the run.
+
+At the tenth of drag this model ships, against the same run with each island
+pulled alone:
+
+| | islands alone | as one body |
+|---|---|---|
+| held-back pairs at 20 Ma | 126 km, 62% | **120 km, 62%** |
+| held-back pairs at 40 Ma | 206 km, 50% | **168 km, 56%** |
+| held-back pairs at 60 Ma | 263 km, 33% | **243 km, 43%** |
+| held-back pairs at 80 Ma | 436 km, 28% | **411 km, 39%** |
+| held-back pairs at 120 Ma | **639 km, 14%** | 731 km, 14% |
+| South America to Africa, 180 Ma | 391 km, 0% | **18 km, 6%** |
+| Antarctica to South America, 200 Ma | **4 km**, 18% | 8 km, 18% |
+| Antarctica to Africa, 170 Ma | 16 km, **8%** | 16 km, 5% |
+| Australia to Antarctica, 100 Ma | 36 km, **33%** | **29 km**, 24% |
+| India to Africa, 120 Ma | **1,019 km** | 1,159 km |
+| Australia to North America, 200 Ma | **1,581 km** | 1,930 km |
+| bare sphere at 200 Ma | 12.76% | **11.89%** |
+| two islands at once | **0.98%** | 1.68% |
+| worst island shape lost | 35.6% | **32.2%** |
+
+The score improves at four of the five times it is taken and loses only the
+median at 120 Ma, where the share within 200 km is the same. The South Atlantic
+is the check that moves: from a 391 km miss with no margin in contact to 18 km
+with 6% of it touching, and it closes at 40 Ma and stays closed for the rest of
+the run instead of opening again. The price is in the Pacific fits, which were
+never good, and in the crust that now lies over crust -- 1.68% of the sphere
+under two islands against 0.98%, because continents that arrive together arrive
+harder.
+
+Turning the drag up on top of this does not buy the Pacific. At 0.2, 0.35, 0.5
+and 1 the held-back pairs at 40 to 80 Ma fall away -- 43% within 200 km at
+60 Ma becomes 20%, 10%, 17%, 17% -- while Australia against North America comes
+only from 1,930 km to 1,689. The one place harder dragging pays is 120 Ma,
+where full gain reaches 29% within 200 km against 14%. So the tenth stays, and
+the change is the sharing rather than the strength.
+
+Two things measured on the way that did not work, recorded because they are the
+obvious ideas and someone will have them again:
+
+- **Islands pushing each other apart does nothing.** `contact.ts` refuses
+  interpenetration and pushes both islands, which is the same reader's point
+  about rigid plates in its most literal form. Two million contacts a run, and
+  the share of the sphere under two islands at 200 Ma goes from 0.98% to 0.95%
+  as a shove and 0.89% as a torque, with no scorecard fit moving more than a few
+  kilometres -- at full drag either, where the overlap is three times larger.
+  The mechanism is now correct where it was not: a contact hands its island the
+  torque `p x (-n) * depth` about the centre of the Earth and the island turns
+  by it against its own inertia, so a continent pushed off its middle pivots
+  instead of sliding, and adding one vector to every point of a spherical cap --
+  which is not a rigid motion and walks its far edge off the shell -- is gone.
+  It is still off by default, because being right is not the same as mattering.
+- **Masking the drag where the pairs already speak buys the Atlantic and sells
+  the Pacific.** `DRAG_FREE` keeps the slab out of water whose conjugate pairs
+  survive. Its rule only asked how far the nearest pair was, and the East
+  Pacific Rise has pairs of its own, so it switched the drag off along the
+  American margins -- the very water it exists for. It now lets the nearer
+  witness decide: closer to a one-sided path than to a pair, and the crust keeps
+  its whole say, because a one-sided path is crust whose partner was swallowed
+  and that is the drag's own claim. The rule reaches far more crust -- 20,117
+  points of 40,962 against 16,437 at `DRAG_FREE=600` -- and the trade does not
+  break: at full drag with the mask, South America to Africa is 20 km where it
+  was 1,024, and North America to Africa is 1,314 km where it was 157. The two
+  witnesses contradict each other over the same crust, and no masking rule
+  divides them. Still off by default.
+
 ## Known weaknesses
 
 - **The crust does not tile, and the figure is honest about it.** An earlier
