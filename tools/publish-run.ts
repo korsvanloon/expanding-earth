@@ -100,6 +100,33 @@ export interface PublishedRun {
    * change and not two, with the second one silently forgotten.
    */
   files: string[]
+  /** What the run turned out to be; see `summarise`. */
+  summary: RunSummary
+}
+
+/**
+ * The few numbers that say what a run is, small enough to list.
+ *
+ * A run's own metadata is nine hundred kilobytes, and the point of a picker is
+ * to choose *before* fetching thirty megabytes. So the numbers that decide
+ * whether a reconstruction is any good are copied out at publish time: the
+ * held-back pairs, which are the score, and the dated fits, which are the
+ * check. The panel already draws the whole scorecard for the run on screen --
+ * this is for the ones that are not.
+ */
+export interface RunSummary {
+  endTimeMa: number
+  subdivision: number
+  vertexCount: number
+  /** The sphere at the end of the run, km. */
+  radiusKm: number
+  /** Held-back conjugate pairs: median km and the share within 200 km. */
+  pairs: { timeMa: number; medianKm: number; within: number }[]
+  /** Each scorecard fit at the date the geology gives it. */
+  fits: { a: string; b: string; atMa: number; km: number; matched: number }[]
+  /** Of the sphere at the end: bare, and under two islands at once. */
+  bare: number
+  islandOverlap: number
 }
 
 export interface RunIndex {
@@ -117,10 +144,82 @@ const arg = (name: string) => {
   return at > 0 ? process.argv[at + 1] : undefined
 }
 
+/**
+ * Read the summary out of a run's own metadata.
+ *
+ * Everything here is already measured by the solver and written to meta.json;
+ * nothing is recomputed, so a summary cannot disagree with the run it
+ * describes.
+ */
+function summarise(meta: Meta & {
+  frameStepMa: number
+  endTimeMa: number
+  subdivision: number
+  vertexCount: number
+  diagnostics: Record<string, number>[]
+  scorecard: {
+    a: string; b: string; joinedByMa: number | null
+    separationKm: number[]; matchedFraction: number[]
+  }[]
+}): RunSummary {
+  const at = (timeMa: number) =>
+    meta.diagnostics.find((d) => Math.abs(d.timeMa - timeMa) < 1e-9)
+  const end = meta.diagnostics[meta.diagnostics.length - 1]
+  return {
+    endTimeMa: meta.endTimeMa,
+    subdivision: meta.subdivision,
+    vertexCount: meta.vertexCount,
+    radiusKm: Math.round(end?.radiusKm ?? 0),
+    pairs: [20, 60, 120].flatMap((timeMa) => {
+      const d = at(timeMa)
+      return d
+        ? [{
+            timeMa,
+            medianKm: Math.round(d.conjugateMedianKm),
+            within: Number(d.conjugateMatched.toFixed(3)),
+          }]
+        : []
+    }),
+    fits: meta.scorecard.map((fit) => {
+      // A fit with no date is watched rather than scored, and the end of the
+      // run is where it is worth looking at.
+      const atMa = fit.joinedByMa ?? meta.endTimeMa
+      const frame = Math.round(atMa / meta.frameStepMa)
+      return {
+        a: fit.a,
+        b: fit.b,
+        atMa,
+        km: Math.round(fit.separationKm[frame]),
+        matched: Number(fit.matchedFraction[frame].toFixed(3)),
+      }
+    }),
+    bare: Number((end?.gapFraction ?? 0).toFixed(4)),
+    islandOverlap: Number((end?.islandOverlapFraction ?? 0).toFixed(4)),
+  }
+}
+
+/**
+ * Where each file comes from: a measurement run, else the built data.
+ *
+ * A sweep writes only what it solves -- the frames, the strain, the metadata --
+ * because the mesh and the age grid it read are the same ones on disk. So
+ * `--from .stage/sweep/g1` publishes that experiment as a run without having
+ * to solve it again into public/data, which is the whole point of being able
+ * to put two reconstructions side by side.
+ */
+const sourceOf = (name: string) => {
+  const from = arg('from')
+  if (from) {
+    const path = resolve(ROOT, from, name)
+    if (existsSync(path)) return path
+  }
+  return join(DATA, name)
+}
+
 function collect() {
   const files: { name: string; bytes: Uint8Array }[] = []
   for (const name of FILES) {
-    const path = join(DATA, name)
+    const path = sourceOf(name)
     if (!existsSync(path)) continue
     files.push({ name, bytes: readFileSync(path) })
   }
@@ -141,15 +240,20 @@ function collect() {
   return files
 }
 
-function main() {
+async function main() {
   if (!existsSync(join(DATA, 'meta.json'))) {
     throw new Error('there is no run in public/data to publish; run pnpm data first')
   }
-  const meta = JSON.parse(readFileSync(join(DATA, 'meta.json'), 'utf8')) as Meta & {
-    builtAt: string
-    overrides: string[]
-  }
-  const files = collect()
+  const meta = JSON.parse(readFileSync(sourceOf('meta.json'), 'utf8')) as Parameters<
+    typeof summarise
+  >[0] & { builtAt: string; overrides: string[] }
+  const files = collect().filter(
+    // An experiment is not the model, and `inputs.sha` is what the deploy
+    // trusts to decide it may skip solving. Publishing a sweep with the
+    // shipped run's stamp on it would let a knob-turned run be restored as
+    // though this code had made it.
+    (file) => !(arg('from') && file.name === 'inputs.sha'),
+  )
   const digest = createHash('sha256')
   for (const file of files) {
     digest.update(file.name)
@@ -166,6 +270,7 @@ function main() {
     overrides: meta.overrides,
     bytes,
     files: files.map((file) => file.name),
+    summary: summarise(meta),
   }
 
   if ((arg('to') ?? process.env.PUBLISH_TO ?? 'branch') === 'azure') {
@@ -235,9 +340,18 @@ function main() {
     // Already gone with the worktree; nothing depends on it either way.
   }
 
-  const base = `https://cdn.jsdelivr.net/gh/${
-    git('remote', 'get-url', 'origin').replace(/.*github\.com[:/]/, '').replace(/\.git$/, '')
-  }@${BRANCH}`
+  const repository = git('remote', 'get-url', 'origin')
+    .replace(/.*github\.com[:/]/, '').replace(/\.git$/, '')
+  const base = `https://cdn.jsdelivr.net/gh/${repository}@${BRANCH}`
+  // jsDelivr holds a branch for twelve hours at the edge, which is right for
+  // the run folders and wrong for the one file that changes. The viewer reads
+  // the index from raw.githubusercontent for that reason; this asks jsDelivr
+  // to forget its copy anyway, so that anything else reading it -- a link
+  // someone kept, a second viewer -- is not told about a run that has been
+  // deleted. Best effort: a purge that fails costs nothing that matters.
+  await fetch(`https://purge.jsdelivr.net/gh/${repository}@${BRANCH}/runs.json`)
+    .then((r) => console.log(`[publish] purged the index from jsDelivr (${r.status})`))
+    .catch(() => console.log('[publish] could not purge the index from jsDelivr'))
   console.log(`[publish] ${id}  ${run.label}  ${(bytes / 1e6).toFixed(1)} MB`)
   console.log(`[publish] ${index.runs.length} runs listed, default ${index.default}`)
   console.log(`[publish] ${base}/runs.json`)
@@ -334,4 +448,4 @@ async function toAzure(files: { name: string; bytes: Uint8Array }[], run: Publis
   console.log(`[publish] ${container.replace(/\/$/, '')}/runs.json`)
 }
 
-main()
+await main()

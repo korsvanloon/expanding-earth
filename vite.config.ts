@@ -55,6 +55,22 @@ export default defineConfig({
       process.env.RUN_STORE
       ?? 'https://cdn.jsdelivr.net/gh/korsvanloon/expanding-earth@runs',
     ),
+    /**
+     * And where the list of them is, which is not always the same place.
+     *
+     * Everything under `runs/` is written once and never rewritten, so a CDN
+     * may hold it forever -- but the index is the one file that changes, and
+     * jsDelivr caches a branch for twelve hours at the edge, where no request
+     * header can reach it. It served a list naming a run that had already been
+     * deleted. So while the store is a branch, the index is read from
+     * raw.githubusercontent, which offers five minutes; a blob container sets
+     * its own Cache-Control per file and needs no such split.
+     */
+    __RUN_INDEX__: JSON.stringify(
+      process.env.RUN_STORE
+        ? `${process.env.RUN_STORE.replace(/\/$/, '')}/runs.json`
+        : 'https://raw.githubusercontent.com/korsvanloon/expanding-earth/runs/runs.json',
+    ),
   },
   resolve: {
     alias: {

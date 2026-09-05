@@ -186,18 +186,7 @@ export function Panel({ data, exploring, onExplore, onRevert, runs, run, onRun }
               <option value={OWN_RUN}>This site&rsquo;s own build</option>
             </select>
           </label>
-          <p className="caption">
-            {(() => {
-              const showing = runs.runs.find((r) => r.id === run)
-              if (!showing) {
-                return 'The reconstruction this deploy carries, rather than one from the store.'
-              }
-              return `${showing.note ? `${showing.note} ` : ''}Solved ${
-                showing.solvedAt.slice(0, 10)} at ${showing.commit}${
-                showing.overrides.length ? `, with ${showing.overrides.join(', ')} set` : ''
-              }. Switching fetches ${(showing.bytes / 1e6).toFixed(0)} MB.`
-            })()}
-          </p>
+          <RunCard runs={runs} run={run} />
         </>
       )}
 
@@ -782,5 +771,119 @@ function PickedPoints() {
         </button>
       </p>
     </section>
+  )
+}
+
+/**
+ * What you are choosing, before thirty megabytes of it arrive.
+ *
+ * Every published run carries a handful of numbers copied out of its own
+ * metadata (see tools/publish-run.ts), which is what makes a picker useful
+ * rather than a list of dates: the held-back pairs are the score and the dated
+ * fits are the check, and both are here for runs that are not on screen. Where
+ * the run being read is not the current one, each number is shown against what
+ * the current run makes of it, because a reconstruction is only ever better or
+ * worse than another one.
+ */
+function RunCard({ runs, run }: { runs: RunIndex; run: string }) {
+  const showing = runs.runs.find((r) => r.id === run)
+  const current = runs.runs.find((r) => r.id === runs.default)
+  if (!showing) {
+    return (
+      <p className="caption">
+        The reconstruction this deploy carries, rather than one from the store.
+      </p>
+    )
+  }
+  const against = showing.id === current?.id ? undefined : current?.summary
+  const summary = showing.summary
+
+  /** A number, and what the current run makes of it, when they differ. */
+  const versus = (mine: number, theirs: number | undefined, unit = '') => (
+    <>
+      {mine.toLocaleString()}{unit}
+      {theirs !== undefined && theirs !== mine && (
+        <em className="was"> ({theirs.toLocaleString()}{unit})</em>
+      )}
+    </>
+  )
+
+  return (
+    <>
+      <p className="caption">
+        {showing.note ? `${showing.note} ` : ''}
+        Solved {showing.solvedAt.slice(0, 10)} at {showing.commit}
+        {showing.overrides.length ? `, with ${showing.overrides.join(', ')} set` : ''}.
+        {' '}Switching fetches {(showing.bytes / 1e6).toFixed(0)} MB.
+      </p>
+      {summary && (
+        <table className="scorecard run-card">
+          <tbody>
+            <tr>
+              <th>Held-back pairs</th>
+              <td colSpan={2}>
+                {summary.pairs.map((p) => `${p.timeMa} Ma`).join(' · ')}
+              </td>
+            </tr>
+            <tr>
+              <td>median apart</td>
+              {summary.pairs.map((pair, i) => (
+                <td key={pair.timeMa}>
+                  {versus(pair.medianKm, against?.pairs[i]?.medianKm, ' km')}
+                </td>
+              ))}
+            </tr>
+            <tr>
+              <td>within 200 km</td>
+              {summary.pairs.map((pair, i) => (
+                <td key={pair.timeMa}>
+                  {versus(
+                    Math.round(100 * pair.within),
+                    against && Math.round(100 * (against.pairs[i]?.within ?? 0)),
+                    '%',
+                  )}
+                </td>
+              ))}
+            </tr>
+            {summary.fits.map((fit, i) => (
+              <tr key={`${fit.a}|${fit.b}`}>
+                <th>
+                  {REGIONS.find((r) => r.id === fit.a)?.label ?? fit.a}
+                  {' – '}
+                  {REGIONS.find((r) => r.id === fit.b)?.label ?? fit.b}
+                </th>
+                <td>{fit.atMa} Ma</td>
+                <td>{versus(fit.km, against?.fits[i]?.km, ' km')}</td>
+              </tr>
+            ))}
+            <tr>
+              <th>Bare sphere at {summary.endTimeMa} Ma</th>
+              <td colSpan={2}>
+                {versus(
+                  Number((100 * summary.bare).toFixed(2)),
+                  against && Number((100 * against.bare).toFixed(2)),
+                  '%',
+                )}
+              </td>
+            </tr>
+            <tr>
+              <th>Two continents at once</th>
+              <td colSpan={2}>
+                {versus(
+                  Number((100 * summary.islandOverlap).toFixed(2)),
+                  against && Number((100 * against.islandOverlap).toFixed(2)),
+                  '%',
+                )}
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      )}
+      {against && (
+        <p className="caption">
+          In brackets: what the current run makes of the same measurement.
+        </p>
+      )}
+    </>
   )
 }

@@ -16,6 +16,8 @@
 
 /** The store's base URL, baked in at build time; see vite.config.ts. */
 declare const __RUN_STORE__: string
+/** Where the list of runs is, which is not always inside the store. */
+declare const __RUN_INDEX__: string
 
 export interface PublishedRun {
   id: string
@@ -29,6 +31,27 @@ export interface PublishedRun {
   bytes: number
   /** Every file in the run's folder; the deploy fetches them by name. */
   files?: string[]
+  /** What the run turned out to be, copied out of its metadata when published. */
+  summary?: RunSummary
+}
+
+/**
+ * The few numbers that say what a run is.
+ *
+ * A run's own metadata is nine hundred kilobytes and its frames are thirty
+ * megabytes, and the point of a picker is to choose before fetching either. So
+ * every run carries this: the held-back pairs, which are the score, and the
+ * fits at the dates the geology gives them, which are the check.
+ */
+export interface RunSummary {
+  endTimeMa: number
+  subdivision: number
+  vertexCount: number
+  radiusKm: number
+  pairs: { timeMa: number; medianKm: number; within: number }[]
+  fits: { a: string; b: string; atMa: number; km: number; matched: number }[]
+  bare: number
+  islandOverlap: number
 }
 
 export interface RunIndex {
@@ -59,7 +82,7 @@ export async function loadRunIndex(): Promise<RunIndex | null> {
     // Revalidated rather than trusted: this is the one file in the store that
     // is rewritten, and it is small enough that asking every time costs
     // nothing.
-    const response = await fetch(`${__RUN_STORE__}/runs.json`, { cache: 'no-cache' })
+    const response = await fetch(__RUN_INDEX__, { cache: 'no-cache' })
     if (!response.ok) return null
     const index = await response.json() as RunIndex
     return index?.runs?.length ? index : null

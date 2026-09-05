@@ -160,6 +160,13 @@ button.quiet {
 .scorecard td.watched { color: var(--text); }
 .scorecard td.was { color: var(--muted); font-size: 10.5px; }
 
+/* The card under the run picker: three narrow columns of numbers, and what the
+   run on offer is being compared against in brackets beside each. */
+.run-card { margin-top: 8px; }
+.run-card th { font-weight: 400; padding-right: 6px; }
+.run-card td { padding: 3px 0 3px 6px; white-space: nowrap; }
+.run-card em.was { font-style: normal; color: var(--muted); font-size: 10.5px; }
+
 .method-toggle {
   width: 100%; margin-top: 10px; padding: 7px; font: inherit; font-size: 11.5px;
   color: var(--muted); background: transparent; border: 1px solid var(--line);
