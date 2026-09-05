@@ -1494,20 +1494,72 @@ describe('keeping rigid crust out of rigid crust', () => {
     expect([...pos]).toEqual([...kept])
   })
 
-  it('moves the triangle back as far as it moves the point out', () => {
+  it('turns the triangle back as far as it turns the point out', () => {
     const { pos, mesh } = setUp(3, 0.4)
     const before = [0, 1, 2, 3].map((v) => [pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]])
     separateIslands(
       pos, mesh, 1, 4, vertexIsland, faceIsland, alive, R0_KM, 1, newContactScratch(cellBuckets().length),
     )
-    // The four points' centre of mass must not have moved: a contact that
-    // pushed only the intruder would walk the pair of islands across the globe.
-    for (let k = 0; k < 3; k++) {
-      const was = before.reduce((sum, p) => sum + p[k], 0)
-      let now = 0
-      for (let v = 0; v < 4; v++) now += pos[v * 3 + k]
-      expect(now).toBeCloseTo(was, 6)
+    /**
+     * The pair's angular momentum about the centre must not have moved.
+     *
+     * Not the sum of the positions, which is what this asked for while a
+     * contact was a shove: on a sphere the rigid motions are rotations about
+     * the centre, so a contact hands the two islands equal and opposite
+     * *torques*, and what it conserves is `sum(p x dp)`. A contact that turned
+     * only the intruder would walk the pair across the globe.
+     */
+    const moment = (from: number, to: number) => {
+      let x = 0, y = 0, z = 0
+      for (let v = from; v < to; v++) {
+        const [px, py, pz] = before[v]
+        const dx = pos[v * 3] - px, dy = pos[v * 3 + 1] - py, dz = pos[v * 3 + 2] - pz
+        x += py * dz - pz * dy
+        y += pz * dx - px * dz
+        z += px * dy - py * dx
+      }
+      return [x, y, z]
     }
+    const [tx, ty, tz] = moment(0, 3)
+    const [ix, iy, iz] = moment(3, 4)
+    const size = Math.hypot(ix, iy, iz)
+    expect(size).toBeGreaterThan(0)
+    expect(Math.hypot(tx + ix, ty + iy, tz + iz)).toBeLessThan(size * 1e-6)
+  })
+
+  it('turns an island that is pushed off its middle, instead of only sliding it', () => {
+    /**
+     * The reason a contact is a torque and not a shove.
+     *
+     * A strip of three points reaching east away from the triangle, with only
+     * its western end inside. Pushed south there, a rigid strip turns about
+     * its own middle -- so the far end must go *north*, which no sum of shoves
+     * on a body can produce. This is what lets a continent pivot round the
+     * corner it is caught on rather than jam against it.
+     */
+    const at = (lon: number, lat: number) => {
+      const a = (lon * Math.PI) / 180
+      const b = (lat * Math.PI) / 180
+      const c = Math.cos(b)
+      return [c * Math.cos(a), Math.sin(b), -c * Math.sin(a)]
+    }
+    const pos = Float64Array.from([
+      ...at(0, 0), ...at(6, 0), ...at(3, 5),
+      ...at(3, 0.4), ...at(14, 0), ...at(25, 0),
+    ].map((v) => v * R0_KM))
+    const mesh = {
+      faceVerts: Uint32Array.from([0, 1, 2]),
+      faceAlive: Uint8Array.from([1]),
+    }
+    const islands = Uint16Array.from([1, 1, 1, 2, 2, 2])
+    const near = pos[10], far = pos[16]
+    const report = separateIslands(
+      pos, mesh, 1, 6, islands, faceIsland, Uint8Array.from([1, 1, 1, 1, 1, 1]),
+      R0_KM, 1, newContactScratch(cellBuckets().length),
+    )
+    expect(report.found).toBe(1)
+    expect(pos[10]).toBeLessThan(near)
+    expect(pos[16]).toBeGreaterThan(far)
   })
 })
 

@@ -65,10 +65,35 @@ export interface ContactScratch {
   mixed: Uint8Array
   /** The island vertices, listed once instead of scanned for every sweep. */
   members: Uint32Array
-  /** The impulses each island's contacts have handed it, summed. */
-  push: Float64Array
-  /** How many points each island has, which is its mass. */
-  sizes: Int32Array
+  /**
+   * The turn each island's contacts have handed it, summed, as a rotation
+   * vector about the centre of the Earth in radians.
+   *
+   * A rotation rather than a shove, for two reasons. On a sphere the rigid
+   * motions *are* rotations about the centre: adding one vector to every point
+   * of a continent walks its far edge off the shell. And a rotation vector
+   * carries where the push landed -- the axis of a contact on a margin's north
+   * end differs from one on its south end, so the two add to a turn instead of
+   * cancelling. A contact against a rigid body is a torque as much as a shove,
+   * and summing shoves alone throws the leverage away.
+   */
+  turn: Float64Array
+  /**
+   * Each island's inertia about the centre of the Earth, six numbers per
+   * island: xx, yy, zz, xy, xz, yz of `sum(|p|^2 I - p p^T)`.
+   *
+   * This is what decides how a push becomes a turn, and it is not one number.
+   * A continent is a patch on a shell: turning it about an axis through its
+   * own middle -- a spin in place -- moves its points a few hundred kilometres
+   * each, while turning it about an axis square to that carries them thousands.
+   * The second is hundreds of times harder, so a shove off the centre of a
+   * margin spins a continent long before it slides it. Dividing by the point
+   * count instead, as if the two were equally hard, is what threw the leverage
+   * away: it makes every island as reluctant to turn as it is to travel.
+   */
+  inertia: Float64Array
+  /** Scratch for the turn each island works out this call. */
+  spin: Float64Array
 }
 
 export function newContactScratch(cellCount: number): ContactScratch {
@@ -77,8 +102,9 @@ export function newContactScratch(cellCount: number): ContactScratch {
     cellIsland: new Int32Array(cellCount),
     mixed: new Uint8Array(cellCount),
     members: new Uint32Array(0),
-    push: new Float64Array(0),
-    sizes: new Int32Array(0),
+    turn: new Float64Array(0),
+    inertia: new Float64Array(0),
+    spin: new Float64Array(0),
   }
 }
 
@@ -141,15 +167,32 @@ export function separateIslands(
       if (vertexIsland[v] > most) most = vertexIsland[v]
     }
     scratch.members = Uint32Array.from(members)
-    if (scratch.push.length < (most + 1) * 3) {
-      scratch.push = new Float64Array((most + 1) * 3)
-      scratch.sizes = new Int32Array(most + 1)
+    if (scratch.turn.length < (most + 1) * 3) {
+      scratch.turn = new Float64Array((most + 1) * 3)
+      scratch.inertia = new Float64Array((most + 1) * 6)
+      scratch.spin = new Float64Array((most + 1) * 3)
     }
-    scratch.sizes.fill(0)
-    for (const v of scratch.members) scratch.sizes[vertexIsland[v]]++
+    scratch.inertia.fill(0)
+    for (const v of scratch.members) {
+      const island = vertexIsland[v]
+      // Built once per step, with the rest of the scratch: a sweep moves a
+      // point by a kilometre or two and this is a sum of squares of thousands.
+      const at = v * 3
+      const x = pos[at], y = pos[at + 1], z = pos[at + 2]
+      const rr = x * x + y * y + z * z
+      const i = island * 6
+      scratch.inertia[i] += rr - x * x
+      scratch.inertia[i + 1] += rr - y * y
+      scratch.inertia[i + 2] += rr - z * z
+      scratch.inertia[i + 3] -= x * y
+      scratch.inertia[i + 4] -= x * z
+      scratch.inertia[i + 5] -= y * z
+    }
   }
-  const { push, sizes } = scratch
-  push.fill(0)
+  const { turn, inertia, spin } = scratch
+  turn.fill(0)
+  /** The deepest contact each island has this call, which caps its answer. */
+  const worst = new Float64Array(turn.length / 3)
 
   const unit = [0, 0, 0]
   let found = 0
@@ -212,31 +255,107 @@ export function separateIslands(
       // over a run, the deepest never falling below 40 km, and the overlap it
       // was built to remove nine times worse at 160 Ma. That is two
       // constraints pulling against each other, not a solver converging.
-      push[island * 3] -= nx * depth
-      push[island * 3 + 1] -= ny * depth
-      push[island * 3 + 2] -= nz * depth
-      push[host * 3] += nx * depth
-      push[host * 3 + 1] += ny * depth
-      push[host * 3 + 2] += nz * depth
+      //
+      // What the body is handed is the turn that would carry this point back
+      // out across the edge: the rotation about `n x p` by the angle the depth
+      // subtends. Its axis depends on where the point sits, which is how the
+      // leverage survives -- two contacts on opposite ends of a margin hand
+      // the island axes that add to a spin, where two shoves would cancel.
+      // The impulse is `depth` kilometres along the way out, applied where the
+      // point is, so the torque about the centre is `p x (-n) * depth`. Both
+      // islands are handed the same torque with opposite signs, which is what
+      // keeps the pair's angular momentum where it was.
+      const tx = (ny * pos[at + 2] - nz * pos[at + 1]) * depth
+      const ty = (nz * pos[at] - nx * pos[at + 2]) * depth
+      const tz = (nx * pos[at + 1] - ny * pos[at]) * depth
+      turn[island * 3] += tx
+      turn[island * 3 + 1] += ty
+      turn[island * 3 + 2] += tz
+      turn[host * 3] -= tx
+      turn[host * 3 + 1] -= ty
+      turn[host * 3 + 2] -= tz
+      if (depth > worst[island]) worst[island] = depth
+      if (depth > worst[host]) worst[host] = depth
     }
   }
 
-  // Each island moves once, by the impulse its contacts handed it divided by
-  // how many points it has -- which is impulse over mass, so a small block
-  // gives way to a large one and the pair's centre of mass does not move at
-  // all. Summed rather than averaged, because fifty points of a margin pressed
-  // into a neighbour really is fifty times the push of one; dividing by the
-  // island's size is what keeps that from firing a craton across the globe.
+  // Each island turns once, by the torque its contacts handed it against its
+  // own inertia -- so a small block gives way to a large one, a margin pressed
+  // in at fifty points turns fifty times as hard as one, and the pair keeps
+  // the angular momentum it had. Summed rather than averaged for the same
+  // reason the shove it replaces was: fifty points really is fifty pushes.
+  //
+  // Applied as `w x p`, the small-angle form, which is exact enough here by
+  // construction: the deepest contact in a run is a few tens of kilometres on
+  // an Earth of thousands, spread over an island's whole inertia.
   if (found && !measureOnly) {
+    for (let island = 1; island * 3 < turn.length; island++) {
+      const t = island * 3
+      if (!turn[t] && !turn[t + 1] && !turn[t + 2]) continue
+      const w = solveSymmetric(inertia, island * 6, turn[t], turn[t + 1], turn[t + 2])
+      if (!w) continue
+      // A contact may not move a continent further than it was inside. The
+      // cap almost never binds on the sliding part of the answer, where the
+      // push is a sum of small depths against a whole island's inertia; it is
+      // there for the spin, which is the part with a hundred times less
+      // inertia under it and so the part that could run away.
+      const travel = Math.hypot(w[0], w[1], w[2]) * radiusKm
+      const room = travel > worst[island] ? worst[island] / travel : 1
+      spin[t] = w[0] * stiffness * room
+      spin[t + 1] = w[1] * stiffness * room
+      spin[t + 2] = w[2] * stiffness * room
+    }
     for (const v of scratch.members) {
       const island = vertexIsland[v]
-      const mass = sizes[island]
-      if (!mass) continue
+      const t = island * 3
+      const wx = spin[t], wy = spin[t + 1], wz = spin[t + 2]
+      if (!wx && !wy && !wz) continue
       const at = v * 3
-      pos[at] += (stiffness * push[island * 3]) / mass
-      pos[at + 1] += (stiffness * push[island * 3 + 1]) / mass
-      pos[at + 2] += (stiffness * push[island * 3 + 2]) / mass
+      const x = pos[at], y = pos[at + 1], z = pos[at + 2]
+      pos[at] = x + wy * z - wz * y
+      pos[at + 1] = y + wz * x - wx * z
+      pos[at + 2] = z + wx * y - wy * x
     }
+    spin.fill(0)
   }
   return { found, deepestKm: deepest, tests, bucketed }
+}
+
+/**
+ * The turn a torque makes of a body: `w = I^-1 t`, for the symmetric `I`.
+ *
+ * Six numbers packed from `at`, in the order the scratch stores them. Returns
+ * null where the inertia is singular, which is an island of one or two points
+ * -- it has no axis to be stiff about, and there is nothing sensible to do
+ * with a torque on it.
+ */
+function solveSymmetric(
+  m: Float64Array, at: number, tx: number, ty: number, tz: number,
+): [number, number, number] | null {
+  /**
+   * A nudge on the diagonal, because an island of one or two points has an
+   * axis it has no inertia about at all -- the line through its own points.
+   *
+   * Turning about that axis moves none of them, so what the answer says there
+   * cannot matter; the nudge is only so that the arithmetic has something to
+   * divide by. A ninth of a billionth of the island's own scale is far below
+   * anything a real island's shape could mean.
+   */
+  const nudge = 1e-9 * (m[at] + m[at + 1] + m[at + 2]) / 3
+  const a = m[at] + nudge, b = m[at + 1] + nudge, c = m[at + 2] + nudge
+  const d = m[at + 3], e = m[at + 4], f = m[at + 5]
+  // Adjugate of [[a,d,e],[d,b,f],[e,f,c]], which is symmetric too.
+  const A = b * c - f * f
+  const D = e * f - d * c
+  const E = d * f - e * b
+  const B = a * c - e * e
+  const F = e * d - a * f
+  const C = a * b - d * d
+  const det = a * A + d * D + e * E
+  if (!Number.isFinite(det) || det === 0) return null
+  return [
+    (A * tx + D * ty + E * tz) / det,
+    (D * tx + B * ty + F * tz) / det,
+    (E * tx + F * ty + C * tz) / det,
+  ]
 }
