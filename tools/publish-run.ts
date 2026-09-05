@@ -33,6 +33,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
+import { gzipSync } from 'node:zlib'
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -105,6 +106,16 @@ export interface PublishedRun {
    * change and not two, with the second one silently forgotten.
    */
   files: string[]
+  /**
+   * How big each file is once unpacked.
+   *
+   * The binaries travel gzipped -- `frames.bin` is 10.1 MB and 6.0 gzipped,
+   * and a run goes from 29 MB to about 12 -- which the browser undoes on the
+   * way in. That leaves a loader comparing bytes it has unpacked against a
+   * length that counts packed ones, so the sizes are written down here where
+   * both ends can see them.
+   */
+  sizes: Record<string, number>
   /** What the run turned out to be; see `summarise`. */
   summary: RunSummary
 }
@@ -305,6 +316,7 @@ async function main() {
     overrides: meta.overrides,
     bytes,
     files: files.map((file) => file.name),
+    sizes: Object.fromEntries(files.map((file) => [file.name, file.bytes.byteLength])),
     summary: summarise(meta),
   }
 
@@ -392,6 +404,14 @@ async function main() {
   console.log(`[publish] ${base}/runs.json`)
 }
 
+/**
+ * Which kinds of file are worth packing, and which already are one.
+ *
+ * A jpg or a png is a compressed format already; gzipping it costs time and
+ * gives back nothing.
+ */
+const PACK = new Set(['bin', 'json', 'sha'])
+
 /** What a browser should be told each kind of file is. */
 const TYPES: Record<string, string> = {
   json: 'application/json',
@@ -417,13 +437,30 @@ async function toBucket(files: { name: string; bytes: Uint8Array }[], run: Publi
   const at = (path: string) => `${root}/${path}`
 
   const send = async (path: string, body: Uint8Array | string, cache: string) => {
-    const type = TYPES[path.split('.').pop() ?? ''] ?? 'application/octet-stream'
+    const extension = path.split('.').pop() ?? ''
+    const type = TYPES[extension] ?? 'application/octet-stream'
+    /**
+     * Stored packed where packing is worth anything.
+     *
+     * The frames are quantised differences and gzip takes them from 10.1 MB to
+     * 6.0; the metadata is nine hundred kilobytes of JSON and goes to about a
+     * hundred. A run drops from 29 MB to roughly 12, which is a reader's wait
+     * and, since a bucket charges for what leaves it, a bill. The rasters are
+     * already compressed formats and gain nothing, so they are left alone.
+     *
+     * `Content-Encoding` is what makes this transparent: the browser unpacks
+     * it before anything in the viewer sees a byte, and CloudFront passes an
+     * already-encoded object through rather than trying to compress it again.
+     */
+    const packed = PACK.has(extension)
+    const bytes = packed ? gzipSync(body, { level: 9 }) : body
     // Cache-Control is set per object, because the two kinds of file want
     // opposite answers: a run's folder is never rewritten and may be kept
     // forever, while the index is the one thing that changes.
-    const response = await signed('PUT', at(path), body, {
+    const response = await signed('PUT', at(path), bytes, {
       'content-type': type,
       'cache-control': cache,
+      ...(packed ? { 'content-encoding': 'gzip' } : {}),
     })
     if (!response.ok) {
       // S3 answers a bad signature with the canonical request it expected,
@@ -432,10 +469,17 @@ async function toBucket(files: { name: string; bytes: Uint8Array }[], run: Publi
     }
   }
 
-  const held = await fetch(at('runs.json'))
+  // Signed, like every other request here. Reading it unsigned is how the
+  // second publish lost the first: the bucket is private, an anonymous read
+  // comes back 403, and a 403 read as "there is nothing here yet" starts a
+  // fresh index over the top of a store that was not empty.
+  const held = await signed('GET', at('runs.json'))
   const index: RunIndex = held.ok
     ? await held.json() as RunIndex
     : { version: 1, default: run.id, runs: [] }
+  if (!held.ok && held.status !== 404) {
+    throw new Error(`cannot read the index: ${held.status} ${(await held.text()).slice(0, 200)}`)
+  }
 
   const total = files.reduce((sum, file) => sum + file.bytes.byteLength, 0)
   let done = 0

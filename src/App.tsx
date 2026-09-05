@@ -54,7 +54,11 @@ export default function App() {
     let live = true
     setError(undefined)
     setLoading({ share: 0, note: '' })
-    loadDataset(runBase(run, runs), (share, note) => { if (live) setLoading({ share, note }) })
+    loadDataset(
+      runBase(run, runs),
+      (share, note) => { if (live) setLoading({ share, note }) },
+      runs?.runs.find((r) => r.id === run)?.sizes,
+    )
       .then(
         (next) => {
           if (!live) return

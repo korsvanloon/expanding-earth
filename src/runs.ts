@@ -31,6 +31,14 @@ export interface PublishedRun {
   bytes: number
   /** Every file in the run's folder; the deploy fetches them by name. */
   files?: string[]
+  /**
+   * How big each file is once unpacked.
+   *
+   * A run travels gzipped, which the browser undoes before the viewer sees a
+   * byte -- so a loader counting what arrives cannot compare it to the length
+   * the server declared, which counts packed bytes. These are the real ones.
+   */
+  sizes?: Record<string, number>
   /** What the run turned out to be, copied out of its metadata when published. */
   summary?: RunSummary
 }

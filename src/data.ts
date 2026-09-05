@@ -131,9 +131,18 @@ export async function loadDataset(
    */
   base = '',
   onProgress?: LoadProgress,
+  /**
+   * How big each file is unpacked, where that is known.
+   *
+   * A published run is stored gzipped and the browser unpacks it on the way
+   * in, so the length the server declares counts different bytes than the ones
+   * that arrive. The index knows the real sizes; without them the loader falls
+   * back to the declared lengths, which is right for this site's own folder.
+   */
+  sizes?: Record<string, number>,
 ): Promise<Dataset> {
   const inline = inlineData()
-  const parts = inline ? await inline : await fetchDataset(base, onProgress)
+  const parts = inline ? await inline : await fetchDataset(base, onProgress, sizes)
   // Unpacking sixteen megabytes of typed arrays holds the main thread for
   // long enough to be seen, and a loader that freezes on its last frame reads
   // as a page that has died. One turn of the event loop lets the note paint
@@ -268,7 +277,9 @@ const SHARES: Record<string, number> = {
  * length, which counts different bytes than the stream hands back -- fall back
  * to that file's weight arriving whole when it lands.
  */
-function counted(base: string, paths: string[], onProgress?: LoadProgress) {
+function counted(
+  base: string, paths: string[], onProgress?: LoadProgress, sizes?: Record<string, number>,
+) {
   const expected = new Map<string, number>()
   const got = new Map<string, number>()
   const whole = new Set<string>()
@@ -310,7 +321,11 @@ function counted(base: string, paths: string[], onProgress?: LoadProgress) {
       if (optional) { skip(path); return undefined }
       throw new Error(`${path} is not there (${response.status})`)
     }
-    const declared = Number(response.headers.get('content-length') ?? 0)
+    // What the index says, where it says anything: a gzipped file arrives
+    // unpacked and the declared length counts the packed bytes, so believing
+    // the header would run the bar past its own end.
+    const known = sizes?.[path.replace('data/', '')]
+    const declared = known ?? Number(response.headers.get('content-length') ?? 0)
     if (declared > 0) expected.set(path, declared)
     const body = response.body
     if (!body) {
@@ -339,7 +354,9 @@ function counted(base: string, paths: string[], onProgress?: LoadProgress) {
   return { read, skip }
 }
 
-async function fetchDataset(base: string, onProgress?: LoadProgress): Promise<InlineData> {
+async function fetchDataset(
+  base: string, onProgress?: LoadProgress, sizes?: Record<string, number>,
+): Promise<InlineData> {
   // Everything the globe cannot be drawn without, and nothing else. The strain
   // and the plate map belong to one view mode and one right-click, and between
   // them they were a third of the wait.
@@ -347,7 +364,7 @@ async function fetchDataset(base: string, onProgress?: LoadProgress): Promise<In
     'data/meta.json', 'data/mesh.bin', 'data/frames.bin',
     'data/topology.bin', 'data/tracks.bin', 'data/sink.bin',
   ]
-  const { read, skip } = counted(base, wanted, onProgress)
+  const { read, skip } = counted(base, wanted, onProgress, sizes)
   // All five asked for at once; the metadata is only awaited first because the
   // sixth file depends on what it says.
   const text = read('data/meta.json')

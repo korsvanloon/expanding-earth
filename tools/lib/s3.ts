@@ -23,6 +23,14 @@ export async function signed(
   url: string,
   body: Uint8Array | string = '',
   extra: Record<string, string> = {},
+  /**
+   * Which service the signature is scoped to.
+   *
+   * A signature is only ever good for one service, so this is part of it
+   * rather than a detail: the same key signs a bucket request and a CloudFront
+   * request differently, and asking one with the other's scope is refused.
+   */
+  service = 's3',
 ) {
   const key = process.env.AWS_ACCESS_KEY_ID
   const secret = process.env.AWS_SECRET_ACCESS_KEY
@@ -68,14 +76,14 @@ export async function signed(
     .join('&')
   const canonical = [method, path, query, canonicalHeaders, signedHeaders, sha].join('\n')
 
-  const scope = `${day}/${region}/s3/aws4_request`
+  const scope = `${day}/${region}/${service}/aws4_request`
   const toSign = [
     'AWS4-HMAC-SHA256', now, scope, createHash('sha256').update(canonical).digest('hex'),
   ].join('\n')
   const hmac = (k: Buffer | string, data: string) => createHmac('sha256', k).update(data).digest()
   const signature = createHmac(
     'sha256',
-    hmac(hmac(hmac(hmac(`AWS4${secret}`, day), region), 's3'), 'aws4_request'),
+    hmac(hmac(hmac(hmac(`AWS4${secret}`, day), region), service), 'aws4_request'),
   ).update(toSign).digest('hex')
 
   return fetch(url, {

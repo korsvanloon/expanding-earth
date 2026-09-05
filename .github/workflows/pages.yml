@@ -124,7 +124,10 @@ jobs:
             node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).runs.find((r) => r.id === '$id').files.join('\n')" > files.txt
             while read -r file; do
               mkdir -p "public/data/$(dirname "$file")"
-              curl -fsSL "$RUN_STORE/runs/$id/$file" -o "public/data/$file"
+              # --compressed, because a run is stored gzipped: the site serves
+              # these from its own origin as a fallback, and would serve the
+              # packed bytes without the header that says so.
+              curl -fsSL --compressed "$RUN_STORE/runs/$id/$file" -o "public/data/$file"
             done < files.txt
             rm -f runs.json files.txt
           else
