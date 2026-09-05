@@ -124,7 +124,9 @@ jobs:
           # halfway, a distribution still deploying -- should cost the old ten
           # minutes and not the deploy.
           restore_from_store() {
-            curl -fsSL "$RUN_STORE/runs.json" -o runs.json || return 1
+            # --compressed here too: the index is stored gzipped like the rest,
+            # and a JSON parser handed gzip says only that the JSON is bad.
+            curl -fsSL --compressed "$RUN_STORE/runs.json" -o runs.json || return 1
             id=$(node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).default") || return 1
             node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).runs.find((r) => r.id === '$id').files.join('\n')" > files.txt || return 1
             while read -r file; do
