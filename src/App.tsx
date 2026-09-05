@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { loadDataset, type Dataset } from '@/data'
+import { Loader } from '@/ui/Loader'
 import { Scene } from '@/scene/Scene'
 import { Panel } from '@/ui/Panel'
 import { Timeline } from '@/ui/Timeline'
@@ -21,8 +22,15 @@ export default function App() {
   // of the way and the reader opens them.
   const [panelOpen, setPanelOpen] = useState(() => window.innerWidth > 760)
 
+  /**
+   * How far the first load has got. Sixteen megabytes arrive before anything
+   * can be drawn, so the wait needs something that visibly moves.
+   */
+  const [loading, setLoading] = useState({ share: 0, note: '' })
+
   useEffect(() => {
-    loadDataset().then(setData, (e: unknown) => setError(String(e)))
+    loadDataset((share, note) => setLoading({ share, note }))
+      .then(setData, (e: unknown) => setError(String(e)))
   }, [])
 
   useEffect(() => {
@@ -50,7 +58,14 @@ export default function App() {
     )
   }
 
-  if (!data) return <div className="splash">Loading the reconstruction…</div>
+  if (!data) {
+    return (
+      <div className="splash">
+        <p>Loading the reconstruction</p>
+        <Loader share={loading.share} note={loading.note} />
+      </div>
+    )
+  }
 
   return (
     <div className="app">

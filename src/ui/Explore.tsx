@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
-import { EXPLORER_KNOBS, explore, type Knobs } from '@/explore'
+import { EXPLORER_KNOBS, explore, type ExploreStage, type Knobs } from '@/explore'
+import { Loader } from '@/ui/Loader'
 import type { Dataset } from '@/data'
 
 /**
@@ -46,32 +47,41 @@ const SLIDERS: Slider[] = [
     what: 'How hard each frame is settled. The speed dial: fewer is faster and looser.' },
 ]
 
+/** What each of the three waits is, in the reader's terms. */
+const WAITING: Record<ExploreStage['phase'], string> = {
+  starting: 'Starting the solver…',
+  fetching: 'Fetching the coarse mesh, three and a half megabytes.',
+  solving: 'Walking forwards through the run. About ten seconds in all.',
+}
+
 export function Explore({ onRun, onRevert, exploring }: {
   onRun: (data: Dataset, seconds: number) => void
   onRevert: () => void
   exploring: boolean
 }) {
   const [knobs, setKnobs] = useState<Knobs>({ ...EXPLORER_KNOBS })
-  const [share, setShare] = useState<number | null>(null)
+  const [stage, setStage] = useState<ExploreStage | null>(null)
   const [note, setNote] = useState<string>()
   const running = useRef<{ cancel: () => void } | null>(null)
 
   const run = () => {
     if (running.current) return
     setNote(undefined)
-    setShare(0)
-    const job = explore(knobs, 4, setShare)
+    // The worker's own bundle has to be fetched and compiled before it can say
+    // anything, so the wait starts before there is a share of it to show.
+    setStage({ phase: 'starting', share: null })
+    const job = explore(knobs, 4, setStage)
     running.current = job
     job.promise.then(
       ({ data, seconds }) => {
         running.current = null
-        setShare(null)
+        setStage(null)
         setNote(`solved in ${seconds.toFixed(1)} s`)
         onRun(data, seconds)
       },
       (error: Error) => {
         running.current = null
-        setShare(null)
+        setStage(null)
         setNote(error.message)
       },
     )
@@ -102,28 +112,29 @@ export function Explore({ onRun, onRevert, exploring }: {
             max={slider.max}
             step={slider.step}
             value={knobs[slider.name]}
-            disabled={share !== null}
+            disabled={stage !== null}
             onChange={(e) => setKnobs({ ...knobs, [slider.name]: Number(e.target.value) })}
             title={slider.what}
           />
         </label>
       ))}
       <div className="explore-run">
-        <button onClick={run} disabled={share !== null}>
-          {share !== null ? 'Solving…' : 'Solve this'}
+        <button onClick={run} disabled={stage !== null}>
+          {stage !== null ? 'Solving…' : 'Solve this'}
         </button>
-        {exploring && share === null && (
+        {exploring && stage === null && (
           <button onClick={onRevert} className="quiet">Back to the shipped run</button>
         )}
       </div>
-      {share !== null && (
-        <>
-          <div className="progress"><div style={{ width: `${Math.round(100 * share)}%` }} /></div>
-          <p className="caption">
-            Walking back through the run, {Math.round(100 * share)}% of the way.
-            About ten seconds in all.
-          </p>
-        </>
+      {stage !== null && (
+        <Loader
+          share={stage.share}
+          note={
+            stage.share !== null && stage.phase === 'solving'
+              ? `${Math.round(100 * stage.share)}% — ${WAITING.solving}`
+              : WAITING[stage.phase]
+          }
+        />
       )}
       {note && <p className="caption">{note}</p>}
       {changed.length > 0 && (

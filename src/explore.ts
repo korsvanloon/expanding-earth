@@ -20,6 +20,20 @@ export interface ExploreResult {
   seconds: number
 }
 
+/**
+ * What the explorer is doing while it is not finished.
+ *
+ * Three waits in a row, and only the middle two can be counted: the worker
+ * starting (a bundle the browser has to fetch and compile), the coarse mesh
+ * arriving, and the solve walking forwards through time. Naming them apart
+ * keeps the loader from claiming a share of a run that has not begun.
+ */
+export interface ExploreStage {
+  phase: 'starting' | 'fetching' | 'solving'
+  /** How far along, 0 to 1, or null when there is nothing to count yet. */
+  share: number | null
+}
+
 /** The knobs the panel offers, with the values the shipped run uses. */
 export const EXPLORER_KNOBS = {
   PAIR_K: 0.15,
@@ -48,14 +62,24 @@ const FIXED = { PROBES: '20000' }
 export function explore(
   knobs: Knobs,
   level: number,
-  onProgress: (share: number) => void,
+  onProgress: (stage: ExploreStage) => void,
 ): { promise: Promise<ExploreResult>; cancel: () => void } {
   const worker = new Worker(new URL('./explore-worker.ts', import.meta.url), { type: 'module' })
   const promise = new Promise<ExploreResult>((resolve, reject) => {
     worker.onmessage = (event: MessageEvent<ExploreEvent>) => {
       const message = event.data
+      if (message.kind === 'fetching') {
+        // Nothing landed yet is nothing to count: the loader sweeps rather
+        // than sitting at zero for the whole of the first file.
+        const share = message.got === 0 ? null : message.got / message.wanted
+        onProgress({ phase: 'fetching', share })
+        return
+      }
       if (message.kind === 'progress') {
-        onProgress(Math.min(1, message.timeMa / Math.max(1, message.endMa)))
+        onProgress({
+          phase: 'solving',
+          share: Math.min(1, message.timeMa / Math.max(1, message.endMa)),
+        })
         return
       }
       worker.terminate()

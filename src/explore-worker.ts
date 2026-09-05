@@ -48,6 +48,8 @@ export interface ExploreRequest {
 }
 
 export type ExploreEvent =
+  /** Files in hand out of files wanted, while the coarse mesh is on its way. */
+  | { kind: 'fetching'; got: number; wanted: number }
   | { kind: 'progress'; timeMa: number; endMa: number }
   | { kind: 'done'; meta: string; frames: ArrayBuffer; topology: ArrayBuffer
       sink: ArrayBuffer | null; mesh: ArrayBuffer; tracks: ArrayBuffer; seconds: number }
@@ -56,13 +58,25 @@ export type ExploreEvent =
 const files = new Map<string, Uint8Array>()
 
 async function load(urls: Record<string, string>) {
+  // Three and a half megabytes on the first run, nothing on the ones after it
+  // -- the files stay in this map for as long as the worker lives, and it
+  // lives until the run it was made for is done. Counted per file rather than
+  // per byte because there are four of them and none dominates.
+  let got = 0
+  const tell = () => {
+    self.postMessage({ kind: 'fetching', got, wanted: NEEDED.length } satisfies ExploreEvent)
+  }
+  tell()
   await Promise.all(NEEDED.map(async (name) => {
     const url = urls[name]
     if (!url) throw new Error(`nobody said where to find ${name}`)
-    if (files.has(url)) return
-    const response = await fetch(url)
-    if (!response.ok) throw new Error(`${name} is not there (${response.status})`)
-    files.set(url, new Uint8Array(await response.arrayBuffer()))
+    if (!files.has(url)) {
+      const response = await fetch(url)
+      if (!response.ok) throw new Error(`${name} is not there (${response.status})`)
+      files.set(url, new Uint8Array(await response.arrayBuffer()))
+    }
+    got++
+    tell()
   }))
 }
 

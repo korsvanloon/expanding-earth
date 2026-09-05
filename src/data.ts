@@ -105,9 +105,24 @@ export function buildIndex(
   return applyTopology(data.indices, data.topology, frame, working, out)
 }
 
-export async function loadDataset(): Promise<Dataset> {
+/**
+ * How far the load has got, and what is being waited for.
+ *
+ * The note is for the reader rather than the code: megabytes while they are
+ * arriving, then what the wait turned into once they have.
+ */
+export type LoadProgress = (share: number, note: string) => void
+
+export async function loadDataset(onProgress?: LoadProgress): Promise<Dataset> {
   const inline = inlineData()
-  return buildDataset(inline ? await inline : await fetchDataset())
+  const parts = inline ? await inline : await fetchDataset(onProgress)
+  // Unpacking sixteen megabytes of typed arrays holds the main thread for
+  // long enough to be seen, and a loader that freezes on its last frame reads
+  // as a page that has died. One turn of the event loop lets the note paint
+  // before the work that it is about starts.
+  onProgress?.(1, 'unpacking')
+  await new Promise((wake) => setTimeout(wake))
+  return buildDataset(parts)
 }
 
 /**
@@ -204,24 +219,130 @@ export function buildDataset(
   }
 }
 
-async function fetchDataset(): Promise<InlineData> {
+/**
+ * Roughly what share of the download each file is, at subdivision 6.
+ *
+ * These decide how fast the bar moves while a file is on its way, nothing
+ * else: the moment the server declares a length that file's own share is
+ * measured rather than guessed. A stale guess costs a bar that hurries in one
+ * place and dawdles in another, never a wrong answer.
+ */
+const SHARES: Record<string, number> = {
+  'data/meta.json': 0.9,
+  'data/mesh.bin': 3.4,
+  'data/frames.bin': 10,
+  'data/topology.bin': 0.2,
+  'data/tracks.bin': 1.4,
+  'data/sink.bin': 1.7,
+}
+
+/**
+ * The download, counted as it arrives.
+ *
+ * Sixteen megabytes have to be in hand before the first frame can be drawn,
+ * two thirds of it frames.bin, so a loader that counted files would sit still
+ * through most of the wait. Each response is read chunk by chunk instead, and
+ * a file's share of the bar advances with its own bytes against the length the
+ * server declared. Servers that declare none -- or that declare a compressed
+ * length, which counts different bytes than the stream hands back -- fall back
+ * to that file's weight arriving whole when it lands.
+ */
+function counted(paths: string[], onProgress?: LoadProgress) {
+  const expected = new Map<string, number>()
+  const got = new Map<string, number>()
+  const whole = new Set<string>()
+  const weight = (path: string) => SHARES[path] ?? 1
+  const total = () => paths.reduce((sum, path) => sum + weight(path), 0)
+
+  const report = () => {
+    if (!onProgress) return
+    let done = 0
+    let bytes = 0
+    let wanted = 0
+    // Only worth naming a total once every file has said how big it is;
+    // before that a total would be a total of the ones that have answered.
+    let allDeclared = true
+    for (const path of paths) {
+      const size = got.get(path) ?? 0
+      const length = expected.get(path) ?? (whole.has(path) ? size : 0)
+      bytes += size
+      wanted += length
+      if (length === 0 && !whole.has(path)) allDeclared = false
+      done += weight(path) * (whole.has(path) ? 1 : length > 0 ? Math.min(1, size / length) : 0)
+    }
+    const far = `${(bytes / 1e6).toFixed(1)}`
+    onProgress(
+      Math.min(0.99, done / total()),
+      allDeclared ? `${far} of ${(wanted / 1e6).toFixed(1)} MB` : `${far} MB`,
+    )
+  }
+
+  /** Marks a file as needing no fetching at all, so the bar does not wait on it. */
+  const skip = (path: string) => { whole.add(path); report() }
+
+  const read = async (path: string, optional = false) => {
+    const response = await fetch(asset(path))
+    if (!response.ok) {
+      if (optional) { skip(path); return undefined }
+      throw new Error(`${path} is not there (${response.status})`)
+    }
+    const declared = Number(response.headers.get('content-length') ?? 0)
+    if (declared > 0) expected.set(path, declared)
+    const body = response.body
+    if (!body) {
+      const all = await response.arrayBuffer()
+      got.set(path, all.byteLength)
+      skip(path)
+      return all
+    }
+    const chunks: Uint8Array[] = []
+    let size = 0
+    const reader = body.getReader()
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      chunks.push(value)
+      size += value.length
+      got.set(path, size)
+      report()
+    }
+    const all = new Uint8Array(size)
+    let at = 0
+    for (const chunk of chunks) { all.set(chunk, at); at += chunk.length }
+    skip(path)
+    return all.buffer
+  }
+  return { read, skip }
+}
+
+async function fetchDataset(onProgress?: LoadProgress): Promise<InlineData> {
   // Everything the globe cannot be drawn without, and nothing else. The strain
   // and the plate map belong to one view mode and one right-click, and between
   // them they were a third of the wait.
-  const [meta, mesh, frames, topology, tracks] = await Promise.all([
-    fetch(asset('data/meta.json')).then((r) => r.json() as Promise<Meta>),
-    fetch(asset('data/mesh.bin')).then((r) => r.arrayBuffer()),
-    fetch(asset('data/frames.bin')).then((r) => r.arrayBuffer()),
-    fetch(asset('data/topology.bin')).then((r) => r.arrayBuffer()),
-    fetch(asset('data/tracks.bin')).then((r) => (r.ok ? r.arrayBuffer() : undefined)),
-  ])
-  // Part of the geometry, so it has to be in hand before the first frame is
-  // drawn rather than fetched behind it -- but only asked for when the run that
-  // produced this data folded, which the metadata has just told us.
-  const sink = meta.folded
-    ? await fetch(asset('data/sink.bin')).then((r) => (r.ok ? r.arrayBuffer() : undefined))
-    : undefined
-  return { meta, mesh, frames, topology, tracks, sink }
+  const wanted = [
+    'data/meta.json', 'data/mesh.bin', 'data/frames.bin',
+    'data/topology.bin', 'data/tracks.bin', 'data/sink.bin',
+  ]
+  const { read, skip } = counted(wanted, onProgress)
+  // All five asked for at once; the metadata is only awaited first because the
+  // sixth file depends on what it says.
+  const text = read('data/meta.json')
+  const rest = [
+    read('data/mesh.bin'),
+    read('data/frames.bin'),
+    read('data/topology.bin'),
+    read('data/tracks.bin', true),
+  ] as const
+  const meta = JSON.parse(new TextDecoder().decode(await text!)) as Meta
+  // The sink is part of the geometry, so it has to be in hand before the first
+  // frame is drawn rather than fetched behind it -- but it is only asked for
+  // when the run that produced this data folded, which the metadata has just
+  // told us. Started here rather than after the rest have landed, so that it
+  // arrives alongside them and the loader learns its length early.
+  const sinking = meta.folded ? read('data/sink.bin', true) : undefined
+  if (!sinking) skip('data/sink.bin')
+  const [mesh, frames, topology, tracks] = await Promise.all(rest)
+  return { meta, mesh: mesh!, frames: frames!, topology: topology!, tracks, sink: await sinking }
 }
 
 /**
