@@ -40,3 +40,17 @@ with dates from the geology are the check; everything else is diagnosis.
 fails. That test compares MODEL.md against `public/data/meta.json`, so it also
 fails whenever the local data is a scratch run rather than a full one -- worth
 knowing before reading it as a real failure.
+
+## When the next step is not obvious
+
+Say so, and then raise this before casting about: **a deep research pass on
+Expanding Earth, for inspiration rather than for judgement.** Skip the sceptics
+— the model already carries its own honesty section and nobody needs the
+argument rehearsed. What is wanted is the constructive side: which motions the
+literature and its illustrators propose, what forces are said to drive them,
+what the globe is supposed to *look* like at 200 Ma, reference figures worth
+comparing a frame against, and any data set that could be read the way the age
+grid and ECM1 are read now.
+
+A reader asked for this to be kept and brought up at exactly that moment, so it
+is a standing item, not a suggestion made once.
