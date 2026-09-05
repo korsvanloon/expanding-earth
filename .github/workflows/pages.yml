@@ -107,15 +107,34 @@ jobs:
       # published, an age grid that moved -- and it solves, exactly as it did
       # before, and the caches below are still there for it. A forgotten publish
       # costs the old ten minutes; it cannot ship the wrong model.
+      #
+      # Two stores, because the runs are moving out of the repository and into
+      # a blob container: set the repository variable RUN_STORE to the
+      # container's public URL and this fetches from there, leave it unset and
+      # it reads the branch. The layout is the same in both, and each run's own
+      # entry lists its files, so nothing here has to know what a run contains.
       - name: Restore the published run
+        env:
+          RUN_STORE: ${{ vars.RUN_STORE }}
         run: |
           set -e
-          git fetch --depth 1 origin runs:refs/remotes/origin/runs || exit 0
-          git worktree add --force --detach .stage/store origin/runs
-          id=$(node -p "JSON.parse(require('fs').readFileSync('.stage/store/runs.json','utf8')).default")
-          mkdir -p public/data
-          cp -r ".stage/store/runs/$id/." public/data/
-          git worktree remove --force .stage/store
+          if [ -n "$RUN_STORE" ]; then
+            curl -fsSL "$RUN_STORE/runs.json" -o runs.json
+            id=$(node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).default")
+            node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).runs.find((r) => r.id === '$id').files.join('\n')" > files.txt
+            while read -r file; do
+              mkdir -p "public/data/$(dirname "$file")"
+              curl -fsSL "$RUN_STORE/runs/$id/$file" -o "public/data/$file"
+            done < files.txt
+            rm -f runs.json files.txt
+          else
+            git fetch --depth 1 origin runs:refs/remotes/origin/runs || exit 0
+            git worktree add --force --detach .stage/store origin/runs
+            id=$(node -p "JSON.parse(require('fs').readFileSync('.stage/store/runs.json','utf8')).default")
+            mkdir -p public/data
+            cp -r ".stage/store/runs/$id/." public/data/
+            git worktree remove --force .stage/store
+          fi
           echo "restored $id: $(du -sh public/data | cut -f1)"
 
       - run: pnpm typecheck
@@ -139,6 +158,10 @@ jobs:
       - run: pnpm build
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
+          # Where the viewer fetches runs from, and what the run picker lists.
+          # Unset, it falls back to the branch that jsDelivr serves; see
+          # vite.config.ts.
+          RUN_STORE: ${{ vars.RUN_STORE }}
 
       # Again, now that there is a run to check. Every test that reads
       # public/data is written as "if the data is there", and on a fresh

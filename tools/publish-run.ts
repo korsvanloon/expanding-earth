@@ -14,14 +14,20 @@
  * this go wrong with caching". The one mutable file is `runs.json`, a few
  * hundred bytes listing what exists, fetched with revalidation.
  *
- * The store here is a branch of this repository, served by jsDelivr, because it
- * needs no credentials that this machine does not already have. It is a branch
- * with no history: each publish writes a fresh orphan commit holding the runs
- * worth keeping, so the repository carries the runs that are listed and not
- * every run ever made. Point `PUBLISH_BASE` at a real blob store and only the
- * uploading changes; the layout and the immutability are the same.
+ * Two stores, the same layout in both:
+ *
+ * - **Azure Blob** (`--to azure`), which is where these belong: nothing enters
+ *   the repository, so a run costs nobody a slower clone and as many can be
+ *   kept as are worth keeping. It needs `AZURE_BLOB_SAS` -- a container URL
+ *   with a shared access signature that may read, write, delete and list.
+ *   That is a secret and belongs in the environment, never in the repository.
+ * - **A branch of this repository** (`--to branch`, the default until the
+ *   container exists), served by jsDelivr, which needs no credentials this
+ *   machine does not already have. It is a branch with no history: each
+ *   publish writes one orphan commit holding the runs worth keeping.
  *
  *     pnpm tsx tools/publish-run.ts --label "shared slab, drag 0.1"
+ *     pnpm tsx tools/publish-run.ts --to azure --label "drag 1, no sharing"
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
@@ -31,6 +37,15 @@ import { fileURLToPath } from 'node:url'
 import type { Meta } from '../shared/model.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
+/**
+ * A container URL with a shared access signature on the end, for `--to azure`.
+ *
+ * Read, write, delete and list: publishing puts a run there, rewrites the
+ * index, and deletes what has fallen off the list. The viewer needs none of
+ * this -- it reads the container anonymously -- so this signature never leaves
+ * the machine that publishes.
+ */
+const SAS = process.env.AZURE_BLOB_SAS
 const DATA = resolve(ROOT, 'public/data')
 const WORK = resolve(ROOT, '.stage/publish')
 const BRANCH = process.env.PUBLISH_BRANCH ?? 'runs'
@@ -76,6 +91,15 @@ export interface PublishedRun {
   /** Knobs this run was given, empty for the model as it ships. */
   overrides: string[]
   bytes: number
+  /**
+   * Every file in this run's folder.
+   *
+   * Listed because a store reached over HTTP cannot be copied wholesale the
+   * way a checkout can: the deploy fetches these names one by one. Written
+   * here rather than in the workflow so that adding a file to a run is one
+   * change and not two, with the second one silently forgotten.
+   */
+  files: string[]
 }
 
 export interface RunIndex {
@@ -141,6 +165,12 @@ function main() {
     commit: git('rev-parse', '--short', 'HEAD'),
     overrides: meta.overrides,
     bytes,
+    files: files.map((file) => file.name),
+  }
+
+  if ((arg('to') ?? process.env.PUBLISH_TO ?? 'branch') === 'azure') {
+    void toAzure(files, run)
+    return
   }
 
   // A worktree rather than a checkout, so the run being published stays where
@@ -211,6 +241,97 @@ function main() {
   console.log(`[publish] ${id}  ${run.label}  ${(bytes / 1e6).toFixed(1)} MB`)
   console.log(`[publish] ${index.runs.length} runs listed, default ${index.default}`)
   console.log(`[publish] ${base}/runs.json`)
+}
+
+/** What a browser should be told each kind of file is. */
+const TYPES: Record<string, string> = {
+  json: 'application/json',
+  bin: 'application/octet-stream',
+  sha: 'text/plain',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+}
+
+/**
+ * The same layout, in a container.
+ *
+ * The URL carries its own signature, so every request is that URL with a path
+ * in front of the query. Nothing here is clever: a block blob is a single PUT
+ * as long as it is under 256 MB, and the largest file in a run is ten.
+ */
+async function toAzure(files: { name: string; bytes: Uint8Array }[], run: PublishedRun) {
+  if (!SAS) {
+    throw new Error(
+      'AZURE_BLOB_SAS is not set: it wants a container URL with a shared access '
+      + 'signature that may read, write, delete and list',
+    )
+  }
+  const [container, query] = SAS.split('?')
+  const at = (path: string, extra = '') =>
+    `${container.replace(/\/$/, '')}/${path}?${extra}${extra ? '&' : ''}${query}`
+
+  const send = async (path: string, body: Uint8Array | string, cache: string) => {
+    const type = TYPES[path.split('.').pop() ?? ''] ?? 'application/octet-stream'
+    const response = await fetch(at(path), {
+      method: 'PUT',
+      headers: {
+        'x-ms-blob-type': 'BlockBlob',
+        'x-ms-blob-content-type': type,
+        // Set here rather than on the container, because the two kinds of file
+        // want opposite answers: a run's folder is never rewritten and may be
+        // kept forever, while the index is the one thing that changes.
+        'x-ms-blob-cache-control': cache,
+        'content-type': type,
+      },
+      // The view's own bytes, which is what fetch wants; a Uint8Array read
+      // from disk can sit in a larger buffer, and handing that over would
+      // upload the whole buffer.
+      body: typeof body === 'string'
+        ? body
+        : new Uint8Array(body.buffer, body.byteOffset, body.byteLength).slice(),
+    })
+    if (!response.ok) {
+      throw new Error(`${path}: ${response.status} ${(await response.text()).slice(0, 200)}`)
+    }
+  }
+
+  const held = await fetch(at('runs.json'))
+  const index: RunIndex = held.ok
+    ? await held.json() as RunIndex
+    : { version: 1, default: run.id, runs: [] }
+
+  let done = 0
+  for (const file of files) {
+    await send(`runs/${run.id}/${file.name}`, file.bytes, 'public, max-age=31536000, immutable')
+    done += file.bytes.byteLength
+    process.stdout.write(`\r[publish] ${(done / 1e6).toFixed(1)} MB of ${
+      (files.reduce((sum, f) => sum + f.bytes.byteLength, 0) / 1e6).toFixed(1)} MB`)
+  }
+  process.stdout.write('\n')
+
+  const dropped = index.runs.slice(KEEP - 1).filter((old) => old.id !== run.id)
+  index.runs = [run, ...index.runs.filter((old) => old.id !== run.id)].slice(0, KEEP)
+  index.default = arg('default') === 'no' ? index.default : run.id
+  if (!index.runs.some((r) => r.id === index.default)) index.default = index.runs[0].id
+  // The index goes last: until it names the run, the run is not there as far
+  // as anyone reading is concerned, and a publish that fails halfway has
+  // uploaded some unreferenced blobs rather than broken the site.
+  await send('runs.json', `${JSON.stringify(index, null, 2)}\n`, 'max-age=60')
+
+  for (const old of dropped) {
+    const listing = await fetch(
+      at('', `restype=container&comp=list&prefix=${encodeURIComponent(`runs/${old.id}/`)}`),
+    )
+    if (!listing.ok) continue
+    for (const [, name] of (await listing.text()).matchAll(/<Name>([^<]+)<\/Name>/g)) {
+      await fetch(at(name), { method: 'DELETE' })
+    }
+    console.log(`[publish] dropped ${old.id} (${old.label})`)
+  }
+
+  console.log(`[publish] ${run.id}  ${run.label}  ${(run.bytes / 1e6).toFixed(1)} MB`)
+  console.log(`[publish] ${index.runs.length} runs listed, default ${index.default}`)
+  console.log(`[publish] ${container.replace(/\/$/, '')}/runs.json`)
 }
 
 main()

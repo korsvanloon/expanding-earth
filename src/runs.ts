@@ -27,6 +27,8 @@ export interface PublishedRun {
   /** Knobs this run was given; empty for the model as it ships. */
   overrides: string[]
   bytes: number
+  /** Every file in the run's folder; the deploy fetches them by name. */
+  files?: string[]
 }
 
 export interface RunIndex {
