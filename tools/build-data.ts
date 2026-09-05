@@ -529,7 +529,16 @@ export const CONFIG = {
    * from genuinely dated neighbours is the more defensible default; depth-age
    * stays in the ensemble as a cross-check.
    */
-  solvedModel: 'nearest-age' as CrustModelId,
+  /*
+   * A knob since a research pass found the one independent check on this
+   * choice. Maxlow's 2001 thesis derives a radius curve the same way this model
+   * does -- from the area of dated sea floor, digitised off Larson 1985 -- and
+   * his measured radii sit 48 km on average from the `permanent` curve and
+   * 112 km from this one, below it at every chron. That is a reason to solve
+   * the other classification and see, which MODEL.md has listed as unanswered
+   * since the ensemble was built. CRUST_MODEL is how.
+   */
+  solvedModel: (process.env.CRUST_MODEL ?? 'nearest-age') as CrustModelId,
 }
 
 

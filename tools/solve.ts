@@ -20,8 +20,8 @@ import { fileURLToPath } from 'node:url'
 import { configure, setHost, solve } from './lib/solver.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const IN = resolve(ROOT, 'public/data')
-const STAGE = resolve(ROOT, '.stage')
+const IN = resolve(ROOT, process.env.DATA_IN ?? 'public/data')
+const STAGE = resolve(ROOT, process.env.STAGE_IN ?? '.stage')
 /**
  * Where the answers go, `public/data` unless told otherwise.
  *

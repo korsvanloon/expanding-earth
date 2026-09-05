@@ -337,6 +337,11 @@ export const REGIONS: Region[] = [
   { id: 'australia', label: 'Australia', latMin: -44, latMax: -10, lonMin: 112, lonMax: 154 },
   { id: 'india', label: 'India', latMin: 6, latMax: 30, lonMin: 68, lonMax: 90 },
   { id: 'greenland', label: 'Greenland', latMin: 60, latMax: 84, lonMin: -73, lonMax: -12 },
+  // Added when a research pass came back with dated joins this scorecard had no
+  // continents to score. Boxes as that pass gave them; see RESEARCH-FINDINGS.md.
+  { id: 'madagascar', label: 'Madagascar', latMin: -26, latMax: -11, lonMin: 43, lonMax: 51 },
+  { id: 'arabia', label: 'Arabia', latMin: 12, latMax: 32, lonMin: 34, lonMax: 60 },
+  { id: 'iberia', label: 'Iberia', latMin: 36, latMax: 44, lonMin: -10, lonMax: 3 },
 ]
 
 /**
@@ -364,12 +369,77 @@ export interface FitTarget {
   note: string
 }
 
+/*
+ * The dates below were checked against the literature by a research pass, and
+ * three of them were wrong; see RESEARCH-FINDINGS.md, which carries the source
+ * and a status for each. Two were wrong in the model's favour -- a join scored
+ * so long after the geology closes it that it could not fail -- and one against
+ * it. A ruler that cannot fail is not a ruler, so they are corrected here even
+ * where that makes the model look worse.
+ */
 export const FIT_TARGETS: FitTarget[] = [
-  { a: 'south-america', b: 'africa', joinedByMa: 180, note: 'The South Atlantic had not opened' },
-  { a: 'australia', b: 'antarctica', joinedByMa: 100, note: 'Australia had not yet left Antarctica' },
-  { a: 'india', b: 'africa', joinedByMa: 120, note: 'India still sat against Madagascar and Africa' },
-  { a: 'greenland', b: 'north-america', joinedByMa: 60, note: 'The Labrador Sea had not opened' },
-  { a: 'north-america', b: 'africa', joinedByMa: 190, note: 'North-west Africa against eastern North America' },
+  {
+    // Was 180, which left forty million years of slack: extension continues to
+    // ~126 Ma and no oceanic crust exists before ~133. Heine, Zoethout & Muller
+    // 2013, Solid Earth 4, 215; Bird & Hall 2016, GJI 206, 835.
+    a: 'south-america', b: 'africa', joinedByMa: 140,
+    note: 'The South Atlantic had not opened; extension until ~126 Ma, first crust ~133',
+  },
+  {
+    // Spreading initiates at chron 34, 83 Ma, after rifting from ~160; 100 is
+    // inside the joined interval. Williams, Whittaker, Halpin & Muller 2019.
+    a: 'australia', b: 'antarctica', joinedByMa: 100,
+    note: 'Australia had not yet left Antarctica; spreading from 83 Ma',
+  },
+  {
+    // Was 120, by which time the West Somali Basin had already finished
+    // opening -- the model was being asked to shut an ocean the geology says
+    // was open. India leaves Africa inside the Madagascar block: basin
+    // anomalies M24Bn (152 Ma) to M0r (121 Ma). Davis, Eagles, Reeves et al.
+    // 2016; Mueller & Jokat 2019.
+    a: 'india', b: 'africa', joinedByMa: 165,
+    note: 'India sat against Africa inside the Madagascar block, before the West Somali Basin',
+  },
+  {
+    // Was 60, three million years *after* spreading began in the Labrador Sea
+    // -- an ocean about a hundred kilometres wide that the model was asked to
+    // close. Hosseinpour, Muller, Williams & Whittaker 2013, Solid Earth 4, 461.
+    a: 'greenland', b: 'north-america', joinedByMa: 65,
+    note: 'The Labrador Sea had not opened; spreading from ~63 Ma',
+  },
+  {
+    // Was 190, which is the breakup instant itself. Labails, Olivet, Aslanian
+    // & Roest 2010, EPSL 297, 355: opening starts in the Late Sinemurian.
+    a: 'north-america', b: 'africa', joinedByMa: 195,
+    note: 'North-west Africa against eastern North America, before the Central Atlantic opened',
+  },
+  // The joins the research pass added, each with a date that cannot be tuned
+  // against because it was not derived from this model.
+  {
+    // India's own conjugate: Madagascar's rifted eastern margin was emplaced at
+    // 87.6 +/- 0.6 Ma. Storey et al. 1995, Science 267, 852.
+    a: 'india', b: 'madagascar', joinedByMa: 90,
+    note: 'India against eastern Madagascar, before the Mascarene Basin',
+  },
+  {
+    // Gondwana's first rupture, and the join India-Africa used to stand for:
+    // West Somali Basin spreading from 170-160 Ma. Davis et al. 2016.
+    a: 'madagascar', b: 'africa', joinedByMa: 160,
+    note: 'Madagascar against Mozambique and Kenya, before the West Somali Basin',
+  },
+  {
+    // Flood basalts at ~30 Ma, ocean floor in the Gulf of Aden from ~20 and in
+    // the Red Sea from ~5. Nyangena et al. 2024, Heliyon.
+    a: 'arabia', b: 'africa', joinedByMa: 30,
+    note: 'Arabia unrifted from Africa, before the Gulf of Aden and the Red Sea',
+  },
+  {
+    // Exhumed mantle from ~130 and seafloor spreading only at the Aptian-Albian
+    // transition. Causer et al. 2020, Solid Earth 11, 397. Newfoundland is the
+    // western end of the north-america box.
+    a: 'iberia', b: 'north-america', joinedByMa: 130,
+    note: 'Iberia against Newfoundland, before the Bay of Biscay and the North Atlantic',
+  },
   // Added because a reader looking at the globe said Africa stays much too far
   // north, that southern Africa should finish on the pole and drive Antarctica
   // up into the Pacific, and that Europe and Arabia are being crushed for want
