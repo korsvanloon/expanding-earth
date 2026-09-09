@@ -2516,6 +2516,54 @@ pairs are the score, so it does not ship. `CRUST_MODEL=permanent` is the run,
 and it is published beside the shipped one so the two can be looked at rather
 than argued about.
 
+## The caps are not the constraint; the mesh is
+
+Four constants in this model sit below every published measurement of the same
+quantity, and the research pass said so. The most a passive margin may have been
+stretched is capped at 2.5, where twenty of twenty-four wide-angle Atlantic
+profiles measure more, up to 10 (Biari et al. 2021, Table 2). The most a
+mountain belt may have been shortened is capped at 1.6, where Tibet's 80 km of
+crust on a 40 km reference is 2.0. A plate keeps half its rotation per step,
+a time constant of 1.4 Myr, where the median stage in the M&uuml;ller rotation
+file lasts 5.0. And a rigid block is fitted to 4 mm/yr, where ITRF2020
+represents 518 intraplate sites to 0.25.
+
+That reads like four things holding the reconstruction back. Measured, one at a
+time, none of them is.
+
+| | shipped | published | pairs at 40 Ma | at 120 Ma | radius at 140 Ma |
+|---|---|---|---|---|---|
+| baseline | | | 201 km, 50% | 394 km, 29% | 4,113 km |
+| `MAX_STRETCH` | 2.5 | up to 10 | 201 km, 50% | 397 km, 29% | 4,112 km |
+| `MAX_SHORTENING` | 1.6 | 2.0 | 201 km, 50% | 394 km, 29% | 4,113 km |
+| `POLE_MEMORY` | &tau; 1.4 Ma | &tau; 5 Ma | 203 km, 50% | 395 km, 29% | 4,113 km |
+
+Nothing moves. Not the pairs, not the bare sphere, not the budget, not one of
+the dated fits by more than two kilometres. And the reason the stretch cap does
+nothing is worth more than the experiment was:
+
+**it almost never binds.** Of 81,920 triangles, 10,333 read as stretched at all.
+Their median stretch is 1.35 and their 90th percentile 2.04, so the cap of 2.5
+clips **329 of them** -- 3% of the stretched crust and 0.4% of the shell. Raised
+to 10, those 329 go as far as 5.32 and no further, so 10 does not bind either.
+
+Which says where the limit really is. Biari's &beta; of 10 off Iberia is a strip
+of hyperextended crust seventy kilometres wide. A triangle here is 115 km across.
+Averaged over one, that strip and the unstretched crust beside it come out at
+about 1.5 -- and no cap, at any value, can put back a structure narrower than
+the mesh that has to carry it. **The resolution is the constraint, not the
+constant.** A subdivision-7 mesh, 163,842 points at 58 km, is where that
+question gets asked properly; the caps are not worth touching before then.
+
+The plate tolerance is a different case and is dealt with where the blocks are
+reported: it is not a force at all, only the threshold at which the report
+counts a block, and moving it to the geodetic 0.25 mm/yr turns 128 blocks into
+2 without changing a single position.
+
+So Stage 2 of the plan ends with the model unchanged and four constants that are
+now measured rather than assumed. That is a worse headline and a better state to
+be in.
+
 ## Somebody else's conjugate pairs
 
 The score this model reports on itself has one weakness that no amount of

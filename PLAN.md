@@ -201,8 +201,34 @@ every other figure identical to three digits. Being retested to 140 Ma, where a
 continent whose own sea floor has run out has to coast on its pole and the
 memory should matter most.
 
-`MAX_STRETCH` and `MAX_SHORTENING` are the two that are real, and they are a
-bigger claim than this plan assumed: `unstretching` is called by
+### And the other two do not bind
+
+**Measured, one at a time, at 140 Ma: nothing moves.** `MAX_STRETCH` 2.5 to 10,
+`MAX_SHORTENING` 1.6 to 2.0, `POLE_MEMORY` tau 1.4 to 5 Ma -- the pairs stay at
+201 km at 40 Ma and 394 at 120, the radius moves by one kilometre, and no dated
+fit moves by more than two.
+
+The reason is better than the experiment. **The stretch cap almost never
+binds:** of 81,920 triangles, 10,333 read as stretched at all, their median
+stretch is 1.35 and their p90 is 2.04, so the cap clips 329 of them -- 3% of the
+stretched crust and 0.4% of the shell. Raised to 10 those 329 reach 5.32 and
+stop, so 10 does not bind either.
+
+Which locates the real limit. Biari's beta of 10 off Iberia is a strip of
+hyperextended crust seventy kilometres wide; a triangle here is 115 km across,
+and averaged over one that strip reads about 1.5. No cap at any value can put
+back a structure narrower than the mesh carrying it. **The resolution is the
+constraint, not the constant** -- which makes subdivision 7 (163,842 points at
+58 km) the way to ask this question, and makes the caps not worth touching
+before then.
+
+So Stage 2 ends with the model unchanged and four constants measured rather than
+assumed. A worse headline and a better state to be in.
+
+### Note on the two that are real
+
+`MAX_STRETCH` and `MAX_SHORTENING` are the two that are actually forces, and
+they are a bigger claim than this plan assumed: `unstretching` is called by
 `tools/build-data.ts` as well as by the solver, and its output feeds
 `radiusCurve`. So raising the stretch cap does not merely let margins absorb
 more -- it asserts that more crust was stretched, which means more area was
