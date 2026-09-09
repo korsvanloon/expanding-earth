@@ -1,5 +1,9 @@
 # Working the research in, and throwing out what the research shows is wrong
 
+> **Status.** Stages 0, 1, 3, 4, 5 and 6 are done and shipped; what each one
+> turned out to say is recorded under it, and at length in MODEL.md. Stage 2 is
+> the one still open, and it has already changed shape twice -- see its section.
+
 The findings are in RESEARCH-FINDINGS.md. Two of them are already in the model
 -- the three corrected scorecard dates, and Maxlow's measured radii as an
 independent check on the curve. This is the plan for the rest, and for the code
@@ -143,6 +147,13 @@ visible before the attempts start.
 
 Cost: an hour, no solve. This stage is the reason the next one is not guesswork.
 
+**Done.** The budget is computed inside the solver now, recorded per frame,
+printed per step as `budget=xN`, carried in every published run's summary, and
+generated into MODEL.md. `measure-budget.ts` no longer computes anything -- it
+reads what the run recorded, because the second implementation of the same
+arithmetic was exactly why nobody ran it. The shipped run: **&times;12 at 5 Ma,
+&times;97 at 60, &times;169 at 120, &times;76 at 200.**
+
 ---
 
 ## Stage 2 -- The caps, to the published values
@@ -166,6 +177,38 @@ behave more like plates. If the pairs get better in both directions, the caps
 were the constraint. If they get worse, they were not, and Stage 2 ends there
 with a measurement rather than an opinion.
 
+### Two of the four were not what the table says they are
+
+**`PLATE_TOL` is not a force.** It reads like one, and the research pass
+compared it against Gordon's 2 to 15 mm/yr for diffuse plate boundaries as
+though it were a physical rate. It is a *measurement threshold*: `findPlates`
+is called only from the recording step and its answer goes only into the
+`blocks` and `biggest block` columns of the report. The solver never holds a
+plate rigid to 4 mm/yr or to anything else.
+
+Which makes the sweep a reframing rather than a change, and a sharp one. At 40
+Ma the same run reports **128 blocks at 4 mm/yr, 27 at 1, and 2 at 0.25** --
+0.25 being the weighted RMS with which ITRF2020 represents 518 intraplate sites,
+i.e. how rigid real plates actually are. Nothing else in the run moves by a
+digit. So the "scores of small patches" this project has reported as its open
+problem is partly an artefact of a loose threshold, and at the tolerance real
+plates meet, this crust is not made of plates at all. Written into MODEL.md
+beside the column.
+
+**`POLE_MEMORY` does nothing at the young end.** 0.5 (tau 1.4 Ma) against 0.82
+(tau 5 Ma, the measured median stage duration) at 40 Ma: 201 km against 203, and
+every other figure identical to three digits. Being retested to 140 Ma, where a
+continent whose own sea floor has run out has to coast on its pole and the
+memory should matter most.
+
+`MAX_STRETCH` and `MAX_SHORTENING` are the two that are real, and they are a
+bigger claim than this plan assumed: `unstretching` is called by
+`tools/build-data.ts` as well as by the solver, and its output feeds
+`radiusCurve`. So raising the stretch cap does not merely let margins absorb
+more -- it asserts that more crust was stretched, which means more area was
+demanded in the past, which **moves the radius curve itself**. They need the
+whole pipeline re-run, not just a re-solve.
+
 There is also a per-cell replacement for the constant, once the constant has
 been measured: the M&uuml;ller 2019 total stretching factor grid (26 MB, 13% of
 the globe, already in the pipeline's grid conventions) and Bradley 2008's 78
@@ -174,7 +217,8 @@ the nearest sea floor, spread inland over twelve rings"* with published
 polylines. That is a Stage 2b, only worth doing if 2a says the caps matter.
 
 Cost: four runs at `END_MA=40` to sort them (80 s each), then full runs on
-whichever survive.
+whichever survive. Two of the four turned out not to need a run at all, for the
+reasons above.
 
 ---
 
@@ -211,6 +255,23 @@ The frame that was deleted was a viewpoint; this one is a measurement.
 Cost: a day. It is the best value in the whole plan -- new evidence where the
 model is blind, at the price of arithmetic on tables already in the repository.
 
+**Done, and it was the best value in the plan.** One of twenty cells is inside
+its band. The pattern is the finding: the model drives southern Africa onto the
+pole (Johannesburg 50 S at 60 Ma, 80 S at 200, where the rocks say 43 S
+throughout) and leaves East Antarctica on it (Schirmacher 70 S at every age,
+wanted at 36-45 S). That is the *opposite* of what a reader looking at the globe
+concluded, and it is the number that settles which reading is right.
+
+Then the follow-up that keeps it from being over-read, and it was worth as much
+as the check itself. A latitude needs only the spin axis, not a rotation -- two
+parameters -- so the sphere can be searched for the axis that best reconciles
+the model's own positions with the measured latitudes. **Two thirds of the miss
+goes away**: 24 degrees rms becomes 8 to 13. Most of the error is a coherent
+turn of the whole assembly, not continents misplaced against each other. The
+axis it wants is tilted 35 degrees, half again past the largest published true
+polar wander, so that is a claim rather than a correction -- and the 8 to 13
+degrees that survive it are the honest residual.
+
 ---
 
 ## Stage 4 -- India belongs against East Antarctica
@@ -228,6 +289,14 @@ and a scorecard row; the geology's own date for that join needs one more read
 
 This is the one stage that changes the reconstruction itself rather than a
 constant, and it is the one most likely to move the 120&ndash;200 Ma end.
+
+**Done, and it fails by more than the join it replaces.** India against Enderby
+and Kemp Land, joined by 135 Ma: **3,107 km apart, no margin in contact**,
+against 1,033 km for India&ndash;Africa. Adding a target does not move the
+solver -- scorecard rows are graded, not pulled -- so this is a measurement of
+where the model already puts India, read against where the literature says it
+belongs. It belongs on the card either way: the miss is now against an assembly
+somebody actually proposes.
 
 ---
 
@@ -266,9 +335,21 @@ pick, published plate-model fits reach 1&ndash;2 km for a young fast pair and
 9&ndash;25 km for Australia&ndash;Antarctica at 83 Ma. This model is at hundreds
 of kilometres.
 
-Largest piece of work in the plan: the picks are not paired, so conjugate
-quadruples have to be built by matching same-chron same-end picks across a ridge
-within one reference. Worth doing last, and worth doing.
+**Done, and it was much less work than feared, because the pairing turned out to
+be published.** The plan assumed conjugate quadruples would have to be built by
+hand out of the 101,806-pick compilation. They do not: within one Hellinger
+file, picks carrying the same **segment number** on opposite sides are the same
+isochron segment on the two flanks of one ridge. The pairing is in the format.
+Chron ages come from the compilation's own `GeeK2007` column -- 417 chron ends,
+grouped by chron and end flag -- so no timescale is interpreted here.
+
+1,302 conjugate segments from eleven studies, 6 to 83 Ma, now grade the run
+without ever having touched it. **Median 317 km**, best pair
+North America&ndash;Eurasia at 160 km, worst 1,347. Four of 1,302 inside three
+sigma. Published plate-model fits reach 1-2 km on a young fast pair and 9-25 km
+at 83 Ma -- and fit these picks by construction, since their rotations are
+derived from them, so the two numbers are not measuring the same thing. The gap
+is what it is, and it is on the page now.
 
 ---
 

@@ -604,6 +604,25 @@ data cannot answer.
 | 200 Ma | 0.000%/Myr | 3.7 km/Myr | 5 | 62% | 7.2% |
 <!-- /from-the-run -->
 
+**Read the blocks column with its threshold in mind, because it turned out to be
+doing more work than it looked like.** A block is a set of points whose velocity
+one rotation reproduces to within `PLATE_TOL`, and that has always been 4 km/Myr
+-- 4 mm/yr. The research pass put a measured number beside it: the ITRF2020
+plate-motion model represents the velocity of 518 sites away from boundaries
+with a weighted RMS of **0.25 mm/yr**, so real plates are rigid sixteen times
+more tightly than this counts as rigid. Re-measured at that tolerance, the same
+run at 40 Ma has **2 blocks, not 128**.
+
+Nothing about the reconstruction changes when the threshold moves -- and that is
+the point worth being clear about. `findPlates` is only ever called from the
+recording step and its answer goes only into these two columns, so `PLATE_TOL`
+is a measurement threshold and not a force: the solver does not hold plates
+rigid to 4 mm/yr or to anything else. The research pass compared it against
+Gordon's 2 to 15 mm/yr for diffuse plate boundaries as though it were a physical
+rate, and it is not one. What it means is narrower and less flattering: the
+"scores of patches" below are patches that move rigidly to a *loose* tolerance,
+and at the tolerance real plates meet, this crust is not made of plates at all.
+
 The middle of the run is the second row. The crust moves as scores of patches of
 a few percent each, where the Earth has about fifteen plates and the Pacific
 alone is a fifth of the surface. The deformation is spread evenly through every
