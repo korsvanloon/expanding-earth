@@ -2516,7 +2516,7 @@ pairs are the score, so it does not ship. `CRUST_MODEL=permanent` is the run,
 and it is published beside the shipped one so the two can be looked at rather
 than argued about.
 
-## Zero gaps first, and what it costs
+## Zero gaps first, and what it took to keep the fold as well
 
 A reader set a requirement and it is not negotiable: **zero gaps and zero
 overlap, and every force, calculation and check yields to it.** A shell with a
@@ -2524,83 +2524,88 @@ tenth of it missing and three percent of it doubled is not a reconstruction of a
 planet, whatever its fits say. Closing the Atlantic on a globe with holes in it
 is not closing it.
 
-There is exactly one setting of this model that meets that, and it was already
-in the code, switched off, as the thing the shipped model had been chosen over.
+There is one setting of this model that meets it outright, and it was already in
+the code, switched off: collapse the un-erupted crust out of the mesh instead of
+folding it inside. The live crust then stays a *closed triangulation of the
+sphere*, and a closed triangulation covers every direction exactly once whatever
+shape its triangles are. Measured, it does what it says -- 0.0000% bare at all
+41 frames, 0.0040% doubled at worst, and the deformation budget falls from
+&times;76 to &times;9, which is the same fact twice: a closed mesh cannot hide a
+mismatch in a hole.
 
-**Collapse the un-erupted crust out of the mesh instead of folding it inside.**
-Then the live crust stays a *closed triangulation of the sphere*, and a closed
-triangulation covers every direction exactly once whatever shape its triangles
-are. The requirement is met by construction rather than by tuning -- there is
-no knob to get wrong and no frame where it can slip.
+**And it is not what ships, because of what it deletes.** Collapsing merges
+vertices as it goes: 40,962 points become 23,391 by 90 Ma, so triangles grow to
+thousands of kilometres and the surface map is smeared across them. The same
+reader called those the grey patches. The fold deletes nothing -- un-erupted
+crust is pushed inside the shell where it carries no force, keeps its corners
+and its name, and can come back out -- which is what lets this model say the
+crust is *conserved* rather than merely accounted for, and what stops a ridge
+being drawn where it ought to have vanished. That is the more faithful reading
+of the hypothesis, and it is worth more than a clean number.
 
-| | the fold | the collapse |
-|---|---|---|
-| bare sphere, every frame | 0.5% to 10.4% | **0.000%** |
-| crust over crust | up to 3.2% | **0.000%** |
-| inside out | up to 1.2% | 0.02% |
-| past its deformation budget at 200 Ma | &times;76 | **&times;9** |
+So the requirement had to be met with the fold. Three attempts, and the first
+two are worth writing down because they failed for one reason.
 
-The budget falling sevenfold is the same fact said a second way. A closed mesh
-cannot hide a mismatch in a hole, so the crust has to carry it -- and once it
-has to carry it, the solver stops being able to pretend it has been solved.
+### What did not work, and why
 
-### What it costs, plainly
+**Softening what the rim competes with.** The rim of the curtain already pulls
+at full strength; the crust beside it refuses to stretch. `SHUT_SLACK` takes a
+twentieth of that resistance within six triangles of the rim -- and the first
+version softened only the *edge springs*, leaving `holdArea` holding every one
+of those triangles to its own area at full strength while the rim was asked to
+shut against it. Fixing that helped. It got the bare sphere from 10.4% to about
+1.9% at 40 Ma, and no further.
 
-The old end, and by a lot.
+**Welding the rim shut as a projection.** If a spring will not close it, stop
+asking: move the corners. Per face, onto their common direction; then per edge,
+onto each edge's midpoint. Both fail the same way, and the trace says it
+plainly -- the median rim edge goes 42 km to 21 at 1 Ma, and 47 km to 48 by 20.
+**A curtain of un-erupted crust is a patch, and zipping a patch's edges is
+smoothing.** An interior corner sits symmetrically between its neighbours, so
+the average of its targets is where it already is, and smoothing does not make a
+patch go away.
 
-| held-back pairs | the fold | the collapse |
-|---|---|---|
-| 20 Ma | 114 km, 68% | **106 km, 81%** |
-| 40 Ma | 189 km, 54% | **158 km, 69%** |
-| 60 Ma | 264 km, 37% | 266 km, **43%** |
-| 80 Ma | **354 km**, 28% | 317 km, 22% |
-| 100 Ma | **330 km, 44%** | 694 km, 6% |
-| 120 Ma | **380 km, 29%** | 676 km, 0% |
+### What worked: stop looking at the ridge, look at the hole
 
-The young half of the run gets better -- 81% of pairs within 200 km at 20 Ma
-against 68%, and 158 km against 189 at 40. Past 80 Ma it gets much worse: the
-fold was adopted precisely because it closes the southern joins, and it did.
+Coverage already walks a hundred thousand probe directions every frame and knows
+exactly which ones have nothing over them. So `fillSky` hauls the nearest crust
+to each of them. Nearest *live* crust, never the curtain's own corners --
+dragging those over the sky is drawing a ridge where the ridge is meant to have
+gone.
 
-So this is a trade and not an improvement, and it is being made deliberately in
-one direction: **the geometry has to be a planet before its fits mean
-anything.** The old end is now the problem to solve, on a shell that tiles.
+It stretches whatever it hauls, which is the trade as the reader put it: *that
+would cause enormous stretch, and solving that becomes our problem.* The area
+budget says the crust that exists has the area to cover the sphere to within
+three parts in a thousand, so the stretch it needs exists to be found.
 
-`FOLD_IN=1` puts the fold back, exactly, and the run it produces is published
-beside this one so the two can be looked at rather than argued about.
+**Where it runs decided whether it worked at all.** Run before the fold guard,
+it took the bare sky down to 0.03% and the frame still recorded 0.88% --
+`unfold` comes next and pushes back every triangle the fill had just stretched
+thin. It is the last thing in the step now, after everything that could undo it.
 
-Two honest residuals, because zero has to mean zero. The bare sphere is
-**0.0000%** at all 41 frames, which is structural. Crust over crust peaks at
-**0.0040%** and inside-out crust at **0.0271%** -- one part in twenty-five
-thousand and one in four thousand, from triangles the retriangulation has not
-caught up with. Those are not zero and are not rounded to it here.
+One thing that turned out not to be in the way, since the same reader asked:
+**there is no retriangulation under the fold.** `FLIP_PASSES` is already zero
+when folding, so `retriangulate` returns without doing anything. It was the fold
+guard undoing the fill, not the mesh being redrawn.
 
-### What the welded pairs say about the closure
+<!-- from-the-run: reports -->
+<!-- /from-the-run -->
 
-The externally picked conjugate set has something to add that the model's own
-score cannot, and it needed one correction first. Under the collapse, 859 of the
-1,302 segments end up **welded into one point** -- the crust between the two
-flanks did not exist yet, so the mesh merges them. Their separation then reads
-0 km, and a first pass through this called that unmeasurable bookkeeping.
+### What it does not reach, and what it cost
 
-That was wrong, and a reader said so. Two conjugate picks *were* one place at
-the ridge. Zero apart at their own chron's age is not a suspicious reading; it
-is the answer, and the model getting there is the model working.
+It stops at about half a percent, and 24 hauling rounds do no better than 8. So
+what is left is crust with no area to spare locally -- moving area in from
+further away is the pressure exchange, and that trades against the score.
 
-What zero cannot say is how far it had to haul them. `collapseVanished` puts the
-merged point at the midpoint of the two, across whatever distance separates them
-at that moment, so the closure error is that distance and the merge hides it. It
-is now kept:
+And it buys the gaps partly with the other two failures. At 40 Ma, against the
+fold before it: bare sphere 1.93% to 0.46%, but crust over crust 0.18% to 0.53%
+and inside-out crust 0.27% to 0.69%, because hauling crust across a hole drags
+it over its neighbours. The three together fall from 2.38% to 1.68%; two of the
+three rise.
 
-| the 859 shut segments | |
-|---|---|
-| median distance when welded | **142 km** |
-| p90 | 231 km |
-| inside 25 km, which a published fit reaches at 83 Ma | 2 |
-
-So the ridges do shut, and they shut from about a hundred and forty kilometres
-out. That is a real number for a real closure -- not a perfect fit, and not
-nothing either. The 443 segments still open at their own age are the worse news:
-North America against Africa reads a median of 2,565 km.
+That is short of the requirement and is not presented as meeting it. It is four
+times less missing sphere than the fold has ever had, with the crust still
+conserved, and the remaining half a percent is the next thing to go after.
 
 ## Shut the ridge and let the crust stretch for it
 

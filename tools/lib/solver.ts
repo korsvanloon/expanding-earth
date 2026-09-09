@@ -61,7 +61,7 @@ import {
   foldShape, markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
 } from './fold.js'
 import {
-  cellBuckets, coverage, fillSky, probeCells, probeDirections, type Tiling,
+  cellBuckets, coverage, fillSky, inside, probeCells, probeDirections, type Tiling,
 } from './coverage.js'
 import {
   newContactScratch, separateIslands, touchingBodies, type IslandContacts,
@@ -1381,6 +1381,25 @@ export function solve(): void {
   const weldWeight = new Float64Array(vertexCount)
   /** For fillSky: which probes are bare, and where the live crust is. */
   const bareProbes: number[] = []
+  /**
+   * Is one direction covered by live crust? Asked between hauling rounds, so
+   * that only the handful of directions still bare are re-tested rather than
+   * the whole hundred thousand. Reads the buckets the last full sweep built,
+   * which is why it must follow one.
+   */
+  const coverScratch = [0, 0, 0]
+  const coverEdge: number[] = []
+  const covered = (p: number) => {
+    const dx = fillProbes[p * 3], dy = fillProbes[p * 3 + 1], dz = fillProbes[p * 3 + 2]
+    for (const f of buckets[fillCells[p]]) {
+      if (!shell.faceAlive[f]) continue
+      const a = mesh.faceVerts[f * 3] * 3
+      const b = mesh.faceVerts[f * 3 + 1] * 3
+      const c = mesh.faceVerts[f * 3 + 2] * 3
+      if (inside(pos, a, b, c, dx, dy, dz, coverScratch, coverEdge)) return true
+    }
+    return false
+  }
   const liveVertex = new Uint8Array(vertexCount)
   const liveBuckets = cellBuckets()
   /** What each of the three edges of a face should measure at the current step. */
@@ -1390,17 +1409,18 @@ export function solve(): void {
   // mesh's own vertices, which is what they used to be; see tools/lib/coverage.ts.
   const probes = probeDirections(Number(ENV.PROBES ?? 100000))
   /**
-   * A coarser set of directions for the hole-filling to hunt on.
+   * The directions the hole-filling hunts on -- its own, so it can be traded
+   * against time, and it must not be traded far.
    *
-   * `fillSky` needs to know where the sky is bare and it needs to ask several
-   * times a step, and coverage over a hundred thousand directions is the
-   * expensive part of a frame -- paying for it eight times per step of two
-   * hundred is forty times the coverage work the whole run used to do. A
-   * quarter of the resolution finds the same holes: a hole worth closing is
-   * hundreds of kilometres across and lands on dozens of these. The hundred
-   * thousand stay for the *measurement*, which has to be the honest one.
+   * `fillSky` asks where the sky is bare several times a step, and coverage
+   * over a hundred thousand directions is the expensive part of a frame, so a
+   * quarter of the resolution is tempting. It was tried, and it costs exactly
+   * what it was meant to save: at 40 Ma the bare sphere comes out at 0.88%
+   * against 0.46% at full resolution. A hole the fill cannot see is a hole it
+   * cannot close, and by this point in the step the holes left are the small
+   * ones.
    */
-  const fillProbes = probeDirections(Number(ENV.FILL_PROBES ?? 25000))
+  const fillProbes = probeDirections(Number(ENV.FILL_PROBES ?? 100000))
   const fillCells = probeCells(fillProbes)
   const cells = probeCells(probes)
   const buckets = cellBuckets()
@@ -2633,11 +2653,35 @@ export function solve(): void {
      * just closed. Filling the sky and then letting the triangulation move is
      * filling it twice and keeping neither.
      */
-    if (CONFIG.fillSky > 0) {
+    if (CONFIG.fillSky > 0 && t % meta.frameStepMa === 0) {
+      /*
+       * Only on the frames that get kept, and only the first round pays for a
+       * full sweep of the sky.
+       *
+       * Both are about cost, and the cost was not survivable without them.
+       * Coverage over a hundred thousand directions takes about fifteen
+       * seconds; eight of those on every one of two hundred steps is not eight
+       * minutes of solving, it is seven hours. So the fill runs on the
+       * forty-one frames the run actually records -- the ones the viewer draws
+       * and every measurement reads -- and between them the holes are left to
+       * the sweeps.
+       *
+       * And after the first round, only the directions that were bare are
+       * asked again. Hauling crust over a hole can uncover where it came from,
+       * so this can miss a hole it made; the next frame's first round sweeps
+       * the whole sky and finds it, and `record` measures the whole sky
+       * regardless. The figure that gets reported is never the cheap one.
+       */
       for (let round = 0; round < CONFIG.fillRounds; round++) {
-        coverage(
-          pos, shell, faceCount, fillProbes, fillCells, buckets, undefined, bareProbes,
-        )
+        if (round === 0) {
+          coverage(
+            pos, shell, faceCount, fillProbes, fillCells, buckets, undefined, bareProbes,
+          )
+        } else {
+          const still = bareProbes.filter((p) => !covered(p))
+          bareProbes.length = 0
+          bareProbes.push(...still)
+        }
         if (!bareProbes.length) break
         fillSky(
           pos, shell, mesh.faceVerts, faceCount, fillProbes, bareProbes, CONFIG.fillSky,
