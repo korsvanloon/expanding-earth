@@ -266,6 +266,18 @@ export function coverage(
    * two continents in the same place.
    */
   faceIsland?: Uint16Array,
+  /**
+   * Where the sky is bare, filled in if given: probe indices with no crust
+   * over them at all.
+   *
+   * This exists so a hole can be *closed* and not only counted. A reader set
+   * zero gaps as the requirement everything else yields to, and every attempt
+   * to get there by pulling on the rim of the ridge failed for the same reason
+   * -- zipping the edges of a patch is smoothing, and smoothing does not make a
+   * patch go away. What can is knowing which directions are uncovered and
+   * hauling the nearest crust over them. See `fillSky`.
+   */
+  bare?: number[],
 ): Coverage {
   // Which triangles could possibly cover which part of the sky. A triangle is
   // about a degree across to start with and a few degrees once its neighbours
@@ -281,6 +293,7 @@ export function coverage(
   let doubled = 0
   let islandDoubled = 0
   let boundaryHits = 0
+  if (bare) bare.length = 0
   const unit = [0, 0, 0]
   const boundary: number[] = []
   const islandsHere: number[] = []
@@ -301,6 +314,7 @@ export function coverage(
       if (boundary.length) onAnEdge = true
     }
     if (hits > 0) covered++
+    else bare?.push(p)
     if (hits > 1) doubled++
     if (islandsHere.length > 1) islandDoubled++
     if (onAnEdge) boundaryHits++
@@ -311,4 +325,119 @@ export function coverage(
     islandOverlapFraction: islandDoubled / probeCount,
     boundaryHits,
   }
+}
+
+/**
+ * Haul the nearest crust over the bare sky, until there is none.
+ *
+ * The requirement a reader set is zero gaps and zero overlap, everything else
+ * yields to it, and three attempts to reach it by asking the ridge to shut all
+ * failed the same way. The rim is a spring competing with the area constraint,
+ * the edge springs, the sphere and the fold, and softening its opponents got
+ * the bare sphere from 10.4% to 9.5%. Welding the rim as a projection got it to
+ * 1.7% at 40 Ma and no further, because a curtain of un-erupted crust is a
+ * *patch* and zipping a patch's edges is smoothing: its interior corners sit
+ * symmetrically between their neighbours and do not move.
+ *
+ * So this stops working on the ridge and works on the hole. Every bare probe
+ * direction is a place with no crust over it; the nearest live crust is hauled
+ * towards it. That stretches the crust it hauls, which is exactly the trade the
+ * reader asked for -- *that would cause enormous stretch and solving that
+ * becomes our problem* -- and the area budget says the crust that exists has
+ * the area to cover the sphere to within three parts in a thousand, so the
+ * stretch it needs exists to be found.
+ *
+ * Simultaneous, like every other projection here: many bare directions can pick
+ * the same corner, so the pulls are summed and averaged before anything moves.
+ *
+ * Nearest is over the vertices of *live* crust only. A corner of the curtain is
+ * not crust that exists, and hauling it over the sky would be drawing a ridge
+ * where the ridge is supposed to have gone.
+ */
+export function fillSky(
+  pos: Float64Array,
+  mesh: Tiling,
+  faceVerts: Int32Array,
+  faceCount: number,
+  probes: Float64Array,
+  bare: number[],
+  strength: number,
+  /** Accumulators over vertices, reused between calls. */
+  target: Float64Array,
+  weight: Float64Array,
+  /** Which vertices are corners of live crust; rebuilt here each call. */
+  live: Uint8Array,
+  /** Live vertices per grid cell, reused between calls. */
+  buckets: number[][],
+): number {
+  live.fill(0)
+  for (let f = 0; f < faceCount; f++) {
+    if (!mesh.faceAlive[f]) continue
+    live[faceVerts[f * 3]] = 1
+    live[faceVerts[f * 3 + 1]] = 1
+    live[faceVerts[f * 3 + 2]] = 1
+  }
+  for (const list of buckets) list.length = 0
+  const vertexCount = live.length
+  for (let v = 0; v < vertexCount; v++) {
+    if (!live[v]) continue
+    const i = v * 3
+    const l = Math.sqrt(pos[i] ** 2 + pos[i + 1] ** 2 + pos[i + 2] ** 2) || 1
+    buckets[cellOf(pos[i] / l, pos[i + 1] / l, pos[i + 2] / l)].push(v)
+  }
+
+  target.fill(0)
+  weight.fill(0)
+  let hauled = 0
+  for (const p of bare) {
+    const dx = probes[p * 3], dy = probes[p * 3 + 1], dz = probes[p * 3 + 2]
+    const cell = cellOf(dx, dy, dz)
+    const row = Math.floor(cell / GRID_COLS)
+    const col = cell % GRID_COLS
+    // Out from the bare direction's own cell until something live turns up. A
+    // cell is two degrees and the mesh is one, so the first ring usually has
+    // it; the loop is there for the holes wider than that.
+    let best = -2
+    let at = -1
+    for (let reach = 0; reach <= GRID_ROWS && at < 0; reach++) {
+      for (let dr = -reach; dr <= reach; dr++) {
+        const r = row + dr
+        if (r < 0 || r >= GRID_ROWS) continue
+        for (let dc = -reach; dc <= reach; dc++) {
+          // Only the new ring, not the whole square again.
+          if (reach > 0 && Math.abs(dr) !== reach && Math.abs(dc) !== reach) continue
+          const c = ((col + dc) % GRID_COLS + GRID_COLS) % GRID_COLS
+          for (const v of buckets[r * GRID_COLS + c]) {
+            const i = v * 3
+            const l = Math.sqrt(pos[i] ** 2 + pos[i + 1] ** 2 + pos[i + 2] ** 2) || 1
+            const dot = (pos[i] * dx + pos[i + 1] * dy + pos[i + 2] * dz) / l
+            if (dot > best) { best = dot; at = v }
+          }
+        }
+      }
+    }
+    if (at < 0) continue
+    target[at * 3] += dx; target[at * 3 + 1] += dy; target[at * 3 + 2] += dz
+    weight[at] += 1
+    hauled++
+  }
+
+  for (let v = 0; v < vertexCount; v++) {
+    if (weight[v] === 0) continue
+    const i = v * 3
+    const tl = Math.sqrt(target[i] ** 2 + target[i + 1] ** 2 + target[i + 2] ** 2)
+    if (tl < 1e-9) continue
+    const l = Math.sqrt(pos[i] ** 2 + pos[i + 1] ** 2 + pos[i + 2] ** 2) || 1
+    const tx = target[i] / tl, ty = target[i + 1] / tl, tz = target[i + 2] / tl
+    const ux = pos[i] / l, uy = pos[i + 1] / l, uz = pos[i + 2] / l
+    let nx = ux + strength * (tx - ux)
+    let ny = uy + strength * (ty - uy)
+    let nz = uz + strength * (tz - uz)
+    const nl = Math.sqrt(nx * nx + ny * ny + nz * nz)
+    if (nl < 1e-9) continue
+    // Its own radius kept, as everywhere else: where on the sphere a corner
+    // belongs and how deep it hangs are two different questions.
+    pos[i] = (nx / nl) * l; pos[i + 1] = (ny / nl) * l; pos[i + 2] = (nz / nl) * l
+  }
+  return hauled
 }
