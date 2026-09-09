@@ -204,7 +204,7 @@ export const KNOBS = [
   'DRAG_FREE', 'DRAG_TOGETHER', 'EDGE_AGE', 'FLAT_K', 'FOLD_IN', 'FOLD_MARGIN',
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
-  'RELAX_FLAT', 'RELAX_K', 'RELAX_ROUNDS', 'SHORE_SHARE', 'SHUT_RINGS', 'SHUT_SLACK',
+  'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SHORE_SHARE', 'SHUT_RINGS', 'SHUT_SLACK',
   'FILL_PROBES', 'FILL_ROUNDS', 'FILL_SKY', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE', 'STRENGTH', 'TRACK_K',
   // How much a margin or a mountain belt is allowed to have moved, read
   // through `knob` in tools/lib/unstretching.ts rather than from ENV here.
@@ -707,6 +707,8 @@ function readConfig() {
   relaxFlat: Number(ENV.RELAX_FLAT ?? 0) > 0,
   /** How many relaxing rounds run after the sweeps. */
   relaxRounds: Number(ENV.RELAX_ROUNDS ?? 4),
+  /** Let the exchange pull crust off the sky it is covering; for measuring it. */
+  relaxOverSky: Number(ENV.RELAX_OVER_SKY ?? 0) > 0,
   /**
    * Let a triangle go down as soon as one of its corners has to, instead of
    * waiting until all of it does.
@@ -1381,6 +1383,12 @@ export function solve(): void {
   const weldWeight = new Float64Array(vertexCount)
   /** For fillSky: which probes are bare, and where the live crust is. */
   const bareProbes: number[] = []
+  /**
+   * Which crust the last hauling put over bare sky, so the pressure exchange
+   * can be told not to pull it back off. Rewritten every time the fill runs,
+   * which is every recorded frame, so it is at most five steps old.
+   */
+  const coversSky = new Uint8Array(vertexCount)
   /**
    * Is one direction covered by live crust? Asked between hauling rounds, so
    * that only the handful of directions still bare are re-tested rather than
@@ -2546,6 +2554,7 @@ export function solve(): void {
       relaxPressure(
         pos, mesh, crustAlive, restAreaNow, rigidity, faceCount, rNext,
         CONFIG.pressureRelax, CONFIG.relaxFlat, relaxScratch,
+        CONFIG.relaxOverSky ? undefined : coversSky,
       )
       relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
       if (CONFIG.foldInward) {
@@ -2685,7 +2694,7 @@ export function solve(): void {
         if (!bareProbes.length) break
         fillSky(
           pos, shell, mesh.faceVerts, faceCount, fillProbes, bareProbes, CONFIG.fillSky,
-          weldTarget, weldWeight, liveVertex, liveBuckets,
+          weldTarget, weldWeight, liveVertex, liveBuckets, coversSky,
         )
         relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
         if (CONFIG.foldInward) {
@@ -4240,6 +4249,33 @@ function relaxPressure(
   flat: boolean,
   /** One reusable array, because this is called every sweep of every step. */
   along: number[],
+  /**
+   * Which crust is the only thing over a piece of sky; see `fillSky`.
+   *
+   * A reader asked why supplying area makes the gaps worse when it moves from
+   * squeezed to stretched, which is what they asked for. It does move that way
+   * -- with the exchange on, stretched crust falls from 7.1% of the shell to
+   * 6.0% and squeezed only from 7.3% to 6.9%. The bare sphere rises anyway,
+   * from 0.46% to 0.76%, and the reason is that this pass cannot see what a
+   * triangle is *covering*. One stretched thin over a hole is the most
+   * stretched thing near it, so it is the first thing the exchange pulls in --
+   * and pulling it in uncovers the sky the fill had just covered. The direction
+   * was right and the priority was wrong.
+   *
+   * Under the rule that everything yields to zero gaps, this is the priority:
+   * an edge whose *shrinking* side is holding sky up is left alone entirely.
+   *
+   * **And it measured as noise: 0.87% bare against 0.85%.** It is kept because
+   * it is two lines and it is right in principle, not because it earns its
+   * place. The real reason the exchange opens gaps turned out not to be this,
+   * nor the asymmetry between compressing and stretching, which was tried next
+   * and moved nothing either. It is that crust deformed less occupies more
+   * nearly its own area, and its own area is not the shape of the sphere: the
+   * budget says the total areas match to three parts in a thousand, it does not
+   * say the pieces tile. See MODEL.md, *Why the pressure exchange makes the
+   * gaps worse, and why that is not a bug*.
+   */
+  coversSky?: Uint8Array,
 ): number {
   let traded = 0
   const area = (f: number) => {
@@ -4281,6 +4317,15 @@ function relaxPressure(
       const c = area(f) / restF - area(g) / restG
       const scale = flat ? 1 : 1 - Math.max(rigidity[f], rigidity[g])
       if (scale <= 0) continue
+      // Whichever of the two would give area up: if it is holding sky, this
+      // edge is not the exchange's business.
+      if (coversSky) {
+        const shrinking = c > 0 ? f : g
+        const s0 = mesh.faceVerts[shrinking * 3]
+        const s1 = mesh.faceVerts[shrinking * 3 + 1]
+        const s2 = mesh.faceVerts[shrinking * 3 + 2]
+        if (coversSky[s0] || coversSky[s1] || coversSky[s2]) continue
+      }
       gradient(f, u, gfu); gradient(f, v, gfv)
       gradient(g, u, ggu); gradient(g, v, ggv)
       let norm = 0

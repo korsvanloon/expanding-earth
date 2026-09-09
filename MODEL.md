@@ -2621,7 +2621,7 @@ crust across a hole drags it over its neighbours. The three together fall from
 14.8% to 10.5%, so the shell is better than it was on the whole, and worse on
 two of the three counts.
 
-### Why the pressure exchange makes the gaps worse
+### Why the pressure exchange makes the gaps worse, and why that is not a bug
 
 A reader asked the right question about the relaxing sweeps: *how can supplying
 area cause more gaps -- it always moves from squeezed to stretched, doesn't it?*
@@ -2629,13 +2629,39 @@ It does, and the numbers say so: with the exchange on, stretched crust falls
 from 7.1% of the shell to 6.0% while squeezed falls only from 7.3% to 6.9%. It
 is doing exactly what it was asked.
 
-And the bare sphere goes from 0.46% to 0.76%, because **the exchange cannot see
-what a triangle is covering.** A triangle stretched thin over a hole is the most
-stretched thing in its neighbourhood, so it is the first thing the exchange
-wants to shrink -- and shrinking it uncovers the sky the fill had just covered.
-The direction is right and the priority is wrong. Under the rule that everything
-yields to zero gaps, an exchange must be forbidden from shrinking crust that is
-the only thing over a piece of sky, and it does not yet know how to ask.
+And the bare sphere goes up anyway, 0.40% to 0.85%. Three explanations were
+tried and all three are wrong, which is worth recording because the fourth is
+not a defect at all.
+
+**It is not that the exchange cannot see what a triangle is covering.** That was
+the obvious reading -- a triangle stretched thin over a hole is the most
+stretched thing near it, so it is the first thing an equalising pass pulls in.
+`fillSky` marks every corner it hauls over bare sky and the exchange was told to
+leave any edge whose shrinking side is one of them entirely alone. Bare sphere
+0.87% to 0.85%. Noise.
+
+**It is not that compression resists more than stretching.** `compressResist` is
+0.9 while sea floor resists stretching at 0.1, so the exchange should mostly
+contract the stretched side and hardly expand the squeezed one. Taken from 0.9
+down to 0, the squeezed share does not move at all -- 6.9% at every setting --
+and the bare sphere changes by three hundredths of a point.
+
+**What the numbers force is simpler and harder.** With the exchange on,
+deformation falls from 14.6% of the shell to 12.8%: stretch 7.2% to 5.9%,
+squeeze 7.3% to 6.9%. Crust that is less deformed occupies more nearly its own
+area -- and *its own area is not the shape of the sphere.* The deformation
+budget says the crust's total area matches the sphere's to three parts in a
+thousand. It does not say the pieces fit. A set of triangles with exactly the
+right total area still leaves holes if their shapes do not tile, and this set
+does not: the mismatch is what the 10.5% of deformation *is*.
+
+So on this shell, **coverage costs deformation, and the two cannot both be
+reduced.** The reader's two halves are in real conflict, by geometry rather than
+by a bug in either. Which also says what the budget figure has been quietly
+overstating: &times;76 measures how far the crust is deformed against how far
+the *areas* disagree, and some unknown part of that is the shapes not fitting
+rather than the solver failing. Separating those two is the measurement this
+section is missing.
 
 ## Shut the ridge and let the crust stretch for it
 

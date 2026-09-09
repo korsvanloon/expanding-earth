@@ -369,6 +369,20 @@ export function fillSky(
   live: Uint8Array,
   /** Live vertices per grid cell, reused between calls. */
   buckets: number[][],
+  /**
+   * Which crust is holding sky up, filled in if given.
+   *
+   * A vertex this pass hauls is, by construction, the nearest live crust to a
+   * direction that had nothing over it -- so the triangles around it are the
+   * only thing covering that sky. Anything that would shrink them undoes this
+   * work, and the pressure exchange is exactly such a thing: a triangle
+   * stretched thin over a hole is the most stretched thing in its
+   * neighbourhood, so it is the first one the exchange wants to pull in. The
+   * exchange reads this and leaves them alone.
+   *
+   * Cleared here, so it always describes the last hauling and not an older one.
+   */
+  coversSky?: Uint8Array,
 ): number {
   live.fill(0)
   for (let f = 0; f < faceCount; f++) {
@@ -388,6 +402,7 @@ export function fillSky(
 
   target.fill(0)
   weight.fill(0)
+  coversSky?.fill(0)
   let hauled = 0
   for (const p of bare) {
     const dx = probes[p * 3], dy = probes[p * 3 + 1], dz = probes[p * 3 + 2]
@@ -419,6 +434,7 @@ export function fillSky(
     if (at < 0) continue
     target[at * 3] += dx; target[at * 3 + 1] += dy; target[at * 3 + 2] += dz
     weight[at] += 1
+    if (coversSky) coversSky[at] = 1
     hauled++
   }
 
