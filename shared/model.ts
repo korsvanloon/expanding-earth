@@ -340,6 +340,28 @@ export interface Meta {
     bVert: number
     /** What the run leaves between them at that age, km. */
     separationKm: number
+    /**
+     * The two sides were welded into one point, and how far apart they were
+     * when it happened.
+     *
+     * A reader pushed back on calling this unmeasurable and was right to. Two
+     * conjugate picks were one place at the ridge, so zero apart at their own
+     * chron's age is not a suspicious reading -- it is the *answer*. And when
+     * the solver collapses dead crust out of the mesh it is asserting exactly
+     * that: the crust between these two flanks did not exist yet, so the flanks
+     * were together. Under the collapse it happens to 859 of 1,302 segments.
+     *
+     * What the zero cannot tell you is how good the closure was. The collapse
+     * puts the merged point at the *midpoint* of the two -- see
+     * `collapseVanished`, "the two sides meet in the middle" -- across whatever
+     * distance it has to cross to get there. Ten kilometres is a fit as good as
+     * any published; four hundred is an error the merge makes invisible.
+     *
+     * So this is that distance: the separation at the last recorded frame
+     * before the two stopped being two points. `separationKm` stays 0, because
+     * 0 is where the model put them, and it is not wrong about that.
+     */
+    weldedFromKm?: number
   }[]
 
   /**

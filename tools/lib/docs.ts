@@ -73,7 +73,13 @@ export function runBlocks(meta: Meta): Record<string, string> {
     ].join('\n'),
 
     external: (() => {
-      const rows = meta.externalPairs ?? []
+      // A welded pair reads 0 km, which is the right answer -- the two picks
+      // were one place at the ridge. What it does not say is how far the model
+      // had to haul them to shut, so the two are tabled separately. See
+      // Meta.externalPairs.weldedFromKm.
+      const all = meta.externalPairs ?? []
+      const welded = all.filter((e) => e.weldedFromKm !== undefined)
+      const rows = all.filter((e) => e.weldedFromKm === undefined)
       const byPair = new Map<string, typeof rows>()
       for (const e of rows) byPair.set(e.pair, [...(byPair.get(e.pair) ?? []), e])
       const q = (xs: number[], p: number) =>
@@ -89,6 +95,20 @@ export function runBlocks(meta: Meta): Record<string, string> {
             + `&ndash;${Math.max(...ages).toFixed(0)} Ma | ${q(km, 0.5)} km | `
             + `${q(km, 0.9)} km | ${Math.min(...sigma)}&ndash;${Math.max(...sigma)} km |`
         }),
+        ...(welded.length
+          ? (() => {
+            const from = welded.map((e) => e.weldedFromKm ?? 0).sort((a, b) => a - b)
+            const q = (p: number) => from[Math.floor(p * (from.length - 1))] ?? 0
+            return [
+              `\n**${welded.length} of ${all.length} segments are shut** -- welded into one `
+              + 'point where the crust between them did not exist yet, which is the right '
+              + `answer for two picks that were one place at the ridge. How far the model `
+              + `had to haul them to get there: median **${q(0.5)} km**, p25 ${q(0.25)}, `
+              + `p90 ${q(0.9)}; ${from.filter((x) => x <= 25).length} inside the 25 km a `
+              + 'published fit reaches at 83 Ma. The rows above are the ones still open.',
+            ]
+          })()
+          : []),
       ].join('\n')
     })(),
 

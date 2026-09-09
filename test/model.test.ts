@@ -817,6 +817,27 @@ describe('the built dataset', () => {
   // `overrides: []` and be published as the shipped model. The two variables
   // naming where output goes are excluded, because a run written elsewhere is
   // still the same run.
+  // One default per knob, in one place. FOLD_IN had two readings of it -- one
+  // at module load and one in `configure` -- and they disagreed, so flipping
+  // the default in the obvious place changed nothing and cost a run to find
+  // out. A knob whose default is written twice can always drift; this refuses
+  // the second spelling rather than trusting anyone to keep them equal.
+  it('gives every knob exactly one default', () => {
+    const dir = resolve(import.meta.dirname, '../tools/lib')
+    const source = readdirSync(dir)
+      .filter((name) => name.endsWith('.ts'))
+      .map((name) => readFileSync(resolve(dir, name), 'utf8'))
+      .join('\n')
+    const seen = new Map<string, number>()
+    for (const m of source.matchAll(/ENV\.([A-Z_0-9]+)\s*\?\?/g)) {
+      seen.set(m[1], (seen.get(m[1]) ?? 0) + 1)
+    }
+    for (const m of source.matchAll(/\bknob\(\s*'([A-Z_0-9]+)'/g)) {
+      seen.set(m[1], (seen.get(m[1]) ?? 0) + 1)
+    }
+    expect([...seen].filter(([, n]) => n > 1).map(([name]) => name).sort()).toEqual([])
+  })
+
   it('lists every knob the first stage reads', () => {
     const source = readFileSync(
       resolve(import.meta.dirname, '../tools/build-data.ts'), 'utf8',
