@@ -79,7 +79,6 @@ export default defineConfig({
     },
   },
   server: { port: 3000 },
-  // legacy/ is the earlier prototype, kept for reference but not built or tested.
   test: {
     include: ['test/**/*.test.ts'],
     /**

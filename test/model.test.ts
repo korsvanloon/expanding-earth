@@ -35,7 +35,7 @@ import {
 } from '../tools/lib/structure'
 import { R0_KM } from '../shared/model'
 import { resolve } from 'node:path'
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs'
 
 describe('icosphere', () => {
   it('has the Euler-characteristic vertex count at each subdivision', () => {
@@ -788,15 +788,27 @@ describe('the built dataset', () => {
   // is a module like any other, so half of this stopped needing a regular
   // expression. The other half cannot: the point is to catch a read that
   // nothing tells the list about.
-  it('lists every knob the solver reads', () => {
-    const source = readFileSync(resolve(import.meta.dirname, '../tools/lib/solver.ts'), 'utf8')
+  // Two spellings, and both have to be scraped. `ENV.NAME` is how the solver
+  // reads a knob; `knob('NAME', default)` is how anything else does, and three
+  // knobs behind that second spelling -- MAX_STRETCH, MAX_SHORTENING and
+  // EASE_PASSES -- sat outside the list for as long as they existed, because
+  // this test only ever looked at one file and one spelling. A run made with
+  // any of them recorded no override and would have been published as the
+  // shipped model. So the whole of tools/lib is read, not just the solver.
+  it('lists every knob the pipeline reads, in either spelling', () => {
+    const dir = resolve(import.meta.dirname, '../tools/lib')
+    const source = readdirSync(dir)
+      .filter((name) => name.endsWith('.ts'))
+      .map((name) => readFileSync(resolve(dir, name), 'utf8'))
+      .join('\n')
     const listed = new Set<string>(KNOBS)
-    const read = new Set(
-      (source.match(/\bENV\.[A-Z_0-9]+/g) ?? []).map((m) => m.slice('ENV.'.length)),
-    )
+    const read = new Set([
+      ...(source.match(/\bENV\.[A-Z_0-9]+/g) ?? []).map((m) => m.slice('ENV.'.length)),
+      ...(source.match(/\bknob\(\s*'([A-Z_0-9]+)'/g) ?? []).map((m) => m.replace(/.*'([A-Z_0-9]+)'/, '$1')),
+    ])
     expect(listed.size).toBeGreaterThan(0)
-    expect([...read].filter((name) => !listed.has(name))).toEqual([])
-    expect([...listed].filter((name) => !read.has(name))).toEqual([])
+    expect([...read].filter((name) => !listed.has(name)).sort()).toEqual([])
+    expect([...listed].filter((name) => !read.has(name)).sort()).toEqual([])
   })
 
   it.runIf(present)('has a generated block for every figure worth drifting', () => {

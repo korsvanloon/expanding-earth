@@ -6,7 +6,6 @@ import {
 import { R0_KM, REGIONS, surfaceGravity } from '@shared/model'
 import { radiusAt, type Dataset } from '@/data'
 import { OWN_RUN, runBase, type RunIndex } from '@/runs'
-import { PINNED } from '@/frames'
 import { describePicks, describeZones, useStore, ZONE_LIMIT, type ViewMode } from '@/store'
 import { Chart, valueAt } from './Chart'
 import { Explore } from './Explore'
@@ -191,7 +190,7 @@ export function Panel({ data, exploring, onExplore, onRevert, runs, run, onRun }
       )}
 
       <label className="field">
-        <span>Hold still</span>
+        <span>Pin a point of</span>
         <select value={referenceFrame} onChange={(e) => setReferenceFrame(e.target.value)}>
           <option value="">Nothing (no net rotation)</option>
           {REGIONS.map((r) => (
@@ -199,20 +198,18 @@ export function Panel({ data, exploring, onExplore, onRevert, runs, run, onRun }
               {r.label}
             </option>
           ))}
-          {REGIONS.map((r) => (
-            <option key={`${r.id}${PINNED}`} value={`${r.id}${PINNED}`}>
-              {r.label} (one point of it)
-            </option>
-          ))}
         </select>
       </label>
       <p className="caption">
         A viewpoint, not a change to the model. Spread the motion evenly over every plate and a
         continent that travelled thousands of kilometres looks like it hardly moved.
-        {' '}Holding a whole continent still takes out its own turn as well as
-        its travel; pinning one point of it leaves the turn to be looked at,
-        which is what a question like &ldquo;does southern Africa reach the
-        pole&rdquo; is about.
+        {' '}This pins the middle of the region and takes out where it went,
+        leaving its own turn to be looked at &mdash; which is what a question
+        like &ldquo;does southern Africa reach the pole&rdquo; is about.
+        {' '}There is no option to hold a whole continent still, because on a
+        globe that changes size there cannot be one: the same rigid crust spans
+        42 degrees of today&rsquo;s Earth and 68 of the smaller one at 200 Ma,
+        and no rotation maps one onto the other.
       </p>
       <label className="toggle">
         <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />

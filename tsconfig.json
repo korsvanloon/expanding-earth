@@ -30,6 +30,5 @@
   // and `shared` alone, with the node libs and nothing else, and `pnpm
   // typecheck` runs it. This config is what the editor reads; that one is the
   // check.
-  "include": ["src", "shared", "test", "tools", "vite.config.ts"],
-  "exclude": ["legacy"]
+  "include": ["src", "shared", "test", "tools", "vite.config.ts"]
 }

@@ -107,7 +107,6 @@ tools/fetch-grids.ts  fetch a global grid and commit it to data-src/
 shared/model.ts       the assumptions, shared by pipeline and app
 src/                  React + three.js viewer
 data-src/             datasets fetched by hand and committed, in compact form
-legacy/               the earlier hand-keyframed prototype, kept for reference
 ```
 
 Generated data lands in `public/data/` and is not committed: it is reproducible

@@ -171,16 +171,28 @@ let FOLDING = Number(ENV.FOLD_IN ?? 1) > 0
  * `test/model.test.ts` fails if this list and the file disagree.
  */
 export const KNOBS = [
-  'AREA_K', 'AREA_TRACE', 'BREAKS_BELOW', 'CLOSE_K', 'CLOSE_TANGENT', 'COHERE',
+  // What the crust is made of and how it behaves: the model itself.
+  'AREA_K', 'BREAKS_BELOW', 'CLOSE_K', 'CLOSE_TANGENT', 'COHERE',
   'COHERE_ROUNDS', 'COMPRESS_K', 'CONTACT_K', 'CONTACT_KM', 'CURTAIN_K', 'DRAG',
-  'DRAG_TOGETHER',
-  'DRAG_FREE',
-  'EDGE_AGE', 'END_MA', 'FLAT_K', 'FLIP_PASSES', 'FLIP_TRUTH', 'FLOW_SMOOTH',
-  'FLOW_WINDOW', 'FOLD_IN', 'FOLD_MARGIN', 'HANG_KM', 'HOLD_STRENGTH',
-  'ISLAND_HOLD',
-  'LAND_MARGIN', 'LIP_KM', 'MAX_RATE', 'OCEAN_K', 'PLATE_TOL', 'POLE_MEMORY',
-  'PROBES', 'RADIAL_K', 'SHORE_SHARE', 'SMALLEST_PLATE', 'STEP_TRACE',
-  'FRAME_STEP', 'PAIR_K', 'STRENGTH', 'STRETCH_TRACE', 'SWEEPS', 'TRACK_K',
+  'DRAG_FREE', 'DRAG_TOGETHER', 'EDGE_AGE', 'FLAT_K', 'FOLD_IN', 'FOLD_MARGIN',
+  'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
+  'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
+  'SHORE_SHARE', 'SMALLEST_PLATE', 'STRENGTH', 'TRACK_K',
+  // How much a margin or a mountain belt is allowed to have moved, read
+  // through `knob` in tools/lib/unstretching.ts rather than from ENV here.
+  // They were missing from this list for as long as they existed, so a run
+  // made with either of them turned recorded no override at all and was
+  // published as the shipped model. The test below now scrapes both spellings
+  // out of every file in tools/lib, so the hole cannot reopen.
+  'MAX_SHORTENING', 'MAX_STRETCH',
+  // Retriangulation, likewise read through `knob`, in tools/lib/dynamic-mesh.ts.
+  'EASE_PASSES', 'FLIP_PASSES', 'FLIP_TRUTH',
+  // How the run is carried out rather than what it says: resolution, extent,
+  // effort, and what gets printed. Turning one of these does not make a
+  // different model -- but it does make a different run, which is why they are
+  // recorded here with the rest.
+  'END_MA', 'FLOW_SMOOTH', 'FLOW_WINDOW', 'FRAME_STEP', 'PROBES', 'SWEEPS',
+  'AREA_TRACE', 'STEP_TRACE', 'STRETCH_TRACE', 'TRACE_DEPARTURE',
 ] as const
 
 let OVERRIDES: string[] = KNOBS.filter((name) => ENV[name] !== undefined)

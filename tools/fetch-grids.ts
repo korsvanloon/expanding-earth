@@ -35,19 +35,34 @@ const SERVER = 'https://oceania.generic-mapping-tools.org/server/earth'
  * per step and finer ones would cost four times the file for detail nothing
  * downstream can use. Change the spacing here if that stops being true; the
  * finer tiers are JPEG2000 and would need a decoder as well.
+ *
+ * **Only `vgg` is read by the pipeline.** The other two are comparators, and
+ * the age one in particular has been read as though it were the model's input,
+ * which it is not: the reconstruction is built from `data-src/agegrid.nc`,
+ * which is Muller et al. 2019 Tectonics v2.0 fetched by hand from EarthByte,
+ * while the server's `earth_age` is the GMT copy of Seton et al. 2020. They are
+ * different products under one word. Fetching this one writes `age.grid`, which
+ * nothing reads; it is here to be compared against, and the comparison has been
+ * made -- Seton dates 0.27% of the globe that Muller leaves undated, all of it
+ * margin fringe, and where both are dated they differ by 1.25 Myr on average.
+ * So swapping is not worth a rebuild. Seton's *misfit* grid, which Muller has
+ * no equivalent of, is the reason to go there.
  */
 const CATALOGUE = {
   vgg: {
     file: 'earth_vgg/earth_vgg_06m_p.grd',
     note: 'Vertical gravity gradient (Sandwell et al.), Eotvos',
   },
+  // A comparator, not the input; see above.
   age: {
     file: 'earth_age/earth_age_06m_p.grd',
-    note: 'Sea-floor age (EarthByte GTS2012), Myr',
+    note: 'Sea-floor age (Seton et al. 2020 on GTS2012, GMT copy), Myr -- comparator',
   },
+  // Nothing reads this yet. It is the measured replacement for the topography
+  // JPEG the undated cells are currently classified from.
   relief: {
     file: 'earth_relief/earth_relief_06m_p.grd',
-    note: 'SRTM15+ topography and bathymetry, m',
+    note: 'SRTM15+ topography and bathymetry, m -- not yet read by the pipeline',
   },
 } as const
 

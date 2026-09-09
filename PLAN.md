@@ -76,6 +76,21 @@ Triage each into one of three, and delete the third:
 3. **Scaffolding**: neither. Fold the default into `CONFIG` as a plain number
    and delete the variable.
 
+**Done, and the third category turned out to be empty.** Every one of the 43 is
+a live read, and the working agreement says a variable is *how the alternative
+gets measured* -- so an unmeasured knob is an unwritten document, not dead code.
+They are grouped now, in four blocks with a sentence each.
+
+What the triage did find is worse than clutter: **four knobs were being read
+that the list did not know about.** `MAX_STRETCH`, `MAX_SHORTENING` and
+`EASE_PASSES` are read through `knob('NAME', default)` rather than `ENV.NAME`,
+and `TRACE_DEPARTURE` lives in a file the check never opened. The test that
+exists to prevent exactly this only ever read `tools/lib/solver.ts` and only
+ever matched one of the two spellings, so a run made with any of the four
+recorded **no override at all** and would have been published as the shipped
+model. All four are listed, and the test now scrapes both spellings out of every
+file in `tools/lib`.
+
 ### Two knobs that are not in the list and should be
 
 `MAX_STRETCH` and `MAX_SHORTENING` (`tools/lib/unstretching.ts`) are read from

@@ -330,6 +330,14 @@ export const VIEW_MODES: ViewMode[] = [
  * painted with nothing and no way to tell why, so anything unrecognised falls
  * back to the default rather than being trusted.
  */
+/** A stored reference frame, or undefined if it names nothing that still exists. */
+function frame(stored: unknown): string | undefined {
+  if (typeof stored !== 'string') return undefined
+  if (stored === '') return ''
+  const id = stored.endsWith(':pin') ? stored.slice(0, -4) : stored
+  return REGIONS.some((r) => r.id === id) ? id : undefined
+}
+
 export function remembered(stored: unknown): Partial<Remembered> {
   if (!stored || typeof stored !== 'object') return {}
   const s = stored as Record<string, unknown>
@@ -342,9 +350,11 @@ export function remembered(stored: unknown): Partial<Remembered> {
     ...(SURFACE_MAPS.some((m) => m.id === s.surfaceMap)
       ? { surfaceMap: s.surfaceMap as string }
       : {}),
-    ...(s.referenceFrame === ''
-      || REGIONS.some((r) => r.id === s.referenceFrame || `${r.id}:pin` === s.referenceFrame)
-      ? { referenceFrame: s.referenceFrame as string }
+    // A `:pin` suffix is what a stored frame looks like from before the
+    // whole-continent fit was deleted; every frame pins a point now, so the
+    // suffix is dropped rather than the setting being thrown away.
+    ...(frame(s.referenceFrame) !== undefined
+      ? { referenceFrame: frame(s.referenceFrame) as string }
       : {}),
     ...(typeof s.speed === 'number' && s.speed > 0 && s.speed <= 1000
       ? { speed: s.speed }

@@ -40,14 +40,23 @@ Counting it as continent gives R(200 Ma) = 4115 km, counting it as ocean gives 3
 <!-- /from-the-run -->
 
 Three classification variants are carried through the pipeline and shown as the
-band on the radius chart. Only one of them is ever solved, so how much the fits,
-the folding and the strain depend on that choice is not known &mdash; see Known
-weaknesses.
+band on the radius chart. `nearest-age` is the one that ships; `permanent` has
+since been solved as well and is published beside it, which is how the band
+stopped being an unmeasured choice &mdash; see *The radius curve, against
+somebody else's*. `depth-age` has never been solved and, on the one external
+check that exists, is the worst of the three.
 
 The grey ramp is calibrated on one identifiable landmark: the oldest value, 254,
 sits at 34 degrees N, 21 degrees E in the Herodotus Basin of the eastern
-Mediterranean, which is the oldest oceanic crust on Earth at about 280 Ma. If
-that reading is wrong, every date in the model scales with it.
+Mediterranean, which is the oldest oceanic crust on Earth at **340 &plusmn; 25
+Ma**. If that reading is wrong, every date in the model scales with it &mdash;
+and it is the least certain date anywhere in the grid. Granot dates it by the
+skewness of its lineated anomalies and says so plainly: the crust needs a
+normal-polarity chron lasting at least four million years, such chrons "are
+known to have occurred only before 316 Myr ago", and "the older age bound is not
+well determined" (Granot 2016, *Nature Geoscience* 9, 701&ndash;705). Every
+other date in the model rests on a chron identification good to one or two
+million years; this one rests on twenty-five.
 
 As an independent check, the radius curve derived from the 81,920-triangle mesh
 agrees with the same measurement taken at full raster resolution to within 1.1%.
@@ -2486,6 +2495,47 @@ and 23% within 200 km at 60 Ma against 43% is not a rounding difference. The
 pairs are the score, so it does not ship. `CRUST_MODEL=permanent` is the run,
 and it is published beside the shipped one so the two can be looked at rather
 than argued about.
+
+## A continent cannot be held still on a globe that changes size
+
+The viewer used to offer two ways to hold a continent still, and the default was
+the wrong one. One fitted a single rotation to every point of the region at once
+-- the way plate tectonics quotes motions relative to Africa. On a sphere of
+fixed radius that is exactly right. Here it cannot work, and the reason is the
+hypothesis itself.
+
+A rigid plate on a smaller globe covers a **larger angular fraction** of it. The
+arc length in kilometres is fixed; the radius shrank. Africa spans 42 degrees of
+today's Earth, and the same rigid crust spans 68 degrees of the 3,926 km Earth
+at 200 Ma. There is no rotation between those two shapes. So the fit was chasing
+a target it could not reach, and what was left on screen was not the world
+turning around Africa.
+
+Measured on the shipped run, per region: the angle the fit ended up applying at
+200 Ma, what it still left over, and what a **perfectly rigid** plate would have
+left over for the radius change alone.
+
+| region | fitted turn | residual after the fit | a rigid plate would leave |
+|---|---|---|---|
+| Africa | 44.3&deg; | 998 km rms | 1,029 km |
+| North America | 41.4&deg; | 734 km | 845 km |
+| Australia | 35.5&deg; | 444 km | 568 km |
+| India | 36.1&deg; | 342 km | 346 km |
+
+The residual is the radius. In three of the four it is *smaller* than a rigid
+plate would give, because the run's own deformation absorbs part of what no
+rotation can. There was no signal underneath to read, so the frame is gone.
+
+Pinning one point survives, and is now the only frame: one point can always be
+matched, whatever the radius does. What is left on screen is then the plate's
+own turn plus its change of angular size -- and the second of those is a
+prediction of this model rather than an artefact of a fit.
+
+Worth saying what this does *not* affect, because it is the obvious next worry.
+The scorecard and the conjugate pairs never had this bug: a separation is
+measured as an angle times the radius **at that time**, which is arc length on
+the globe of that epoch. The reference frame was the one place in the project
+that compared two different radii to each other.
 
 ## Known weaknesses
 
