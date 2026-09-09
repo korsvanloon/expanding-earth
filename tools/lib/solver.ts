@@ -179,7 +179,8 @@ export const KNOBS = [
   'DRAG_FREE', 'DRAG_TOGETHER', 'EDGE_AGE', 'FLAT_K', 'FOLD_IN', 'FOLD_MARGIN',
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
-  'SHORE_SHARE', 'SMALLEST_PLATE', 'STRENGTH', 'TRACK_K',
+  'RELAX_FLAT', 'RELAX_K', 'RELAX_ROUNDS', 'SHORE_SHARE', 'SHUT_RINGS', 'SHUT_SLACK',
+  'SMALLEST_PLATE', 'STRENGTH', 'TRACK_K',
   // How much a margin or a mountain belt is allowed to have moved, read
   // through `knob` in tools/lib/unstretching.ts rather than from ENV here.
   // They were missing from this list for as long as they existed, so a run
@@ -441,6 +442,43 @@ function readConfig() {
    */
   closeStiffness: Number(ENV.CLOSE_K ?? 1),
   /**
+   * How much of its resistance to stretching the crust beside a closing ridge
+   * gives up, so the ridge can actually shut.
+   *
+   * A reader's strategy, first half: *make sure the gap that opens gets closed
+   * whatever it takes, and allow plenty of stretch for it.* The rim already
+   * pulls at full strength -- the crust between its corners does not exist, so
+   * there is nothing to negotiate -- and it still does not shut: 3.3% of the
+   * sphere is under an unshut ridge at 40 Ma and 14.1% at 135. What refuses is
+   * the crust either side, which resists being stretched at its own
+   * `stretchResist`, and a ridge can only shut by stretching what is beside it.
+   *
+   * So this lets it, and only there: a twentieth of the usual resistance within
+   * six triangles of the rim, fading back to full strength beyond.
+   * `SHUT_SLACK=1` is the old behaviour.
+   *
+   * Only the stretching direction. Compression keeps `compressResist`, because
+   * the failure this is meant to avoid is exactly a ridge shutting by crushing
+   * the crust beside it instead of moving it.
+   *
+   * Measured over the whole 200 Myr, against the run before it: the held-back
+   * pairs go from 201 km to 189 at 40 Ma and 62% to 68% within 200 km at 20;
+   * the **bare sphere from 11.36% to 9.52%**; and the externally picked
+   * conjugate set -- 1,302 segments the solver has never seen -- from 318 km to
+   * **292**. Four dated fits improve and three get worse, the largest of each
+   * being India against Africa, 1,033 km to 768, and Antarctica against Africa,
+   * 5 km to 17. See *Shut the ridge and let the crust stretch for it*.
+   */
+  shutSlack: Number(ENV.SHUT_SLACK ?? 0.05),
+  /**
+   * How many triangles back from the rim the slack reaches.
+   *
+   * Six rather than three: doubling the band took the bare sphere from 10.38%
+   * to 9.52% and the external pairs from 304 km to 292, for no cost on the
+   * held-back pairs. It has not been pushed further, and should be.
+   */
+  shutRings: Number(ENV.SHUT_RINGS ?? 6),
+  /**
    * How far back from a closing ridge the crust may tip down into the slot
    * instead of staying flat on the shell, km of crust.
    *
@@ -552,6 +590,50 @@ function readConfig() {
    * under it.
    */
   areaHold: Number(ENV.AREA_K ?? 1),
+  /**
+   * How hard squeezed crust and stretched crust beside it are made to trade,
+   * 0 to 1.
+   *
+   * A reader put the strategy this way: after the crust folds in, close the
+   * gap that opens whatever it takes and allow plenty of stretch; then relax,
+   * so triangles move from high pressure -- squeezed -- to low pressure --
+   * stretched. This is the second half, and the budget measurement says it is
+   * the half that matters.
+   *
+   * The numbers first, because they say what is wrong and what is not. At 200
+   * Ma the crust that exists and the sphere it must go on disagree in *total*
+   * by 0.29%, and the run deforms 21.9% of the shell -- 15.0% squeezed and
+   * 6.9% stretched, at the same time, side by side. The mean is already right
+   * to three parts in a thousand. **The spread is the whole of the problem.**
+   *
+   * The first thing tried was retargeting the mean: ask every triangle for the
+   * same ratio, the one the sphere can actually deliver, rather than each for
+   * all of its own. That does nothing, and the reason is the numbers above --
+   * the ratio it would ask for is 0.998, and 0.998 is what a triangle is asked
+   * for anyway. `holdArea` already wants the variance gone. It cannot get it,
+   * because one Newton step per sweep towards its own area is competing with
+   * the edge springs, the closing rim, the contact push and the sphere, and
+   * whatever those cannot agree on is left as squeezed crust here and stretched
+   * crust there.
+   *
+   * So what is missing is not a target but an **exchange**. This pass walks
+   * every interior edge, and where the two triangles sharing it are at
+   * different pressures it moves the two shared corners -- and only those,
+   * leaving the far corners of both alone -- along the direction that grows the
+   * squeezed one and shrinks the stretched one. It is one Newton step on
+   * `area_f / rest_f = area_g / rest_g`, which is a statement about the
+   * *difference* and says nothing about the sum, so it does not fight the
+   * sphere, the radius or the budget. It is the flow from high pressure to low.
+   *
+   * Weighted by the stiffer of the two, because an exchange needs both to give:
+   * a craton against a craton barely trades, sea floor against sea floor trades
+   * freely. `RELAX_FLAT=1` drops that weighting, to measure what it is worth.
+   */
+  pressureRelax: Number(ENV.RELAX_K ?? 0),
+  /** Let strong crust trade as readily as weak; for measuring the weighting. */
+  relaxFlat: Number(ENV.RELAX_FLAT ?? 0) > 0,
+  /** How many relaxing rounds run after the sweeps. */
+  relaxRounds: Number(ENV.RELAX_ROUNDS ?? 4),
   /**
    * Let a triangle go down as soon as one of its corners has to, instead of
    * waiting until all of it does.
@@ -1212,6 +1294,15 @@ export function solve(): void {
     1 + (stretch[f] - 1) * (riftMa[f] > 0 ? Math.min(1, t / riftMa[f]) : 0)
   let warnedBoundary = false
   const restAreaNow = new Float64Array(faceCount)
+  /** Reused by relaxPressure, which asks about every edge every sweep. */
+  const relaxScratch: number[] = []
+  /**
+   * How many triangles each face is from a closing ridge, 0 for far away.
+   *
+   * Rebuilt once a step, because the rim moves as the crust does. Only when
+   * there is slack to hand out; see CONFIG.shutSlack.
+   */
+  const rimRing = new Uint8Array(faceCount)
   /** What each of the three edges of a face should measure at the current step. */
   const edgeTarget = new Float64Array(faceCount * 3)
 
@@ -2000,6 +2091,11 @@ export function solve(): void {
         mesh, restEdge, crustHere, closing, vertexCount, rNext, CONFIG.lipKm, foldScratch,
       )
       pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm, CONFIG.shoreShare, shorePush, shoreCount)
+      if (CONFIG.shutSlack < 1) {
+        markRimRings(
+          mesh, closing, crustHere, faceCount, rimRing, relaxScratch, CONFIG.shutRings,
+        )
+      }
     } else {
       const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
       refusedTotal += closed.refused
@@ -2096,7 +2192,14 @@ export function solve(): void {
         // reads exactly as it did.
         const shuts = closing[f]
         if (!crustAlive[f] && !shuts) continue
-        const stiffness = shuts ? CONFIG.closeStiffness : stretchResist[f]
+        let stiffness = shuts ? CONFIG.closeStiffness : stretchResist[f]
+        // Crust beside a ridge that has to shut gives up some of its
+        // resistance to being stretched, fading back to full strength with
+        // distance from the rim. See CONFIG.shutSlack.
+        if (!shuts && CONFIG.shutSlack < 1 && rimRing[f] > 0) {
+          const fade = (rimRing[f] - 1) / Math.max(1, CONFIG.shutRings)
+          stiffness *= CONFIG.shutSlack + (1 - CONFIG.shutSlack) * fade
+        }
         if (stiffness === 0) continue
         for (let k = 0; k < 3; k++) {
           const va = mesh.faceVerts[f * 3 + k]
@@ -2232,6 +2335,31 @@ export function solve(): void {
           pos, dragBody, dragBodies, vertexCount, mesh.vertexAlive,
           shorePush, shoreCount, CONFIG.slabDrag, dragWeight,
         )
+      }
+    }
+    /*
+     * The relaxing sweeps, after the rest and not among them.
+     *
+     * A reader's strategy in two halves: shut the gap whatever it takes, then
+     * relax so that triangles move from high pressure to low. Run *inside* the
+     * sweep loop the second half fights the first -- it moved the held-back
+     * pairs from 201 km to 272 while doing exactly what it was asked, because
+     * equalising pressure means moving crust and where the crust is *is* the
+     * answer. Run after them, on a step the rest of the solver has already
+     * settled, it spreads what is left rather than competing for it.
+     *
+     * The sphere is re-imposed after each round, because trading area across
+     * an edge moves both its corners off the shell by a little.
+     */
+    for (let round = 0; round < CONFIG.relaxRounds && CONFIG.pressureRelax > 0; round++) {
+      relaxPressure(
+        pos, mesh, crustAlive, restAreaNow, rigidity, faceCount, rNext,
+        CONFIG.pressureRelax, CONFIG.relaxFlat, relaxScratch,
+      )
+      relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
+      if (CONFIG.foldInward) {
+        pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm,
+          CONFIG.shoreShare, shorePush, shoreCount)
       }
     }
     relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
@@ -3656,6 +3784,155 @@ function unfold(
   return caught
 }
 
+
+/**
+ * How many triangles each piece of crust is from a ridge that has to shut.
+ *
+ * A breadth-first walk out from the closing faces over shared edges. One is
+ * the crust immediately beside the rim, `rings` is as far as it reaches, and
+ * zero means far enough away to keep its full strength. Rebuilt once a step,
+ * because the rim moves with the crust.
+ */
+function markRimRings(
+  mesh: DynamicMesh,
+  closing: Uint8Array,
+  crustHere: Uint8Array,
+  faceCount: number,
+  into: Uint8Array,
+  along: number[],
+  rings = 3,
+) {
+  into.fill(0)
+  let front: number[] = []
+  for (let f = 0; f < faceCount; f++) if (closing[f]) front.push(f)
+  for (let ring = 1; ring <= rings && front.length; ring++) {
+    const next: number[] = []
+    for (const f of front) {
+      for (let k = 0; k < 3; k++) {
+        const u = mesh.faceVerts[f * 3 + k]
+        const v = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
+        mesh.facesAlong(u, v, along)
+        for (const g of along) {
+          // Only crust that exists, and only once: a face already marked is
+          // nearer the rim by an earlier ring than this one would make it.
+          if (g === f || into[g] || closing[g] || !crustHere[g]) continue
+          into[g] = ring
+          next.push(g)
+        }
+      }
+    }
+    front = next
+  }
+}
+
+/**
+ * Move area across a shared edge, from the squeezed triangle to the stretched.
+ *
+ * The mechanism `holdArea` is missing. `holdArea` asks each triangle for its
+ * own area and one Newton step per sweep is all it gets, against the edge
+ * springs, the closing rim, the contact push and the sphere -- so what those
+ * cannot agree on is left behind as squeezed crust in one place and stretched
+ * crust in another, 15% and 7% of the shell at once, while the *total* is right
+ * to three parts in a thousand.
+ *
+ * This asks a different question. For the two triangles either side of an
+ * interior edge it asks only that their pressures be equal:
+ *
+ *     area_f / rest_f  =  area_g / rest_g
+ *
+ * and it satisfies it by moving the two corners **on** the edge, leaving the
+ * far corner of each triangle where it is. That is what makes it an exchange
+ * rather than a competitor: sliding the shared edge towards the stretched
+ * triangle grows the squeezed one by very nearly what it takes from the other,
+ * so the statement is about the difference and says almost nothing about the
+ * sum. It does not fight the sphere, the radius curve or the area budget --
+ * which is why it can run beside all three.
+ *
+ * Six times the volume of the tetrahedron on a triangle and the centre is
+ * twice its area times the radius, so the determinant is the area and the
+ * gradients are the same cross products `holdArea` and `unfold` use.
+ *
+ * Weighted by the *stiffer* of the two by default, because an exchange needs
+ * both to give: two cratons barely trade, two pieces of sea floor trade freely,
+ * and a craton against sea floor trades at the craton's rate. Which is the
+ * behaviour the rigidity field is for -- deformation belongs in thin crust.
+ */
+function relaxPressure(
+  pos: Float64Array,
+  mesh: DynamicMesh,
+  alive: Uint8Array,
+  restAreaNow: Float64Array,
+  rigidity: Float32Array,
+  faceCount: number,
+  r: number,
+  stiffness: number,
+  flat: boolean,
+  /** One reusable array, because this is called every sweep of every step. */
+  along: number[],
+): number {
+  let traded = 0
+  const area = (f: number) => {
+    const a = mesh.faceVerts[f * 3] * 3
+    const b = mesh.faceVerts[f * 3 + 1] * 3
+    const c = mesh.faceVerts[f * 3 + 2] * 3
+    return pos[a] * (pos[b + 1] * pos[c + 2] - pos[b + 2] * pos[c + 1])
+      + pos[a + 1] * (pos[b + 2] * pos[c] - pos[b] * pos[c + 2])
+      + pos[a + 2] * (pos[b] * pos[c + 1] - pos[b + 1] * pos[c])
+  }
+  /** d(det)/d(vertex u) for the face f, which is the cross product of the other two. */
+  const gradient = (f: number, u: number, into: number[]) => {
+    const v0 = mesh.faceVerts[f * 3], v1 = mesh.faceVerts[f * 3 + 1], v2 = mesh.faceVerts[f * 3 + 2]
+    const other = v0 === u ? [v1, v2] : v1 === u ? [v2, v0] : [v0, v1]
+    const p = other[0] * 3
+    const q = other[1] * 3
+    into[0] = pos[p + 1] * pos[q + 2] - pos[p + 2] * pos[q + 1]
+    into[1] = pos[p + 2] * pos[q] - pos[p] * pos[q + 2]
+    into[2] = pos[p] * pos[q + 1] - pos[p + 1] * pos[q]
+  }
+  const gfu = [0, 0, 0], gfv = [0, 0, 0], ggu = [0, 0, 0], ggv = [0, 0, 0]
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    for (let k = 0; k < 3; k++) {
+      const u = mesh.faceVerts[f * 3 + k]
+      const v = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
+      // Each interior edge once, from its lower-numbered end.
+      if (u > v) continue
+      mesh.facesAlong(u, v, along)
+      if (along.length !== 2) continue
+      const g = along[0] === f ? along[1] : along[0]
+      if (g === f || !alive[g]) continue
+      const restF = restAreaNow[f]
+      const restG = restAreaNow[g]
+      if (restF <= 0 || restG <= 0) continue
+      // The constraint, as a difference of pressures. Both determinants are
+      // twice the area times the radius, and the radius divides out of an
+      // equality, so it need not appear.
+      const c = area(f) / restF - area(g) / restG
+      const scale = flat ? 1 : 1 - Math.max(rigidity[f], rigidity[g])
+      if (scale <= 0) continue
+      gradient(f, u, gfu); gradient(f, v, gfv)
+      gradient(g, u, ggu); gradient(g, v, ggv)
+      let norm = 0
+      const du = [0, 0, 0], dv = [0, 0, 0]
+      for (let i = 0; i < 3; i++) {
+        du[i] = gfu[i] / restF - ggu[i] / restG
+        dv[i] = gfv[i] / restF - ggv[i] / restG
+        norm += du[i] * du[i] + dv[i] * dv[i]
+      }
+      if (norm < 1e-18) continue
+      const l = (-c * stiffness * scale) / norm
+      const iu = u * 3
+      const iv = v * 3
+      for (let i = 0; i < 3; i++) {
+        pos[iu + i] += l * du[i]
+        pos[iv + i] += l * dv[i]
+      }
+      traded++
+    }
+  }
+  void r
+  return traded
+}
 
 /**
  * Hold every triangle to the area of the crust it is made of.
