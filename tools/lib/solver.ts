@@ -43,8 +43,10 @@
  */
 import {
   FIT_TARGETS,
+  PALEO_TARGETS,
   PERMANENT_MA,
   REGIONS,
+  paleoBand,
   sampleCurve,
   type FrameDiagnostics,
   type Meta,
@@ -53,7 +55,7 @@ import { AGE_SAMPLES, momentOf, olderShare } from '../../shared/age-samples.js'
 import { CRATON_RIGIDITY, CRUST_TYPES, WEAK_RIGIDITY } from '../../shared/crust.js'
 import { type TopologyDelta, topologyDelta, writeTopology } from '../../shared/topology.js'
 import { writeChannel, writeFrames } from '../../shared/frames.js'
-import { directionToUv, length3 } from '../../shared/sphere.js'
+import { directionToUv, length3, lonLatToDirection } from '../../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './dynamic-mesh.js'
 import {
   foldShape, markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
@@ -679,7 +681,7 @@ export function configure(env: Record<string, string | undefined>): void {
 export function solve(): void {
   const meta = JSON.parse(
     HOST.readText('meta.partial.json'),
-  ) as Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'>
+  ) as Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard' | 'paleolatitude' | 'paleoAxisFit'>
 
   // Copied into a buffer of its own, and then cast: a Uint8Array's buffer may
   // be a shared one as far as the types are concerned, which `readTracks`
@@ -1273,6 +1275,53 @@ export function solve(): void {
     }
     regionVertices.set(region.id, list)
   }
+
+  /**
+   * The vertex nearest each paleomagnetic anchor, chosen once.
+   *
+   * Continental crust only: an anchor is a rock whose inclination was measured,
+   * so the point that carries it has to be a point that existed. The mesh has
+   * vertices 115 km apart, and the anchors are named towns rather than
+   * survey sites, so nearest-vertex is well inside the honesty of the check --
+   * a degree of latitude is 111 km and the published error circles are two to
+   * six degrees.
+   */
+  const paleoVertex = new Map<string, number>()
+  for (const target of PALEO_TARGETS) {
+    const [tx, ty, tz] = lonLatToDirection(
+      (target.lonDeg * Math.PI) / 180, (target.latDeg * Math.PI) / 180,
+    )
+    let best = -2
+    let at = -1
+    for (let v = 0; v < vertexCount; v++) {
+      if (vertexAge[v] < PERMANENT_MA) continue
+      const dot = dirs[v * 3] * tx + dirs[v * 3 + 1] * ty + dirs[v * 3 + 2] * tz
+      if (dot > best) { best = dot; at = v }
+    }
+    if (at >= 0) paleoVertex.set(target.id, at)
+  }
+  const paleoLatitude = new Map<string, number[]>(
+    PALEO_TARGETS.map((target) => [target.id, []]),
+  )
+  /**
+   * Where the run puts each anchor, as a latitude.
+   *
+   * The spin axis is the y axis here; see shared/sphere.ts, where `v` is built
+   * from `acos(y)`. Which is also the assumption this check rests on: that the
+   * reconstruction's frame keeps the present axis, meaning no net rotation of
+   * the lithosphere and no true polar wander. Both are stated beside the
+   * targets rather than defended.
+   */
+  const recordPaleolatitude = () => {
+    for (const target of PALEO_TARGETS) {
+      const v = paleoVertex.get(target.id)
+      if (v === undefined) continue
+      const s = mesh.survivor(v) * 3
+      const length = length3(pos[s], pos[s + 1], pos[s + 2]) || 1
+      const lat = (Math.asin(Math.min(1, Math.max(-1, pos[s + 1] / length))) * 180) / Math.PI
+      paleoLatitude.get(target.id)!.push(lat)
+    }
+  }
   /**
    * The seaward edge of each continent: a point of permanent crust with a
    * neighbour that is not permanent.
@@ -1463,22 +1512,16 @@ export function solve(): void {
     // whose crust has not erupted is a closure the solver did not manage, and
     // sky over nothing at all is crust that has been pulled apart.
     if (CONFIG.foldInward) {
-      let rest = 0
-      let now = 0
-      for (let f = 0; f < faceCount; f++) {
-        if (!crustHere[f]) continue
-        rest += restAreaNow[f]
-        const a3 = mesh.faceVerts[f * 3] * 3
-        const b3 = mesh.faceVerts[f * 3 + 1] * 3
-        const c3 = mesh.faceVerts[f * 3 + 2] * 3
-        now += solidAngle(pos, a3, b3, c3) * radiusAt(t) * radiusAt(t)
-      }
-      const sphere = 4 * Math.PI * radiusAt(t) ** 2
+      const b = budget(pos, mesh.faceVerts, crustHere, restAreaNow, faceCount, radiusAt(t))
       console.log(
-        `[area] ${t} Ma  crust wants ${(100 * rest / sphere).toFixed(2)}% of the sphere, `
-        + `covers ${(100 * now / sphere).toFixed(2)}%`,
+        `[area] ${t} Ma  the data allows ${(100 * b.budgetFraction).toFixed(2)}% of the sphere `
+        + `to deform; this run deforms ${(100 * b.deformedFraction).toFixed(1)}% `
+        + `(${(100 * b.squeezedFraction).toFixed(1)}% squeezed, `
+        + `${(100 * b.stretchedFraction).toFixed(1)}% stretched) -- `
+        + `x${b.overBudget.toFixed(0)} over budget`,
       )
       if (ENV.AREA_TRACE) {
+        const sphere = 4 * Math.PI * radiusAt(t) ** 2
         const band = (f: number) => (rigidity[f] >= 0.9 ? 0 : rigidity[f] >= 0.5 ? 1 : 2)
         const young = (f: number) => (faceAges[f] < t + 20 ? 1 : 0)
         const names = ['craton', 'middle', 'weak  ']
@@ -1598,12 +1641,14 @@ export function solve(): void {
           `${t} Ma; the coverage figures are not reliable. See tools/lib/coverage.ts.`,
       )
     }
+    recordPaleolatitude()
     diagnostics.push({
       timeMa: t,
       radiusKm: radiusAt(t),
       ...tiled,
       islandOverlapDeepestKm: dents.deepestKm,
       ...foldedShare(pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount),
+      ...budget(pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, radiusAt(t)),
       ...strainStats(strain, faceAges, restAreaNow, faceCount, t, rigidity, crustAlive),
       reliefKm: relief(pos, vertexCount, radiusAt(t), onShell),
       blockCount: plateReport.count,
@@ -2285,6 +2330,7 @@ export function solve(): void {
               + `deep=${fold.deepestKm.toFixed(0)}/${fold.hangingKm.toFixed(0)}km  `
             : `points=${String(mesh.liveVertices).padStart(5)}  `) +
           `bare=${(100 * d.gapFraction).toFixed(2)}%  ` +
+          `budget=x${d.overBudget.toFixed(0)}  ` +
           (CONFIG.foldInward
             ? `unshut=${(100 * unshutShare).toFixed(2)}%  `
               + `fold=${folding.tiltDeg.toFixed(0)}deg  `
@@ -2345,14 +2391,124 @@ export function solve(): void {
   }
   HOST.write('strain.bin', strainBuffer)
   HOST.write('plates.bin', plateBuffer)
+  /** Filled in by the paleolatitude report, which runs just below. */
+  let paleoAxisFitOut: Meta['paleoAxisFit'] = []
+
+  /*
+   * Somebody else's conjugate pairs, measured.
+   *
+   * Read off the recorded frames rather than during the run, because a pair's
+   * age can fall between two frames and the nearest one is what it wants --
+   * and because nothing here feeds back into the solve, so there is no reason
+   * for it to cost anything during it.
+   */
+  const external = (meta.externalPairs ?? []).map((pair) => {
+    const frame = Math.min(
+      frames.length - 1, Math.max(0, Math.round(pair.ageMa / meta.frameStepMa)),
+    )
+    const radius = diagnostics[frame]?.radiusKm ?? r0
+    const read = (v: number) => {
+      const s = mesh.survivor(v) * 3
+      const f = frames[frame]
+      const x = f[s] / 32767, y = f[s + 1] / 32767, z = f[s + 2] / 32767
+      const length = length3(x, y, z) || 1
+      return [x / length, y / length, z / length]
+    }
+    const [ax, ay, az] = read(pair.aVert)
+    const [bx, by, bz] = read(pair.bVert)
+    const dot = Math.min(1, Math.max(-1, ax * bx + ay * by + az * bz))
+    return { ...pair, separationKm: Math.round(Math.acos(dot) * radius) }
+  })
+
+  // The check that does not depend on the radius. A latitude is an angle, so
+  // this is the one external number the radius curve can neither flatter nor
+  // spoil -- and it reaches 200 Ma, where the conjugate pairs have run out.
+  console.log('[solve] paleolatitude, against Torsvik 2012 and Vaes 2023:')
+  for (const target of PALEO_TARGETS) {
+    const got = paleoLatitude.get(target.id) ?? []
+    for (const says of target.says) {
+      const i = Math.round(says.atMa / meta.frameStepMa)
+      if (i >= got.length) continue
+      const [low, high] = paleoBand(says)
+      const mine = got[i]
+      const miss = mine < low ? low - mine : mine > high ? mine - high : 0
+      console.log(
+        `  ${target.label.padEnd(18)} ${String(says.atMa).padStart(3)} Ma:  `
+        + `${mine.toFixed(1).padStart(6)}  wants ${low.toFixed(1)} to ${high.toFixed(1)}  `
+        + (miss > 0 ? `off by ${miss.toFixed(1)} deg` : 'inside'),
+      )
+    }
+  }
+
+  /*
+   * And how much of that is the frame.
+   *
+   * Every point missing in the same direction is one finding; five points
+   * missing independently is a different one. See paleoAxisFitAt.
+   */
+  {
+    const axisFit: Meta['paleoAxisFit'] = []
+    for (const atMa of [...new Set(PALEO_TARGETS.flatMap((t) => t.says.map((x) => x.atMa)))]
+      .sort((a, b) => a - b)) {
+      const frame = Math.round(atMa / meta.frameStepMa)
+      if (frame >= frames.length) continue
+      const points: { got: [number, number, number]; want: number }[] = []
+      let before = 0
+      for (const target of PALEO_TARGETS) {
+        const says = target.says.find((x) => x.atMa === atMa)
+        const v = paleoVertex.get(target.id)
+        if (!says || v === undefined) continue
+        const s3 = mesh.survivor(v) * 3
+        const f = frames[frame]
+        const x = f[s3] / 32767, y = f[s3 + 1] / 32767, z = f[s3 + 2] / 32767
+        const length = length3(x, y, z) || 1
+        // The middle of the two compilations, since a single number is what a
+        // least-squares fit wants and the band is carried in the table above.
+        const want = (says.t12 + says.v23) / 2
+        points.push({ got: [x / length, y / length, z / length], want })
+        const lat = (Math.asin(Math.min(1, Math.max(-1, y / length))) * 180) / Math.PI
+        before += (lat - want) ** 2
+      }
+      if (points.length < 3) continue
+      const fit = paleoAxisFitAt(points)
+      axisFit.push({
+        atMa,
+        rmsBeforeDeg: Number(Math.sqrt(before / points.length).toFixed(1)),
+        rmsAfterDeg: Number(fit.rmsDeg.toFixed(1)),
+        tiltDeg: Number(fit.tiltDeg.toFixed(1)),
+      })
+    }
+    console.log(
+      '[solve] and how much of that is the frame -- the best spin axis for each age, '
+      + 'and what it cannot fix:',
+    )
+    for (const row of axisFit) {
+      console.log(
+        `  ${String(row.atMa).padStart(3)} Ma:  ${row.rmsBeforeDeg.toFixed(1).padStart(5)} deg rms `
+        + `on the present axis  ->  ${row.rmsAfterDeg.toFixed(1).padStart(5)} deg with the axis `
+        + `tilted ${row.tiltDeg.toFixed(1)} deg`,
+      )
+    }
+    paleoAxisFitOut = axisFit
+  }
+
   HOST.write(
     'meta.json',
     JSON.stringify({
       ...meta,
       folded: CONFIG.foldInward,
       builtAt: new Date().toISOString(),
-      overrides: [...OVERRIDES],
+      // Both stages' knobs, because a run is both stages. The first stage's
+      // are read from the metadata it wrote; see BUILD_KNOBS in
+      // tools/build-data.ts, which had thirty-eight knobs and no list.
+      overrides: [...new Set([...(meta.buildOverrides ?? []), ...OVERRIDES])].sort(),
       frameCount: frames.length,
+      externalPairs: external,
+      paleoAxisFit: paleoAxisFitOut,
+      paleolatitude: PALEO_TARGETS.map((target) => ({
+        id: target.id,
+        latDeg: (paleoLatitude.get(target.id) ?? []).map((x) => Number(x.toFixed(2))),
+      })),
       diagnostics,
       fixedRadiusDiagnostics,
       scorecard: FIT_TARGETS.map((target) => ({
@@ -2383,6 +2539,39 @@ export function solve(): void {
         `${watched ? '   [watched, not scored]' : ''}`,
     )
   }
+
+  if (external.length) {
+    console.log(
+      '[solve] external conjugate pairs (GSFML Hellinger picks; never seen by the solver):',
+    )
+    const byPair = new Map<string, typeof external>()
+    for (const e of external) {
+      byPair.set(e.pair, [...(byPair.get(e.pair) ?? []), e])
+    }
+    const quantile = (xs: number[], p: number) =>
+      [...xs].sort((a, b) => a - b)[Math.floor(p * (xs.length - 1))]
+    for (const [pair, rows] of [...byPair].sort((a, b) => b[1].length - a[1].length)) {
+      const km = rows.map((r) => r.separationKm)
+      const within = rows.filter((r) => r.separationKm <= r.sigmaKm * 3).length
+      console.log(
+        `  ${pair.padEnd(13)} ${String(rows.length).padStart(4)} segments  `
+        + `${Math.min(...rows.map((r) => r.ageMa)).toFixed(0)}-`
+        + `${Math.max(...rows.map((r) => r.ageMa)).toFixed(0)} Ma  `
+        + `median ${quantile(km, 0.5).toString().padStart(4)} km  `
+        + `p10 ${quantile(km, 0.1).toString().padStart(4)}  `
+        + `p90 ${quantile(km, 0.9).toString().padStart(5)}  `
+        + `${within} of ${rows.length} inside 3 sigma`,
+      )
+    }
+    const all = external.map((e) => e.separationKm)
+    console.log(
+      `  ${'all'.padEnd(13)} ${String(all.length).padStart(4)} segments  `
+      + `median ${quantile(all, 0.5)} km, p90 ${quantile(all, 0.9)}; `
+      + `published fits reach 1-2 km for a young fast pair and 9-25 km at 83 Ma`,
+    )
+  }
+
+
   console.log('[solve] where each continent ended up, against where it sits today:')
   for (const region of REGIONS) {
     const seen = track.get(region.id)
@@ -3280,6 +3469,128 @@ function buildVertexAdjacency(indices: Uint32Array, vertexCount: number) {
  * absolute value of its numerator, so a folded triangle reports a perfectly
  * healthy positive area and every strain figure in the run believed it.
  */
+/**
+ * How much deformation the data asks for, against how much the run performs.
+ *
+ * The principle the whole model rests on is that the crust **moves**: the
+ * sphere's area is known, the crust that has to go on it is known, and only the
+ * mismatch between the two is allowed to squash. That mismatch is knowable in
+ * advance and it is *tiny* -- both numbers come out of the same age grid by
+ * different routes, one through a raster at 8192x4096 and the other through
+ * 81,920 triangles, and 2.8% of the grid is undated crust treated as always
+ * having been there. So the difference is a rounding error between two readings
+ * of one dataset, a few tenths of a percent, and that is the entire licence to
+ * deform.
+ *
+ * `tools/measure-budget.ts` computed this from a finished run on disk, which
+ * meant nobody looked. It costs one pass over the faces here, where every
+ * ingredient is already in hand, so every run carries it and every published
+ * run can be compared on it.
+ *
+ * - `budgetFraction` -- what the data allows, as a share of the sphere.
+ * - `squeezedFraction`, `stretchedFraction` -- what the run actually does,
+ *   split by direction, because they are not the same failure. Squeezed crust
+ *   is crust with nowhere to go; stretched crust is crust pulled apart to cover
+ *   ground the reconstruction could not close.
+ * - `overBudget` -- the ratio. On the run this was written against it is
+ *   between 43 and 186, and there is no reading of the model on which that is
+ *   acceptable. It is the sharpest single statement of what is still wrong.
+ */
+function budget(
+  pos: Float64Array, faceVerts: Int32Array, alive: Uint8Array,
+  restAreaNow: Float64Array, faceCount: number, r: number,
+) {
+  let demanded = 0
+  let squeezed = 0
+  let stretched = 0
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const rest = restAreaNow[f]
+    demanded += rest
+    const now = solidAngle(
+      pos, faceVerts[f * 3] * 3, faceVerts[f * 3 + 1] * 3, faceVerts[f * 3 + 2] * 3,
+    ) * r * r
+    if (now < rest) squeezed += rest - now
+    else stretched += now - rest
+  }
+  const available = 4 * Math.PI * r * r
+  // Whichever way it points: too much crust for the sphere and too little are
+  // both a mismatch the data licenses, and neither is a licence to deform more
+  // than its own size.
+  const allowed = Math.abs(demanded - available)
+  const deformed = squeezed + stretched
+  return {
+    budgetFraction: allowed / available,
+    squeezedFraction: squeezed / available,
+    stretchedFraction: stretched / available,
+    deformedFraction: deformed / available,
+    overBudget: allowed > 0 ? deformed / allowed : 0,
+  }
+}
+
+/**
+ * How much of the paleolatitude miss is the *frame* rather than the assembly.
+ *
+ * The comparison above assumes the reconstruction keeps the present spin axis,
+ * which is two assumptions at once -- no net rotation of the lithosphere and no
+ * true polar wander -- and Torsvik's own Table 12 puts the second at up to 22.5
+ * degrees at 200 Ma. So a miss shared by every point in the same direction is
+ * not the same finding as five points missing independently: the first says the
+ * whole assembly is turned, which a frame can be wrong about, and the second
+ * says the continents are in the wrong places relative to each other, which
+ * nothing can excuse.
+ *
+ * Separating them is cheap, because a paleolatitude needs only the *axis* and
+ * not a full rotation: a latitude is 90 degrees minus the angle to the pole, so
+ * the pole's own longitude cannot matter. Two parameters. This searches the
+ * sphere for the axis that best reconciles the model's own positions with the
+ * measured latitudes at each age, and reports what is still left over.
+ *
+ * What is left over is the real finding. What the search takes away is the part
+ * a different frame -- or true polar wander -- could account for.
+ */
+function paleoAxisFitAt(
+  points: { got: [number, number, number]; want: number }[],
+): { axis: [number, number, number]; tiltDeg: number; rmsDeg: number } {
+  const cost = (ax: number, ay: number, az: number) => {
+    let sum = 0
+    for (const p of points) {
+      const dot = Math.min(1, Math.max(-1, p.got[0] * ax + p.got[1] * ay + p.got[2] * az))
+      const lat = 90 - (Math.acos(dot) * 180) / Math.PI
+      sum += (lat - p.want) ** 2
+    }
+    return sum / points.length
+  }
+  // A coarse sweep of the whole sphere, then a local refinement. The surface is
+  // smooth in two parameters and the sweep is 64,800 evaluations of five
+  // points, so there is no reason to be clever about it.
+  let best: [number, number, number] = [0, 1, 0]
+  let bestCost = cost(0, 1, 0)
+  const consider = (latDeg: number, lonDeg: number) => {
+    const lat = (latDeg * Math.PI) / 180
+    const lon = (lonDeg * Math.PI) / 180
+    const c = Math.cos(lat)
+    const axis: [number, number, number] = [c * Math.cos(lon), Math.sin(lat), -c * Math.sin(lon)]
+    const value = cost(axis[0], axis[1], axis[2])
+    if (value < bestCost) { bestCost = value; best = axis }
+  }
+  for (let lat = -90; lat <= 90; lat += 1) {
+    for (let lon = -180; lon < 180; lon += 1) consider(lat, lon)
+  }
+  // Refine around the winner, to a tenth of a degree.
+  const [bx, by, bz] = best
+  const bestLat = (Math.asin(Math.min(1, Math.max(-1, by))) * 180) / Math.PI
+  const bestLon = (Math.atan2(-bz, bx) * 180) / Math.PI
+  for (let dLat = -1; dLat <= 1; dLat += 0.1) {
+    for (let dLon = -1; dLon <= 1; dLon += 0.1) consider(bestLat + dLat, bestLon + dLon)
+  }
+  return {
+    axis: best,
+    tiltDeg: (Math.acos(Math.min(1, Math.max(-1, best[1]))) * 180) / Math.PI,
+    rmsDeg: Math.sqrt(bestCost),
+  }
+}
+
 function foldedShare(
   pos: Float64Array, faceVerts: Int32Array, alive: Uint8Array,
   restAreaNow: Float64Array, faceCount: number,

@@ -11,7 +11,7 @@
  *
  * Keep prose out of the marked blocks and numbers out of the prose.
  */
-import type { FrameDiagnostics, Meta } from '../../shared/model.js'
+import { PALEO_TARGETS, paleoBand, type FrameDiagnostics, type Meta } from '../../shared/model.js'
 import { CRUST_TYPE_LABELS, type CrustType } from '../../shared/crust.js'
 
 const OPEN = (name: string) => `<!-- from-the-run: ${name} -->`
@@ -70,6 +70,67 @@ export function runBlocks(meta: Meta): Record<string, string> {
         + ' closest anywhere |',
       '|---|---|---|---|---|---|---|---|',
       ...fits,
+    ].join('\n'),
+
+    external: (() => {
+      const rows = meta.externalPairs ?? []
+      const byPair = new Map<string, typeof rows>()
+      for (const e of rows) byPair.set(e.pair, [...(byPair.get(e.pair) ?? []), e])
+      const q = (xs: number[], p: number) =>
+        [...xs].sort((a, b) => a - b)[Math.floor(p * (xs.length - 1))]
+      return [
+        '| plate pair | segments | ages | median apart | p90 | published &sigma; |',
+        '|---|---|---|---|---|---|',
+        ...[...byPair].sort((a, b) => b[1].length - a[1].length).map(([pair, list]) => {
+          const km = list.map((e) => e.separationKm)
+          const ages = list.map((e) => e.ageMa)
+          const sigma = list.map((e) => e.sigmaKm)
+          return `| ${pair} | ${list.length} | ${Math.min(...ages).toFixed(0)}`
+            + `&ndash;${Math.max(...ages).toFixed(0)} Ma | ${q(km, 0.5)} km | `
+            + `${q(km, 0.9)} km | ${Math.min(...sigma)}&ndash;${Math.max(...sigma)} km |`
+        }),
+      ].join('\n')
+    })(),
+
+    paleo: [
+      '| point | 200 Ma | 170 Ma | 120 Ma | 60 Ma |',
+      '|---|---|---|---|---|',
+      ...PALEO_TARGETS.map((target) => {
+        const got = meta.paleolatitude?.find((p) => p.id === target.id)?.latDeg ?? []
+        const cells = [200, 170, 120, 60].map((ma) => {
+          const says = target.says.find((s) => s.atMa === ma)
+          const i = Math.round(ma / meta.frameStepMa)
+          if (!says || i >= got.length) return '&mdash;'
+          const [low, high] = paleoBand(says)
+          const mine = got[i]
+          const miss = mine < low ? low - mine : mine > high ? mine - high : 0
+          const want = `${low.toFixed(0)} to ${high.toFixed(0)}`
+          return miss > 0
+            ? `**${mine.toFixed(0)}&deg;** (wants ${want}, off ${miss.toFixed(0)})`
+            : `${mine.toFixed(0)}&deg; (wants ${want}) &#10003;`
+        })
+        return `| ${target.label} | ${cells.join(' | ')} |`
+      }),
+    ].join('\n'),
+
+    paleoaxis: [
+      '| age | rms miss on today&rsquo;s axis | with the best axis for that age | tilt it needed |',
+      '|---|---|---|---|',
+      ...(meta.paleoAxisFit ?? []).map((row) =>
+        `| ${row.atMa} Ma | ${row.rmsBeforeDeg.toFixed(1)}&deg; | `
+        + `**${row.rmsAfterDeg.toFixed(1)}&deg;** | ${row.tiltDeg.toFixed(1)}&deg; |`),
+    ].join('\n'),
+
+    budget: [
+      '| time | the data allows | the run deforms | squeezed | stretched | over budget |',
+      '|---|---|---|---|---|---|',
+      ...SHOWN_MA.map((ma) => {
+        const d = at(ma)
+        if (!d) return null
+        return `| ${ma} Ma | ${pct(d.budgetFraction)} | ${pct(d.deformedFraction, 1)} | `
+          + `${pct(d.squeezedFraction, 1)} | ${pct(d.stretchedFraction, 1)} | `
+          + `**&times;${d.overBudget.toFixed(0)}** |`
+      }).filter((r) => r !== null),
     ].join('\n'),
 
     fabric: [

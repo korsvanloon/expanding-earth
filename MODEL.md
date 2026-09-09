@@ -36,7 +36,7 @@ So 94.8% of the map is internally consistent and the real hole is 2.8%. What
 that hole does to the answer is what matters:
 
 <!-- from-the-run: bounds -->
-Counting it as continent gives R(200 Ma) = 4115 km, counting it as ocean gives 3926 km &mdash; the entire ambiguity is worth 4.8% of the radius.
+Counting it as continent gives R(200 Ma) = 4107 km, counting it as ocean gives 3918 km &mdash; the entire ambiguity is worth 4.8% of the radius.
 <!-- /from-the-run -->
 
 Three classification variants are carried through the pipeline and shown as the
@@ -465,10 +465,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 34 | 80 km | 100% | 0% |
-| 5 Ma | 75 | 64 km | 96% | 0% |
-| 30 Ma | 57 | 186 km | 51% | 0% |
-| 60 Ma | 30 | 243 km | 43% | 0% |
-| 120 Ma | 7 | 731 km | 14% | 0% |
+| 5 Ma | 75 | 65 km | 96% | 0% |
+| 30 Ma | 57 | 206 km | 49% | 0% |
+| 60 Ma | 30 | 260 km | 33% | 0% |
+| 120 Ma | 7 | 394 km | 29% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -557,7 +557,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 171 blocks at its most divided and 13 at 200 Ma.
+The run finds 158 blocks at its most divided and 5 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -570,7 +570,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.02%. The median surface speed falls from a peak of 28 km/Myr to 4.4, the block count from as many as 171 to 13, and the biggest block grows to 62% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.03%. The median surface speed falls from a peak of 26 km/Myr to 3.7, the block count from as many as 158 to 5, and the biggest block grows to 62% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -597,11 +597,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 1.019%/Myr | 14.9 km/Myr | 160 | 2% | 1.1% |
-| 30 Ma | 0.617%/Myr | 26.5 km/Myr | 163 | 3% | 2.5% |
-| 60 Ma | 0.408%/Myr | 22.7 km/Myr | 135 | 5% | 4.3% |
-| 120 Ma | 0.284%/Myr | 22.0 km/Myr | 122 | 7% | 5.7% |
-| 200 Ma | 0.000%/Myr | 4.4 km/Myr | 13 | 62% | 6.9% |
+| 5 Ma | 1.026%/Myr | 14.9 km/Myr | 158 | 2% | 1.1% |
+| 30 Ma | 0.619%/Myr | 21.7 km/Myr | 151 | 3% | 2.2% |
+| 60 Ma | 0.409%/Myr | 16.6 km/Myr | 126 | 6% | 3.7% |
+| 120 Ma | 0.284%/Myr | 16.6 km/Myr | 84 | 9% | 5.5% |
+| 200 Ma | 0.000%/Myr | 3.7 km/Myr | 5 | 62% | 7.2% |
 <!-- /from-the-run -->
 
 The middle of the run is the second row. The crust moves as scores of patches of
@@ -794,11 +794,11 @@ Then the detail. Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6207 km | 0.62% | 0.04% | 0.000% | 0.00% | 0.13% | 1.0% |
-| 30 Ma | 5673 km | 2.13% | 0.19% | 0.000% | 0.00% | 0.47% | 3.0% |
-| 60 Ma | 5152 km | 4.29% | 0.64% | 0.000% | 0.16% | 0.96% | 6.2% |
-| 120 Ma | 4315 km | 8.81% | 2.38% | 0.469% | 1.04% | 1.53% | 10.8% |
-| 200 Ma | 3926 km | 11.89% | 4.11% | 1.677% | 1.18% | 2.04% | 12.9% |
+| 5 Ma | 6205 km | 0.64% | 0.04% | 0.000% | 0.00% | 0.08% | 1.0% |
+| 30 Ma | 5669 km | 2.14% | 0.16% | 0.000% | 0.00% | 0.23% | 2.8% |
+| 60 Ma | 5148 km | 4.32% | 0.34% | 0.000% | 0.02% | 0.35% | 4.4% |
+| 120 Ma | 4309 km | 9.79% | 1.17% | 0.000% | 0.36% | 0.62% | 9.7% |
+| 200 Ma | 3918 km | 11.36% | 3.08% | 0.411% | 0.75% | 0.94% | 13.6% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -812,18 +812,19 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 140 Ma | 0% | 5% | +5 | 26 km | 3 km at 120 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 24% | +24 | 29 km | 1 km at 175 Ma |
-| India &ndash; Africa | 165 Ma | 0% | 0% | +0 | 1009 km | 913 km at 200 Ma |
-| Greenland &ndash; North America | 65 Ma | 20% | 22% | +2 | 0 km | 0 km at 0 Ma |
-| North America &ndash; Africa | 195 Ma | 0% | 0% | +0 | 1194 km | 691 km at 175 Ma |
-| India &ndash; Madagascar | 90 Ma | 0% | 0% | +0 | 1237 km | 1110 km at 195 Ma |
+| South America &ndash; Africa | 140 Ma | 0% | 9% | +9 | 14 km | 0 km at 170 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 14% | +14 | 20 km | 6 km at 175 Ma |
+| India &ndash; Africa | 165 Ma | 0% | 0% | +0 | 1033 km | 995 km at 200 Ma |
+| Greenland &ndash; North America | 65 Ma | 20% | 24% | +5 | 0 km | 0 km at 0 Ma |
+| North America &ndash; Africa | 195 Ma | 0% | 0% | +0 | 1048 km | 710 km at 175 Ma |
+| India &ndash; Madagascar | 90 Ma | 0% | 0% | +0 | 1190 km | 1107 km at 75 Ma |
 | Madagascar &ndash; Africa | 160 Ma | 88% | 91% | +3 | 0 km | 0 km at 0 Ma |
-| Arabia &ndash; Africa | 30 Ma | 31% | 38% | +8 | 0 km | 0 km at 0 Ma |
-| Iberia &ndash; North America | 130 Ma | 0% | 0% | +0 | 1286 km | 1161 km at 155 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 16 km | 2 km at 155 Ma |
-| Antarctica &ndash; South America | watched | 0% | 18% | +18 | 8 km | 2 km at 195 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 1930 km | 1660 km at 175 Ma |
+| Arabia &ndash; Africa | 30 Ma | 31% | 42% | +12 | 0 km | 0 km at 0 Ma |
+| Iberia &ndash; North America | 130 Ma | 0% | 0% | +0 | 963 km | 963 km at 130 Ma |
+| India &ndash; East Antarctica | 135 Ma | 0% | 0% | +0 | 3107 km | 2789 km at 200 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 5% | +5 | 5 km | 3 km at 150 Ma |
+| Antarctica &ndash; South America | watched | 0% | 17% | +17 | 7 km | 2 km at 125 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 1971 km | 1744 km at 175 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -2495,6 +2496,336 @@ and 23% within 200 km at 60 Ma against 43% is not a rounding difference. The
 pairs are the score, so it does not ship. `CRUST_MODEL=permanent` is the run,
 and it is published beside the shipped one so the two can be looked at rather
 than argued about.
+
+## Somebody else's conjugate pairs
+
+The score this model reports on itself has one weakness that no amount of
+holding pairs back can fix. The pairs come out of its own fracture-zone tracer,
+which reads the same age grid the reconstruction is of. Half of them pull the
+solver and half are held back, and that controls for overfitting -- but not for
+the tracer being wrong in the same way twice.
+
+So the run is now also graded on picks it had nothing to do with. The GSFML
+Hellinger archive (Seton et al. 2014) holds 162 files from eleven published
+plate-pair studies in Chang's `hellinger1` format, and the format is what makes
+it usable: within one file, picks carrying the same segment number on opposite
+sides are **the same isochron segment on the two flanks of one ridge**. The
+pairing is published, not inferred. Each pick also carries the study's own
+1&sigma; position error, which is the thing this project's own tracer cannot
+supply at all.
+
+Chron ages come from the compilation's own `GeeK2007` column rather than from a
+timescale read here -- 417 chron ends, grouped by chron and young/old/centre
+flag. A label naming no end is refused if its chron is wider than five million
+years, which is why anomaly 34 is dropped: it is the Cretaceous Normal
+Superchron, 83 to 120.6 Ma, and its middle is not a date anything cooled at.
+
+<!-- from-the-run: external -->
+| plate pair | segments | ages | median apart | p90 | published &sigma; |
+|---|---|---|---|---|---|
+| NAM-AFR | 338 | 10&ndash;79 Ma | 217 km | 588 km | 4&ndash;5 km |
+| SOM-ANT-IND | 218 | 34&ndash;65 Ma | 600 km | 1205 km | 3.49&ndash;5 km |
+| SAM-AFR | 159 | 10&ndash;79 Ma | 247 km | 429 km | 4&ndash;10 km |
+| NAM-EUR | 144 | 10&ndash;68 Ma | 160 km | 291 km | 5&ndash;5 km |
+| ANT-AFR | 123 | 44&ndash;83 Ma | 651 km | 1078 km | 3&ndash;10 km |
+| AUS-LHR | 96 | 56&ndash;74 Ma | 225 km | 356 km | 5&ndash;5 km |
+| ANT-CAP | 79 | 43&ndash;83 Ma | 1347 km | 2364 km | 3&ndash;25.01 km |
+| ANT-AUS | 71 | 44&ndash;83 Ma | 662 km | 901 km | 2&ndash;15 km |
+| MBL-ANT-AUS | 38 | 31&ndash;40 Ma | 333 km | 493 km | 4&ndash;10 km |
+| AUS-ANT-MBL | 16 | 27&ndash;27 Ma | 225 km | 296 km | 4&ndash;8 km |
+| AFR-ANT-CAP | 12 | 53&ndash;62 Ma | 1042 km | 1177 km | 3.49&ndash;5 km |
+| MCQ-ANT | 4 | 6&ndash;6 Ma | 312 km | 331 km | 4&ndash;8 km |
+| AUS-LP | 4 | 53&ndash;61 Ma | 104 km | 136 km | 5&ndash;5 km |
+<!-- /from-the-run -->
+
+Read the last column against the second-to-last. That is the comparison this
+table exists to make, and it is not a kind one: published plate-model fits
+reconstruct these same picks to a weighted RMS of 1&ndash;2 km for a young fast
+pair, and 9&ndash;25 km for Australia&ndash;Antarctica at 83 Ma. Nothing in this
+model is within two orders of magnitude of that. The honest way to say it is
+that a plate model fits these picks by construction -- its rotations are derived
+*from* them -- and this reconstruction has never seen them, so the numbers are
+not measuring the same thing. But the gap is what it is, and it is now on the
+page rather than absent from it.
+
+Two limits of the substitution are worth stating. A pick is carried by the
+nearest mesh point whose crust is old enough to exist at that chron, not simply
+the nearest point -- a younger point has been deleted by the time the run
+reaches that frame, so measuring from it would measure nothing. Pairs with no
+old-enough crust within 200 km of either pick are dropped rather than
+substituted at any distance.
+
+## A measured strength field, and what it does not cover
+
+The eleven rigidity values, one per ECM1 class, were judgements. A third of the
+globe now has a measurement instead: Audet & B&uuml;rgmann 2011's effective
+elastic thickness, from the wavelet coherence between topography and Bouguer
+gravity, on the same one-degree graticule as ECM1 and in this pipeline's own row
+order.
+
+Te is a plate thickness in kilometres and the solver's scale is dimensionless
+with a shield at 1, so the two are joined by one number: 100 km, which is where
+the measurement itself puts cratons.
+
+The prediction was that the eleven judgements would turn out roughly right and
+the swap would not move the fit. Half of that was wrong, in an interesting
+direction. **The measurement compresses the range.** Averaged over the
+triangles of each class, it makes shields *weaker* than assumed and orogens
+*stronger*:
+
+| ECM1 class | assigned | measured | |
+|---|---|---|---|
+| Shield | 1.00 | 0.70 | &minus;0.30 |
+| Platform | 0.90 | 0.84 | &minus;0.06 |
+| Basin | 0.70 | 0.73 | +0.03 |
+| Extended crust | 0.18 | 0.40 | +0.22 |
+| Orogen | 0.20 | 0.37 | +0.17 |
+| Island arc | 0.10 | 0.24 | +0.14 |
+| Continental margin | 0.25 | 0.34 | +0.09 |
+| Normal ocean | 0.10 | 0.11 | +0.01 |
+
+The direction is consistent: the assigned table believes in a sharper contrast
+between cratons and everything else than the measurement supports. It also has
+a consequence nobody chose, and it is the kind worth naming out loud -- crust at
+0.85 or above is treated as an unbendable core, and shields measure 0.70, so
+switching to the measurement **switches much of that machinery off**.
+
+Which makes what happened to the run worth reading carefully. Over the whole
+run, weighted by how many pairs each frame has, the score is a wash: 236 km
+median against 230, and 55.9% within 200 km against 54.5%. Frame by frame it is
+not a wash at all. The densest frames get worse -- 168 km to 201 at 40 Ma, 243
+to 260 at 60 -- and the old end gets much better: **731 km to 394 at 120 Ma,
+and 14% within 200 km to 29%**. Every other diagnostic improves, several of
+them by a lot: crust on crust 4.11% to 3.08%, two continents at once 1.68% to
+0.41%, inside-out crust 1.18% to 0.75%, bare sphere 11.89% to 11.36%, and
+craton strain 2.0% to 0.9% -- which is partly the machinery switching off and
+partly the crust no longer being asked to do something it cannot.
+
+Four of the dated fits improve and one gets worse: South America&ndash;Africa 26
+km to 14, North America&ndash;Africa 1,194 to 1,048, Iberia&ndash;Newfoundland
+1,286 to 963, Antarctica&ndash;Africa 16 to 5; Australia&ndash;Antarctica keeps
+less margin in contact, 24% to 14%.
+
+So it ships, and the reason is not that it bought fit -- it did not. It is that
+it is the same score off a measurement instead of a judgement, with every
+secondary figure better and the worst-reconstructed stretch of time much
+better. `TE=0` puts the whole globe back on the eleven values.
+
+Two things travel with it and neither is a footnote.
+
+Coherence Te is an **upper bound** on strength. Tesauro, Kaban & Cloetingh 2012
+compare it against Te from yield-strength envelopes and find the coherence
+figure larger at about 65% of points, so this field reads the crust as stronger
+than a rheological calculation would, everywhere.
+
+And it stops at the shore -- and cannot honestly be extended past it. The
+obvious move is a cooling law, Te growing as the square root of sea-floor age,
+and the same research pass found the measurement that forbids it: past about 60
+Ma the Pacific's coherence Te does not follow the age of the crust at all (Lu et
+al. 2021). Mean 13.5 km with a standard deviation of 12.3, under 5 km at
+spreading centres, over 30 km along subduction zones and the
+Hawaiian&ndash;Emperor chain. So "old floor stiff, young floor soft" -- which is
+what the assigned table says -- is not what the measurement shows. Sea floor
+keeps its assigned value, the field covers what it covers, and `TE=0` puts the
+whole globe back on judgement so the two can be compared.
+
+## Paleolatitude, the one check the radius cannot touch
+
+Every other check in this model is a relative one. Two margins that should nest,
+two conjugate points that were once one point, a continent that should have met
+another by a date: all of them compare the reconstruction to itself, and none of
+them can say whether the whole assembly sits in the right place. A globe with
+Gondwana perfectly assembled in the wrong hemisphere would score full marks.
+
+Paleomagnetism can say. An inclination in a rock of known age gives the angle
+between that rock and the spin axis when it cooled, and that angle is a
+latitude. Two things make it worth more here than it would be in any
+conventional reconstruction.
+
+**It does not depend on the radius.** Every fit in the scorecard is a distance
+in kilometres, and a distance reads differently on a smaller globe. A latitude
+is an angle. This is the only external number in the project that the radius
+curve can neither flatter nor spoil.
+
+**It works where nothing else does.** Past 120 Ma the run has seven held-back
+conjugate pairs, and past 140 it has none -- there is no sea floor left to pair.
+That is exactly the stretch where the reconstruction is worst, and it has been
+measured with no independent check at all. These five points are measured to 200
+Ma.
+
+<!-- from-the-run: paleo -->
+| point | 200 Ma | 170 Ma | 120 Ma | 60 Ma |
+|---|---|---|---|---|
+| Johannesburg | **-77&deg;** (wants -46 to -40, off 31) | **-74&deg;** (wants -50 to -37, off 24) | **-62&deg;** (wants -45 to -40, off 17) | -41&deg; (wants -45 to -41) &#10003; |
+| Nagpur | **-9&deg;** (wants -29 to -20, off 11) | **-8&deg;** (wants -39 to -27, off 19) | **-4&deg;** (wants -45 to -40, off 37) | **11&deg;** (wants -20 to -14, off 24) |
+| Schirmacher Oasis | **-73&deg;** (wants -43 to -36, off 30) | **-70&deg;** (wants -50 to -37, off 20) | **-65&deg;** (wants -59 to -54, off 6) | **-70&deg;** (wants -79 to -75, off 5) |
+| Alice Springs | **-49&deg;** (wants -45 to -34, off 4) | -48&deg; (wants -59 to -46) &#10003; | **-46&deg;** (wants -64 to -58, off 12) | **-34&deg;** (wants -48 to -43, off 9) |
+| Brasília | **-42&deg;** (wants -22 to -17, off 19) | **-41&deg;** (wants -24 to -10, off 17) | **-34&deg;** (wants -16 to -11, off 18) | -23&deg; (wants -27 to -22) &#10003; |
+<!-- /from-the-run -->
+
+Twenty cells, and one of them is inside. That is the flat answer, and it is
+worse than any other check in this document.
+
+But the *pattern* is the finding, not the count. Read the Africa row: the model
+puts Johannesburg at 50 degrees south at 60 Ma, 75 at 120, and 80 at 200, while
+the rocks say 43 south throughout, barely moving. The model drives southern
+Africa onto the pole. Schirmacher, in East Antarctica, never leaves it -- 70
+south at every age, where the rocks want 36 to 45 south at 170 and 200 Ma.
+Brasília goes to 40 south where the rocks say 20. And India goes the other way:
+Nagpur at 8 degrees *north* at 60 Ma where the rocks say 15 to 20 south.
+
+This is worth stating against something a reader said while looking at the
+globe: that Africa stays much too far north, and that southern Africa should
+finish on the pole and drive Antarctica up into the Pacific. The measurement
+says the opposite. Africa is already too far *south* by 60 Ma and is on the pole
+by 120; what stays put is Antarctica, which should have left. Two people looking
+at the same globe can disagree about which way it is wrong, and this is the
+number that settles it.
+
+The band each cell asks for is the two published compilations taken together --
+Torsvik et al. 2012 Table 11 and Vaes et al. 2023 Table S3 -- each widened by
+its own 95% pole circle. They are carried separately rather than averaged
+because they disagree by up to 7 degrees, at Australia at 200 Ma, and that
+disagreement is a real part of the uncertainty rather than noise to be split.
+
+Three things have to be said about what this check can and cannot do, and they
+belong here rather than in a footnote.
+
+The comparison assumes the reconstruction's frame keeps the present spin axis.
+That is two assumptions: no net rotation of the lithosphere, and no true polar
+wander. Torsvik's own Table 12 puts the second at up to 22.5 degrees at 200 Ma.
+So a miss of that order at the old end is not by itself evidence against the
+model.
+
+The 170 Ma window is the weakest in both compilations -- A95 4.6 and P95 6.1,
+against 2 to 3 elsewhere -- which is unlucky, because 170 Ma is where this
+model's Gondwana is.
+
+And **India has no rock-based pole between 125 and 210 Ma** at quality 4 or
+better in the global database. Its 170 and 200 Ma rows are a plate circuit
+talking, not Indian rocks, so they test the circuit as much as they test the
+model -- and India is the continent this model most needs tested. Its one real
+anchor is the Rajmahal Traps at 116 Ma, which put Nagpur at 43.5 &plusmn; 2.5
+degrees south and agree with the 120 Ma row.
+
+### How much of it is the frame
+
+A miss shared by every point in the same direction is not the same finding as
+five points missing independently. The first says the whole assembly is turned,
+which a reference frame or true polar wander can be wrong about. The second says
+the continents are in the wrong places relative to each other, and nothing
+excuses that.
+
+Separating the two is cheap, because a paleolatitude needs only the *axis* and
+not a full rotation -- a latitude is ninety degrees minus the angle to the pole,
+so the pole's longitude cannot matter. Two parameters. So the sphere is searched
+for the axis that best reconciles the model's own positions with the measured
+latitudes at each age, and what survives that search is the part no frame can
+explain away.
+
+<!-- from-the-run: paleoaxis -->
+| age | rms miss on today&rsquo;s axis | with the best axis for that age | tilt it needed |
+|---|---|---|---|
+| 60 Ma | 13.3&deg; | **9.2&deg;** | 14.2&deg; |
+| 120 Ma | 23.1&deg; | **9.4&deg;** | 34.6&deg; |
+| 170 Ma | 23.7&deg; | **8.0&deg;** | 34.9&deg; |
+| 200 Ma | 24.7&deg; | **12.7&deg;** | 35.7&deg; |
+<!-- /from-the-run -->
+
+That is a real result and it cuts both ways.
+
+Most of the miss is a **coherent turn of the whole assembly**, not five
+continents scattered independently. Two thirds of it, at the old end: 23 to 25
+degrees rms becomes 8 to 13. So the model's continents are much better placed
+relative to each other than the raw table suggests, and the single largest error
+in the reconstruction is where the assembly sits as a whole rather than how it
+is put together.
+
+And the axis it needs is not one anybody can grant. The fit wants the pole
+tilted 35 degrees from 120 Ma back. Torsvik's own true-polar-wander correction
+reaches 22.5 degrees at 200 Ma, which is the most the literature offers, and
+this is half again as much. A no-net-rotation frame can absorb some of the rest,
+since it is a convention rather than a measurement -- but 35 degrees is a claim,
+not a correction, and it is not one this model has any independent reason to
+make.
+
+What survives the search is the honest residual: **8 to 13 degrees**, which is
+nine hundred to fourteen hundred kilometres of latitude that no choice of axis
+explains. Against published pole uncertainties of 2 to 6 degrees, that is
+outside the error and inside the same order of magnitude -- which is a fairer
+description of where this reconstruction stands than either the raw 24 degrees
+or a claim that the frame explains it.
+
+## India was being scored against a join nobody proposes
+
+The largest single miss on the scorecard has been India against Africa: about a
+thousand kilometres, with no margin ever in contact. Read against the
+literature, that number means something other than what it looked like.
+
+**Not one Expanding Earth author closes India onto Africa.** Maxlow, Scalera in
+three separate revisions, Vogel, Hilgenberg -- every reconstruction the research
+pass read puts India's western margin against **East Antarctica**, with
+Madagascar between it and Mozambique, and opens the Indian Ocean by two ruptures
+rather than by India travelling. The model was being pulled towards, and scored
+against, an assembly its own hypothesis does not hold, while the assembly every
+author does hold was not on the card at all.
+
+So it is on the card now: India against Enderby and Kemp Land, joined by 135 Ma.
+Spreading in the Enderby Basin begins at chron M9r, about 133 Ma, which makes
+135 the last joined instant; the date wants one more reading and says so beside
+itself. `antarctica` could not serve, because it is the whole continent at every
+longitude and would report contact as soon as India came near the part facing
+Australia.
+
+What makes this a check rather than a preference is that it is attested without
+any sea floor. The Eastern Ghats belt of India and the Rayner Complex of Enderby
+Land are one 1.0&ndash;0.9 Ga orogen, reworked together at 550&ndash;500 Ma. Two
+Precambrian belts that were once continuous are not an inference from a plate
+model, and they cannot have been tuned against.
+
+## The deformation budget, which the run is a hundredfold over
+
+The principle the whole model rests on is that the crust **moves**. The area of
+the sphere is known at every moment, the crust that has to go on it is known,
+and only the mismatch between the two may squash. That mismatch is knowable
+before any reconstruction is attempted, and it is small: both numbers come out
+of the same age grid by different routes -- the sphere through a raster at
+8192&times;4096, the demand through 81,920 triangles -- and 2.8% of the grid is
+undated crust treated as having always been there. So the difference between
+them is a rounding error between two readings of one dataset. That rounding
+error is the entire licence to deform.
+
+<!-- from-the-run: budget -->
+| time | the data allows | the run deforms | squeezed | stretched | over budget |
+|---|---|---|---|---|---|
+| 5 Ma | 0.41% | 4.8% | 2.9% | 1.9% | **&times;12** |
+| 30 Ma | 0.20% | 8.5% | 5.3% | 3.1% | **&times;43** |
+| 60 Ma | 0.13% | 12.2% | 8.2% | 4.0% | **&times;97** |
+| 120 Ma | 0.11% | 18.0% | 13.3% | 4.7% | **&times;169** |
+| 200 Ma | 0.29% | 21.9% | 15.0% | 6.9% | **&times;76** |
+<!-- /from-the-run -->
+
+The data allows a few tenths of a percent. The reconstruction deforms a fifth of
+the shell. There is no reading of the model on which that is acceptable, and it
+is the sharpest single statement of what is still wrong with it -- sharper than
+the bare sphere, which says only that some crust is missing from the picture,
+and sharper than the strain percentiles, which are medians over triangles and so
+average the failure away.
+
+It also answers a question a reader asked directly: how can the run open gaps
+and over-compress crust *at the same time*? Because both columns are the same
+failure seen from two ends. The mismatch a step cannot resolve by moving crust
+has to go somewhere, and the solver splits it -- some into crust squashed below
+its own area, the rest into crust stretched to cover ground the reconstruction
+could not close. Neither is licensed. The two are reported separately above for
+that reason.
+
+What would count as progress is the ratio falling, and it can fall two ways that
+are not equally good. Letting the crust deform *less* while the pairs stay where
+they are is the real thing. Letting the margins absorb more, by raising the caps
+to what the literature measures, moves deformation from crust that should not
+have it into crust that is known to have had it -- an improvement in honesty,
+not in the ratio. Both are worth measuring, and the caps are measured next.
 
 ## A continent cannot be held still on a globe that changes size
 

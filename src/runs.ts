@@ -62,6 +62,8 @@ export interface RunSummary {
   fits: { a: string; b: string; atMa: number; watched?: true; km: number; matched: number }[]
   bare: number
   islandOverlap: number
+  /** How far past its deformation licence the run ended; see the publisher. */
+  overBudget?: number
 }
 
 export interface RunIndex {

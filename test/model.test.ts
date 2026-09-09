@@ -811,6 +811,30 @@ describe('the built dataset', () => {
     expect([...listed].filter((name) => !read.has(name)).sort()).toEqual([])
   })
 
+  // The same check for the first stage, which had thirty-eight knobs and no
+  // list at all: the mesh, the ages, the fracture-zone tracks and the crustal
+  // fields could every one of them be knob-turned and the run would report
+  // `overrides: []` and be published as the shipped model. The two variables
+  // naming where output goes are excluded, because a run written elsewhere is
+  // still the same run.
+  it('lists every knob the first stage reads', () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, '../tools/build-data.ts'), 'utf8',
+    )
+    const listed = new Set<string>(
+      (source.match(/^const BUILD_KNOBS = \[[\s\S]*?\] as const/m)?.[0] ?? '')
+        .match(/'([A-Z_0-9]+)'/g)?.map((m) => m.slice(1, -1)) ?? [],
+    )
+    const read = new Set(
+      (source.match(/\bprocess\.env\.[A-Z_0-9]+/g) ?? [])
+        .map((m) => m.slice('process.env.'.length))
+        .filter((name) => name !== 'DATA_OUT' && name !== 'STAGE_OUT'),
+    )
+    expect(listed.size).toBeGreaterThan(0)
+    expect([...read].filter((name) => !listed.has(name)).sort()).toEqual([])
+    expect([...listed].filter((name) => !read.has(name)).sort()).toEqual([])
+  })
+
   it.runIf(present)('has a generated block for every figure worth drifting', () => {
     const readme = readFileSync(resolve(import.meta.dirname, '../README.md'), 'utf8')
     const model = readFileSync(resolve(import.meta.dirname, '../MODEL.md'), 'utf8')

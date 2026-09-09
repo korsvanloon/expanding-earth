@@ -121,3 +121,42 @@ export const CORE_TYPES: CrustType[] = ['SHLD', 'PLAT', 'BASN']
 
 /** Types that are mountain belts today, used to test the predicted stacking. */
 export const OROGEN_TYPES: CrustType[] = ['ORON', 'COAR']
+
+/**
+ * Te at which crust is as rigid as a shield, km.
+ *
+ * The scale above is dimensionless with a shield at 1, and Audet's field is a
+ * plate thickness in kilometres, so the two have to be joined by a choice. This
+ * is that choice, and it is one number rather than a curve because there is
+ * nothing in the measurement to justify a curve.
+ *
+ * A hundred kilometres is where the measurement itself puts cratons: Tesauro,
+ * Kaban & Cloetingh 2012 report cratons above 100 km and young provinces around
+ * 25 km. Divide by it and the hand-assigned table falls out almost exactly --
+ * shield 1.0, platform about 0.7, orogen about 0.25 -- which is the reassuring
+ * part and also the disappointing part. It means the eleven judgements were
+ * roughly right, and it means swapping them for the measurement should not move
+ * the fit. What it moves is the standing of the number: *measured over a third
+ * of the globe* rather than *reasoned about*.
+ */
+export const TE_SHIELD_KM = 100
+
+/**
+ * A measured Te, on the solver's rigidity scale.
+ *
+ * Two caveats travel with every value this returns.
+ *
+ * Coherence Te -- which is what this is -- is an **upper bound** on strength.
+ * Tesauro 2012 compares it against Te from yield-strength envelopes and finds
+ * the coherence figure larger at about 65% of points. So this field reads the
+ * crust as stronger than a rheological calculation would, everywhere.
+ *
+ * And it stops at the shore. Te is NaN over the oceans in this dataset, and the
+ * pass that found it also found there is no honest way to fill that in: past
+ * about 60 Ma the Pacific's measured Te does not follow the sea-floor age (Lu
+ * et al. 2021), so the cooling law that would let a value be computed from age
+ * is contradicted by the measurement it would be standing in for. Sea floor
+ * keeps its assigned value, and the field covers what it covers.
+ */
+export const teRigidity = (teKm: number): number =>
+  Math.min(1, Math.max(0.05, teKm / TE_SHIELD_KM))

@@ -35,7 +35,7 @@ import {
 } from '../shared/age-samples.js'
 import { buildIcosphere, sphericalTriangleArea } from './lib/icosphere.js'
 import { directionToPixel, directionToUv, lonLatToDirection } from '../shared/sphere.js'
-import { CRUST_RIGIDITY, CRUST_TYPES } from '../shared/crust.js'
+import { CRUST_RIGIDITY, CRUST_TYPES, teRigidity, type CrustType } from '../shared/crust.js'
 import { gridValue, readGrid, type Grid } from './lib/grid.js'
 import {
   fabricRaster, fillGaps, fractureZones, lineaments, sampleStructure,
@@ -66,6 +66,35 @@ const TEXTURES = resolve(ROOT, 'public/textures')
  * another subdivision, and keeps the four files a solve reads.
  */
 const OUT = resolve(ROOT, process.env.DATA_OUT ?? 'public/data')
+
+/**
+ * Every knob this stage takes, so a run can say which of them were turned.
+ *
+ * The solver has had such a list for a while, and the reason is worth repeating
+ * here: a run made with a knob moved is not the shipped model, and if it does
+ * not say so it gets compared with tables it was never going to match. This
+ * stage had thirty-eight knobs and no list at all, so the mesh, the ages, the
+ * fracture-zone tracks and the crustal fields could all be knob-turned and the
+ * run would report `overrides: []` and be published as the model.
+ *
+ * `test/model.test.ts` fails if this list and the file disagree. The two
+ * variables naming *where* output goes are deliberately absent: a run written
+ * to a different directory is still the same run.
+ */
+const BUILD_KNOBS = [
+  'AGE_DISC', 'ANCHOR_KEEN_KM', 'ANCHOR_KEEN_OFF', 'ANCHOR_KM', 'ANCHOR_OFF',
+  'AXIS_AGE', 'AXIS_BOWL', 'BRIDGE_KM', 'CARRY', 'CREST_PULL', 'CRUST_MODEL',
+  'DRAWN_TRACKS', 'GRAIN_KM', 'GRAIN_OFF', 'GRAIN_SPREAD', 'GROOVE_FLOW',
+  'GROOVE_SCOUT', 'GROOVE_SWING', 'JUMP_CONE', 'JUMP_FACTOR', 'ONE_SIDED',
+  'ONE_SIDED_COVER', 'ONE_SIDED_INTERVAL', 'ONE_SIDED_MIN_AGE',
+  'ONE_SIDED_SEED', 'PAIRS_PER_PATH', 'PAIR_INTERVAL', 'PAIR_OBLIQUE',
+  'PAIR_SPACING', 'PAIR_SWEEP', 'RIDGE_AXIS_KM', 'STEP_ANCHORS', 'STEP_OFF',
+  'STEP_SHARE', 'STEP_WINDOW', 'TE',
+] as const
+
+/** Which of them were turned, for the run to carry. */
+export const buildOverrides = () =>
+  BUILD_KNOBS.filter((name) => process.env[name] !== undefined)
 /**
  * Where the handover to the solver goes. Not in public/data: everything there
  * is copied onto the published site, and this is a hundred and ten kilobytes
@@ -539,6 +568,16 @@ export const CONFIG = {
    * since the ensemble was built. CRUST_MODEL is how.
    */
   solvedModel: (process.env.CRUST_MODEL ?? 'nearest-age') as CrustModelId,
+  /**
+   * Where the per-triangle strength comes from.
+   *
+   * Audet & Burgmann 2011's measured effective elastic thickness, over the
+   * third of the globe it covers, in place of eleven values assigned by hand.
+   * `TE=0` keeps the assigned ones, which is how the two get compared. Like the
+   * crust model this is chosen before the solve rather than by the solver, so
+   * it is recorded in the run's metadata rather than in the solver's overrides.
+   */
+  strengthField: (Number(process.env.TE ?? 1) > 0 ? 'te' : 'assigned') as 'te' | 'assigned',
 }
 
 
@@ -639,6 +678,18 @@ async function main() {
 
   const solvedFaceAges = sampleFaceAges(mesh, ageFields[CONFIG.solvedModel], age)
   const solvedVertexAges = sampleVertexAges(mesh, ageFields[CONFIG.solvedModel], age)
+
+  /**
+   * Somebody else's conjugate pairs, resolved to the points that carry them.
+   *
+   * The two sides of one isochron segment, from the GSFML Hellinger archive
+   * (see tools/fetch-conjugates.ts). Each has to be carried by a mesh point
+   * whose crust *exists* at the chron's age, or the run has nothing to measure
+   * at that frame -- so the nearest vertex is not good enough and the search is
+   * for the nearest vertex old enough. A pair either side of which cannot find
+   * one is dropped, and the count is printed.
+   */
+  const externalPairs = resolveExternalPairs(mesh, solvedVertexAges)
   const crustAge = sampleCrustAge(mesh, ageFields[CONFIG.solvedModel], age)
 
   for (const model of crustModels) {
@@ -1190,7 +1241,7 @@ async function main() {
         ((8 + crustAge.edges.byteLength + crustAge.faces.byteLength) / 1e6).toFixed(1)} MB)`,
   )
 
-  const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard'> = {
+  const meta: Omit<Meta, 'diagnostics' | 'fixedRadiusDiagnostics' | 'frameCount' | 'scorecard' | 'paleolatitude' | 'paleoAxisFit'> = {
     version: 1,
     generatedAt: new Date().toISOString(),
     sources: [
@@ -1202,6 +1253,7 @@ async function main() {
       { file: 'public/textures/height-map.jpg', note: 'Topography/bathymetry, used to classify undated cells and to date them' },
       { file: 'data-src/ecm1.bin', note: 'ECM1 crustal model (Mooney et al. 2023), 1x1 degree crustal type and thickness' },
       { file: 'data-src/vgg.grid', note: 'Vertical gravity gradient (Sandwell et al.), 3600x1800, Eotvos, land and sea' },
+      { file: 'data-src/te.bin', note: 'Effective elastic thickness (Audet & Burgmann 2011), 1x1 degree, km, absent over the oceans' },
       { file: 'public/textures/color-map.jpg', note: 'Surface colour, rides along with the crust' },
     ],
     r0Km: R0_KM,
@@ -1218,6 +1270,9 @@ async function main() {
     depthAgeFit,
     crustModels,
     solvedModel: CONFIG.solvedModel,
+    externalPairs,
+    strengthField: CONFIG.strengthField,
+    buildOverrides: buildOverrides(),
     crustalFabric: structure.fabric,
     // In the raster's own order, because the raster carries each groove's index
     // and a reader clicking a line in the viewer is answered from this list.
@@ -1618,6 +1673,21 @@ function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
   const thicknessGrid = new Float32Array(raw.buffer, raw.byteOffset + 8, width * height)
   const typeGrid = new Uint8Array(raw.buffer, raw.byteOffset + 8 + width * height * 4, width * height)
 
+  /**
+   * A measured strength field over the crust it covers.
+   *
+   * `TE=0` keeps the eleven hand-assigned values, which is how the two get
+   * compared. On the same 1x1 degree graticule as ECM1, cell for cell, so a
+   * triangle's Te is read from exactly the cells its type was voted from.
+   */
+  const useTe = CONFIG.strengthField === 'te'
+  const teRaw = readFileSync(resolve(ROOT, 'data-src/te.bin'))
+  const [teWidth, teHeight] = new Uint32Array(teRaw.buffer, teRaw.byteOffset, 2)
+  if (teWidth !== width || teHeight !== height) {
+    throw new Error(`Te is ${teWidth}x${teHeight} and ECM1 is ${width}x${height}`)
+  }
+  const teGrid = new Float32Array(teRaw.buffer, teRaw.byteOffset + 8, width * height)
+
   const faceCount = mesh.indices.length / 3
   const rigidity = new Float32Array(faceCount)
   const type = new Uint8Array(faceCount)
@@ -1628,6 +1698,7 @@ function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
     return row * width + column
   }
 
+  let teFaces = 0
   const votes = new Map<number, number>()
   for (let f = 0; f < faceCount; f++) {
     votes.clear()
@@ -1658,7 +1729,19 @@ function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
     }
     type[f] = best
     thickness[f] = thicknessSum / cells.length
-    rigidity[f] = CRUST_RIGIDITY[CRUST_TYPES[best]]
+    // Zero is the fill in the Te grid, and a real Te is 1 km or more, so the
+    // mean over the cells that have one is the measurement where any of them
+    // does and the assigned value where none does -- which is the coastline,
+    // drawn by the measurement rather than by a rule.
+    let teSum = 0
+    let teSeen = 0
+    for (const cell of cells) {
+      if (teGrid[cell] > 0) { teSum += teGrid[cell]; teSeen++ }
+    }
+    rigidity[f] = useTe && teSeen > 0
+      ? teRigidity(teSum / teSeen)
+      : CRUST_RIGIDITY[CRUST_TYPES[best]]
+    if (useTe && teSeen > 0) teFaces++
   }
 
   const share = new Map<string, number>()
@@ -1672,6 +1755,30 @@ function sampleCrust(mesh: { positions: Float64Array; indices: Uint32Array }) {
       `    ${name}  ${((100 * n) / faceCount).toFixed(1).padStart(5)}%  ` +
         `rigidity ${CRUST_RIGIDITY[name as keyof typeof CRUST_RIGIDITY].toFixed(2)}`,
     )
+  }
+  if (useTe) {
+    // Per type, so the measurement can be read against the judgement it
+    // replaces rather than only reported as a coverage figure.
+    console.log(
+      `  Audet & Burgmann Te covers ${((100 * teFaces) / faceCount).toFixed(1)}% of the `
+      + 'triangles; measured against assigned, by type:',
+    )
+    const seen = new Map<string, { sum: number; n: number }>()
+    for (let f = 0; f < faceCount; f++) {
+      const name = CRUST_TYPES[type[f]]
+      const row = seen.get(name) ?? { sum: 0, n: 0 }
+      row.sum += rigidity[f]
+      row.n++
+      seen.set(name, row)
+    }
+    for (const [name, row] of [...seen].sort((a, b) => b[1].n - a[1].n)) {
+      const assigned = CRUST_RIGIDITY[name as CrustType]
+      console.log(
+        `    ${name}  measured ${(row.sum / row.n).toFixed(2)}  assigned `
+        + `${assigned.toFixed(2)}  (${((row.sum / row.n) - assigned >= 0 ? '+' : '')}`
+        + `${((row.sum / row.n) - assigned).toFixed(2)})`,
+      )
+    }
   }
   /**
    * The same grid as a picture, for the viewer to read per pixel.
@@ -2104,6 +2211,73 @@ interface Shell {
   origin: Uint32Array
   cutPairs: Uint32Array
   fragmentCount: number
+}
+
+/**
+ * Read the external conjugate set and give each side a mesh point.
+ *
+ * Nearest *old enough* rather than nearest: a pick sits on sea floor of the
+ * chron's age, and a point whose crust is younger has been deleted by the time
+ * the run reaches that frame, so measuring from it would measure nothing. The
+ * search allows crust up to `slack` Myr younger than the chron, since the mesh
+ * samples the age grid at 115 km and a ridge flank changes age quickly across
+ * that distance.
+ */
+function resolveExternalPairs(
+  mesh: { positions: Float64Array; indices: Uint32Array },
+  vertexAges: Float32Array,
+): Meta['externalPairs'] {
+  const raw = JSON.parse(
+    readFileSync(resolve(ROOT, 'data-src/conjugates.json'), 'utf8'),
+  ) as {
+    conjugates: {
+      pair: string; chron: string; ageMa: number; sigmaKm: number
+      lonA: number; latA: number; lonB: number; latB: number
+    }[]
+  }
+  const vertexCount = mesh.positions.length / 3
+  const slack = 5
+  const nearestOldEnough = (lonDeg: number, latDeg: number, ageMa: number) => {
+    const [tx, ty, tz] = lonLatToDirection(
+      (lonDeg * Math.PI) / 180, (latDeg * Math.PI) / 180,
+    )
+    let best = -2
+    let at = -1
+    for (let v = 0; v < vertexCount; v++) {
+      if (vertexAges[v] + slack < ageMa) continue
+      const i = v * 3
+      const dot = mesh.positions[i] * tx
+        + mesh.positions[i + 1] * ty + mesh.positions[i + 2] * tz
+      if (dot > best) { best = dot; at = v }
+    }
+    return { at, offKm: at < 0 ? Infinity : Math.acos(Math.min(1, best)) * R0_KM }
+  }
+
+  const out: Meta['externalPairs'] = []
+  let dropped = 0
+  let farthest = 0
+  for (const c of raw.conjugates) {
+    const a = nearestOldEnough(c.lonA, c.latA, c.ageMa)
+    const b = nearestOldEnough(c.lonB, c.latB, c.ageMa)
+    // Two hundred kilometres is a vertex spacing and a half. Beyond that the
+    // point standing in for the pick is not on the same piece of crust, and a
+    // separation measured from it would be measuring the substitution.
+    if (a.at < 0 || b.at < 0 || a.offKm > 200 || b.offKm > 200) { dropped++; continue }
+    farthest = Math.max(farthest, a.offKm, b.offKm)
+    out.push({
+      pair: c.pair, chron: c.chron, ageMa: c.ageMa, sigmaKm: c.sigmaKm,
+      aVert: a.at, bVert: b.at,
+      // Filled in by the solver, which is the only thing that knows where the
+      // points go.
+      separationKm: 0,
+    })
+  }
+  console.log(
+    `[build-data] ${out.length} external conjugate segments carried by mesh points `
+    + `(${dropped} dropped for having no crust of their own age within 200 km; `
+    + `the worst kept substitution is ${farthest.toFixed(0)} km off its pick)`,
+  )
+  return out
 }
 
 function writeMesh(

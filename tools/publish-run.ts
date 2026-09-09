@@ -167,6 +167,14 @@ export interface RunSummary {
   /** Of the sphere at the end: bare, and under two islands at once. */
   bare: number
   islandOverlap: number
+  /**
+   * How far past its deformation licence the run is, at the end.
+   *
+   * The one number that says whether a reconstruction moves crust or squashes
+   * it, and the one a picker most needs: two runs can agree on every pair and
+   * disagree by a factor of three here.
+   */
+  overBudget: number
 }
 
 export interface RunIndex {
@@ -235,6 +243,7 @@ function summarise(meta: Meta & {
     }),
     bare: Number((end?.gapFraction ?? 0).toFixed(4)),
     islandOverlap: Number((end?.islandOverlapFraction ?? 0).toFixed(4)),
+    overBudget: Math.round(end?.overBudget ?? 0),
   }
 }
 

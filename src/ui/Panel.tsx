@@ -866,6 +866,14 @@ function RunCard({ runs, run }: { runs: RunIndex; run: string }) {
                 )}
               </td>
             </tr>
+            {summary.overBudget !== undefined && (
+              <tr>
+                <th>Past its deformation licence</th>
+                <td colSpan={2}>
+                  &times;{versus(summary.overBudget, against?.overBudget)}
+                </td>
+              </tr>
+            )}
             <tr>
               <th>Sphere at {summary.endTimeMa} Ma</th>
               <td colSpan={2}>{versus(summary.radiusKm, against?.radiusKm, ' km')}</td>
