@@ -2516,6 +2516,79 @@ pairs are the score, so it does not ship. `CRUST_MODEL=permanent` is the run,
 and it is published beside the shipped one so the two can be looked at rather
 than argued about.
 
+## The budget, split: how much of it is geometry
+
+The deformation budget has been this document's sharpest number and it was
+overstating its case. It compares how far the crust is deformed against how far
+the *areas* disagree -- and says nothing about whether the pieces fit. A set of
+triangles with exactly the right total area still leaves holes if their shapes
+do not tile, and this set does not tile: the live crust at any past moment is
+today's shell with a network of ribbons cut out of it, one along every ridge,
+and closing those ribbons deforms the crust whether or not anything is being
+reconstructed.
+
+So the reconstruction was run with nothing to reconstruct. No conjugate pull, no
+traced tracks, no contact between islands, no slab drag -- cratons still rigid,
+because that is physics and not fitting, and the crust still has to end up on
+the sphere. Whatever it deforms then is the floor: the price of putting *this*
+crust on *this* sphere, which no solver can be blamed for and none can avoid.
+
+At 40 Ma, as shares of the shell:
+
+| | deforms | over the 0.20% the areas allow |
+|---|---|---|
+| the crust on the sphere, nothing fitted, holes left open | **12.0%** | &times;60 |
+| &nbsp;&nbsp;+ closing the holes and unstacking the overlaps | +2.1 | +&times;10 |
+| &nbsp;&nbsp;+ the whole reconstruction: pairs, tracks, contact, drag | +0.5 | +&times;3 |
+| **the run that ships** | **14.6%** | **&times;73** |
+
+**Eighty-two per cent of the deformation is geometry.** Fourteen per cent is
+what it costs to have no holes. Four per cent -- half a point of the shell -- is
+everything the solver does to make the continents fit each other.
+
+Two things follow, and neither is comfortable. The &times;73 headline is not a
+measure of how badly the reconstruction is done; it is mostly a measure of how
+badly a cut-up sphere tiles a smaller one, and quoting it as the model's failure
+was wrong. And the room left for *improving* the reconstruction by deforming
+less is half a percentage point wide. Whatever is wrong with the fits at 120 Ma,
+it will not be fixed by letting the crust deform less, because the crust is
+barely deforming for the fit's sake at all.
+
+What the floor does not excuse is the *distribution*. Twelve per cent has to go
+somewhere; nothing says it has to sit where it currently sits, in a few squeezed
+belts beside a few stretched ones. That is the question the pressure exchange
+asks and has not yet answered well.
+
+## Crust over crust, traded for crust squeezed
+
+A reader set the order of badness and it was not the order the solver had:
+**mesh going over itself is worse than crust being squeezed, because a squeeze
+can be smeared out into whatever is stretched nearby and an overlap cannot be
+smeared into anything.** Two pieces of rock in the same place is not a soft
+failure, no later pass recovers it, and nothing in the model was working against
+it except the barrier that stops a triangle turning inside out.
+
+`unstack` works on it directly, the way `fillSky` works on the holes. Coverage
+already knows which probe directions are covered twice and by which two
+triangles; the weaker of the two by rigidity is shrunk towards its own middle --
+off the sky it should not be on, and compressed for it. A hard failure traded
+for a soft one, at the exact place the hard one is.
+
+Two rigid islands overlapping are left alone. That is a suture, not a softness,
+`islandOverlapFraction` counts it separately, and squeezing a craton to hide it
+would be the worst of the three answers.
+
+At 40 Ma, over seven rounds: crust over crust **0.56% to 0.43%**, squeezed crust
+7.3% to 7.8%, and the held-back pairs 174 km to **160**. The overlap falls by
+about a quarter, the squeeze rises by half a point, and the fit improves -- which
+is not what a geometry fix usually does, and is worth watching in case it is
+noise.
+
+It runs *before* the hole filling, because the two disagree about where a corner
+should go and the order of badness settles it: an overlap is worse than a
+squeeze, and a hole is worse than either, so the overlaps are cleared first and
+whatever hole that opens is closed after.
+
 ## Zero gaps first, and what it took to keep the fold as well
 
 A reader set a requirement and it is not negotiable: **zero gaps and zero

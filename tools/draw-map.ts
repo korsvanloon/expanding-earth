@@ -39,7 +39,7 @@ import { pairPulls, readTracks } from '../shared/tracks.js'
 import { directionToUv } from '../shared/sphere.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const DATA = resolve(ROOT, 'public/data')
+const DATA = resolve(ROOT, process.env.DATA_IN ?? 'public/data')
 const OUT = resolve(ROOT, process.env.OUT ?? '.stage/maps')
 
 /** How far a triangle has to be off its own area before it is worth colouring. */

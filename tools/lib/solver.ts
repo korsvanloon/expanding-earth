@@ -61,7 +61,8 @@ import {
   foldShape, markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
 } from './fold.js'
 import {
-  cellBuckets, coverage, fillSky, inside, probeCells, probeDirections, type Tiling,
+  cellBuckets, coverage, fillSky, inside, probeCells, probeDirections, unstack,
+  type Tiling,
 } from './coverage.js'
 import {
   newContactScratch, separateIslands, touchingBodies, type IslandContacts,
@@ -204,8 +205,14 @@ export const KNOBS = [
   'DRAG_FREE', 'DRAG_TOGETHER', 'EDGE_AGE', 'FLAT_K', 'FOLD_IN', 'FOLD_MARGIN',
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
-  'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SHORE_SHARE', 'SHUT_RINGS', 'SHUT_SLACK',
-  'FILL_PROBES', 'FILL_ROUNDS', 'FILL_SKY', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE', 'STRENGTH', 'TRACK_K',
+  'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SHORE_SHARE',
+  'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
+  'STRENGTH', 'TRACK_K',
+  // Keeping the shell a shell: hauling crust over bare sky, and pulling crust
+  // off crust it is lying on. A reader's order of badness -- a hole is worse
+  // than an overlap, an overlap is worse than a squeeze -- and these are the
+  // two passes that enforce it.
+  'FILL_PROBES', 'FILL_ROUNDS', 'FILL_SKY', 'UNSTACK', 'UNSTACK_ROUNDS',
   // How much a margin or a mountain belt is allowed to have moved, read
   // through `knob` in tools/lib/unstretching.ts rather than from ENV here.
   // They were missing from this list for as long as they existed, so a run
@@ -547,6 +554,35 @@ function readConfig() {
    * *that would cause enormous stretch and solving that becomes our problem.*
    */
   fillSky: Number(ENV.FILL_SKY ?? 1),
+  /**
+   * How hard crust lying over crust is pulled off itself, into a squeeze.
+   *
+   * A reader set the order of badness, and it is not the order the solver had:
+   * *compressed crust is less bad than mesh going over itself, because a
+   * compression can be smeared out into the stretched parts and an overlap
+   * cannot be smeared into anything.* Two pieces of rock in the same place is
+   * not a soft failure and no later pass recovers it, and nothing was working
+   * against it but the barrier that stops a triangle turning inside out.
+   *
+   * So wherever coverage finds the sky covered twice, the weaker of the two by
+   * rigidity is shrunk towards its own middle -- off the sky it should not be
+   * on, and compressed for it. A hard failure traded for a soft one, in the
+   * exact place the hard one is.
+   *
+   * Two rigid islands overlapping are left alone: that is a suture and not a
+   * softness, `islandOverlapFraction` counts it, and squeezing a craton to
+   * hide it would be the worst answer of the three.
+   */
+  unstackCrust: Number(ENV.UNSTACK ?? 1),
+  /**
+   * How many unstacking rounds run, before the sky is filled again.
+   *
+   * Seven. Four takes crust over crust from 0.56% to 0.43% and the held-back
+   * pairs from 174 km to 174; seven holds the overlap at 0.43% and takes the
+   * pairs to 160. Ten does no better than seven on either and costs
+   * inside-out crust, so this is where it stops.
+   */
+  unstackRounds: Number(ENV.UNSTACK_ROUNDS ?? 7),
   /** How many hauling rounds run after the sweeps. */
   fillRounds: Number(ENV.FILL_ROUNDS ?? 8),
   /** How many welding rounds run after the sweeps. */
@@ -1383,6 +1419,8 @@ export function solve(): void {
   const weldWeight = new Float64Array(vertexCount)
   /** For fillSky: which probes are bare, and where the live crust is. */
   const bareProbes: number[] = []
+  /** For unstack: probe, and the two faces over it, three at a time. */
+  const doubledAt: number[] = []
   /**
    * Which crust the last hauling put over bare sky, so the pressure exchange
    * can be told not to pull it back off. Rewritten every time the fill runs,
@@ -2645,6 +2683,35 @@ export function solve(): void {
           + `  | redrawn ${touchedN} segments ${(touchedSum / (touchedN || 1) * 100).toFixed(3)}%`
           + `  untouched ${calmN} segments ${(calmSum / (calmN || 1) * 100).toFixed(3)}%`,
         )
+      }
+    }
+    /*
+     * Turn crust lying over crust into crust that is merely squeezed.
+     *
+     * Before the fill and not after, because the two disagree about what to do
+     * with a corner and the reader's order of badness settles it: an overlap
+     * is worse than a squeeze, and a hole is worse than either. So the overlap
+     * is cleared first, and whatever hole that opens is closed after.
+     */
+    if (CONFIG.unstackCrust > 0) {
+      for (let round = 0; round < CONFIG.unstackRounds; round++) {
+        coverage(
+          pos, shell, faceCount, fillProbes, fillCells, buckets, faceIsland,
+          undefined, doubledAt,
+        )
+        if (!doubledAt.length) break
+        unstack(
+          pos, mesh.faceVerts, rigidity, faceIsland, doubledAt, CONFIG.unstackCrust,
+          weldTarget, weldWeight,
+        )
+        relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
+        if (CONFIG.foldInward) {
+          pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm,
+            CONFIG.shoreShare, shorePush, shoreCount)
+        }
+      }
+      if (ENV.STEP_TRACE) {
+        console.log(`[stack] ${t} Ma  ${doubledAt.length / 3} probes still doubled`)
       }
     }
     /*

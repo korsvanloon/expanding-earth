@@ -278,6 +278,17 @@ export function coverage(
    * hauling the nearest crust over them. See `fillSky`.
    */
   bare?: number[],
+  /**
+   * Where the sky is covered twice, filled in if given: probe index, then the
+   * two faces over it, three numbers per place.
+   *
+   * A reader put the priority plainly: mesh lying over mesh is worse than
+   * crust being squeezed, because a squeeze can be smeared out into whatever
+   * is stretched nearby and an overlap cannot be smeared into anything. So the
+   * overlap has to be findable before it can be turned into the lesser
+   * failure. See `unstack`.
+   */
+  doubledAt?: number[],
 ): Coverage {
   // Which triangles could possibly cover which part of the sky. A triangle is
   // about a degree across to start with and a few degrees once its neighbours
@@ -294,6 +305,8 @@ export function coverage(
   let islandDoubled = 0
   let boundaryHits = 0
   if (bare) bare.length = 0
+  if (doubledAt) doubledAt.length = 0
+  const covering: number[] = []
   const unit = [0, 0, 0]
   const boundary: number[] = []
   const islandsHere: number[] = []
@@ -302,12 +315,14 @@ export function coverage(
     let hits = 0
     let onAnEdge = false
     islandsHere.length = 0
+    covering.length = 0
     for (const f of buckets[cells[p]]) {
       const a = mesh.faceVerts[f * 3] * 3
       const b = mesh.faceVerts[f * 3 + 1] * 3
       const c = mesh.faceVerts[f * 3 + 2] * 3
       if (inside(pos, a, b, c, dx, dy, dz, unit, boundary)) {
         hits++
+        if (doubledAt && covering.length < 2) covering.push(f)
         const island = faceIsland?.[f] ?? 0
         if (island && !islandsHere.includes(island)) islandsHere.push(island)
       }
@@ -315,7 +330,10 @@ export function coverage(
     }
     if (hits > 0) covered++
     else bare?.push(p)
-    if (hits > 1) doubled++
+    if (hits > 1) {
+      doubled++
+      if (doubledAt && covering.length === 2) doubledAt.push(p, covering[0], covering[1])
+    }
     if (islandsHere.length > 1) islandDoubled++
     if (onAnEdge) boundaryHits++
   }
@@ -456,4 +474,87 @@ export function fillSky(
     pos[i] = (nx / nl) * l; pos[i + 1] = (ny / nl) * l; pos[i + 2] = (nz / nl) * l
   }
   return hauled
+}
+
+/**
+ * Turn crust lying over crust into crust that is merely squeezed.
+ *
+ * A reader set the order of badness and it is not the order the solver had.
+ * *Compressed crust is less bad than mesh going over itself, because a
+ * compression can be smeared out into the stretched parts and an overlap
+ * cannot be smeared into anything.* Two pieces of crust in the same place is
+ * two pieces of rock in the same place: it is not a soft failure, it is not
+ * recoverable by any later pass, and nothing in the model was working against
+ * it except the barrier that stops a triangle turning inside out.
+ *
+ * So wherever the sky is covered twice, the weaker of the two coverers is
+ * pulled off it -- shrunk towards its own middle, which compresses it. It
+ * trades a hard failure for a soft one at the exact place the hard one is.
+ *
+ * The weaker of the two by rigidity, because that is what the rigidity field
+ * is for: a craton should not give way to sea floor, and where two cratons
+ * overlap there is nothing to choose, so the pass leaves them and the overlap
+ * stands as the honest reading it always was -- see `islandOverlapFraction`,
+ * which counts exactly that case and is not touched here.
+ *
+ * Simultaneous, like every other projection: a face can cover several doubled
+ * directions and share corners with its neighbours, so the pulls are summed
+ * and averaged before anything moves.
+ */
+export function unstack(
+  pos: Float64Array,
+  faceVerts: Int32Array,
+  rigidity: Float32Array,
+  faceIsland: Uint16Array | undefined,
+  /** probe, faceA, faceB, three at a time; from `coverage`. */
+  doubledAt: number[],
+  strength: number,
+  /** Accumulators over vertices, reused between calls. */
+  target: Float64Array,
+  weight: Float64Array,
+): number {
+  target.fill(0)
+  weight.fill(0)
+  let pulled = 0
+  for (let i = 0; i < doubledAt.length; i += 3) {
+    const f = doubledAt[i + 1]
+    const g = doubledAt[i + 2]
+    // Two rigid islands in the same place is a suture, not a soft failure, and
+    // squeezing one of them is not the answer. Left alone and counted.
+    if (faceIsland && faceIsland[f] && faceIsland[g] && faceIsland[f] !== faceIsland[g]) continue
+    const weak = rigidity[f] <= rigidity[g] ? f : g
+    const a = faceVerts[weak * 3] * 3
+    const b = faceVerts[weak * 3 + 1] * 3
+    const c = faceVerts[weak * 3 + 2] * 3
+    let mx = 0, my = 0, mz = 0
+    for (const j of [a, b, c]) {
+      const l = Math.sqrt(pos[j] ** 2 + pos[j + 1] ** 2 + pos[j + 2] ** 2) || 1
+      mx += pos[j] / l; my += pos[j + 1] / l; mz += pos[j + 2] / l
+    }
+    const ml = Math.sqrt(mx * mx + my * my + mz * mz)
+    if (ml < 1e-9) continue
+    mx /= ml; my /= ml; mz /= ml
+    for (const j of [a, b, c]) {
+      target[j] += mx; target[j + 1] += my; target[j + 2] += mz
+      weight[j / 3] += 1
+    }
+    pulled++
+  }
+  const vertexCount = weight.length
+  for (let v = 0; v < vertexCount; v++) {
+    if (weight[v] === 0) continue
+    const i = v * 3
+    const tl = Math.sqrt(target[i] ** 2 + target[i + 1] ** 2 + target[i + 2] ** 2)
+    if (tl < 1e-9) continue
+    const l = Math.sqrt(pos[i] ** 2 + pos[i + 1] ** 2 + pos[i + 2] ** 2) || 1
+    const tx = target[i] / tl, ty = target[i + 1] / tl, tz = target[i + 2] / tl
+    const ux = pos[i] / l, uy = pos[i + 1] / l, uz = pos[i + 2] / l
+    let nx = ux + strength * (tx - ux)
+    let ny = uy + strength * (ty - uy)
+    let nz = uz + strength * (tz - uz)
+    const nl = Math.sqrt(nx * nx + ny * ny + nz * nz)
+    if (nl < 1e-9) continue
+    pos[i] = (nx / nl) * l; pos[i + 1] = (ny / nl) * l; pos[i + 2] = (nz / nl) * l
+  }
+  return pulled
 }
