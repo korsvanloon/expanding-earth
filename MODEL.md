@@ -465,10 +465,10 @@ construction, so the lines come out as lines.
 | time | pairs due | median miss | reunited within 200 km | of which merged |
 |---|---|---|---|---|
 | 0 Ma | 34 | 80 km | 100% | 0% |
-| 5 Ma | 75 | 43 km | 93% | 0% |
-| 30 Ma | 57 | 135 km | 61% | 0% |
-| 60 Ma | 30 | 291 km | 40% | 0% |
-| 120 Ma | 7 | 332 km | 29% | 0% |
+| 5 Ma | 75 | 45 km | 93% | 0% |
+| 30 Ma | 57 | 138 km | 61% | 0% |
+| 60 Ma | 30 | 283 km | 37% | 0% |
+| 120 Ma | 7 | 239 km | 29% | 0% |
 <!-- /from-the-run -->
 
 ### None of this changes the reconstruction, and it never could
@@ -557,7 +557,7 @@ move as units are read back out of the resulting motion: points whose velocity
 one rotation explains to within a few km/Myr.
 
 <!-- from-the-run: blocks -->
-The run finds 160 blocks at its most divided and 6 at 200 Ma.
+The run finds 158 blocks at its most divided and 6 at 200 Ma.
 <!-- /from-the-run -->
 
 ### Why it ends with one block, and why that is not welding
@@ -570,7 +570,7 @@ The only thing that makes this model move is crust leaving it, and the sea floor
 does not go back far enough to keep that up:
 
 <!-- from-the-run: reach -->
-Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.03%. The median surface speed falls from a peak of 28 km/Myr to 3.8, the block count from as many as 160 to 6, and the biggest block grows to 61% of the shell.
+Over the last 20 Myr of the run the age grid takes away 0.29% of the globe in total &mdash; 0.014% per Myr, against a peak of 1.03%. The median surface speed falls from a peak of 28 km/Myr to 3.6, the block count from as many as 158 to 6, and the biggest block grows to 78% of the shell.
 <!-- /from-the-run -->
 
 So the last stretch of the run is the solver settling, not history. Nothing is being taken away, nothing is being driven, and the block
@@ -597,11 +597,11 @@ data cannot answer.
 <!-- from-the-run: motion -->
 | time | crust removed | median speed | blocks | biggest block | island shape |
 |---|---|---|---|---|---|
-| 5 Ma | 1.026%/Myr | 14.2 km/Myr | 160 | 2% | 1.0% |
-| 30 Ma | 0.619%/Myr | 21.3 km/Myr | 154 | 2% | 2.2% |
-| 60 Ma | 0.409%/Myr | 18.0 km/Myr | 121 | 7% | 3.7% |
-| 120 Ma | 0.284%/Myr | 17.7 km/Myr | 83 | 9% | 5.9% |
-| 200 Ma | 0.000%/Myr | 3.8 km/Myr | 6 | 61% | 8.1% |
+| 5 Ma | 1.026%/Myr | 14.2 km/Myr | 158 | 2% | 1.1% |
+| 30 Ma | 0.619%/Myr | 21.4 km/Myr | 153 | 2% | 2.2% |
+| 60 Ma | 0.409%/Myr | 18.4 km/Myr | 121 | 7% | 3.7% |
+| 120 Ma | 0.284%/Myr | 17.8 km/Myr | 84 | 9% | 5.9% |
+| 200 Ma | 0.000%/Myr | 3.6 km/Myr | 6 | 78% | 8.3% |
 <!-- /from-the-run -->
 
 **Read the blocks column with its threshold in mind, because it turned out to be
@@ -813,11 +813,11 @@ Then the detail. Four numbers per frame, none of them tuned:
 <!-- from-the-run: reports -->
 | time | radius | bare sphere | covered twice | two islands at once | inside out | craton strain | weak strain |
 |---|---|---|---|---|---|---|---|
-| 5 Ma | 6205 km | 0.02% | 0.08% | 0.000% | 0.20% | 0.07% | 1.0% |
-| 30 Ma | 5669 km | 0.35% | 0.42% | 0.000% | 0.53% | 0.20% | 3.0% |
-| 60 Ma | 5148 km | 0.89% | 0.82% | 0.000% | 1.20% | 0.33% | 4.5% |
-| 120 Ma | 4309 km | 2.20% | 2.87% | 0.000% | 2.41% | 0.56% | 11.0% |
-| 200 Ma | 3918 km | 3.14% | 4.01% | 0.490% | 2.76% | 0.82% | 16.5% |
+| 5 Ma | 6205 km | 0.04% | 0.07% | 0.000% | 0.27% | 0.07% | 1.0% |
+| 30 Ma | 5669 km | 0.40% | 0.29% | 0.000% | 0.71% | 0.20% | 3.0% |
+| 60 Ma | 5148 km | 0.94% | 0.58% | 0.000% | 1.50% | 0.33% | 4.7% |
+| 120 Ma | 4309 km | 2.54% | 2.30% | 0.008% | 2.76% | 0.56% | 11.9% |
+| 200 Ma | 3918 km | 3.12% | 3.53% | 0.676% | 3.38% | 0.86% | 18.4% |
 <!-- /from-the-run -->
 
 Splitting strain by strength is the point. Thick cratons now stay within a
@@ -831,19 +831,19 @@ the answer is probably not everywhere.
 <!-- from-the-run: fits -->
 | pair | joined by | margin in contact today | then | gain | apart then | closest anywhere |
 |---|---|---|---|---|---|---|---|
-| South America &ndash; Africa | 140 Ma | 0% | 17% | +17 | 33 km | 0 km at 185 Ma |
-| Australia &ndash; Antarctica | 100 Ma | 0% | 30% | +30 | 53 km | 5 km at 155 Ma |
-| India &ndash; Africa | 165 Ma | 0% | 0% | +0 | 324 km | 89 km at 185 Ma |
+| South America &ndash; Africa | 140 Ma | 0% | 20% | +20 | 17 km | 3 km at 150 Ma |
+| Australia &ndash; Antarctica | 100 Ma | 0% | 28% | +28 | 0 km | 0 km at 125 Ma |
+| India &ndash; Africa | 165 Ma | 0% | 2% | +2 | 86 km | 82 km at 170 Ma |
 | Greenland &ndash; North America | 65 Ma | 20% | 24% | +5 | 0 km | 0 km at 0 Ma |
-| North America &ndash; Africa | 195 Ma | 0% | 1% | +1 | 189 km | 162 km at 200 Ma |
-| India &ndash; Madagascar | 90 Ma | 0% | 0% | +0 | 962 km | 185 km at 190 Ma |
-| Madagascar &ndash; Africa | 160 Ma | 88% | 81% | -6 | 0 km | 0 km at 0 Ma |
+| North America &ndash; Africa | 195 Ma | 0% | 1% | +1 | 265 km | 85 km at 190 Ma |
+| India &ndash; Madagascar | 90 Ma | 0% | 0% | +0 | 911 km | 211 km at 185 Ma |
+| Madagascar &ndash; Africa | 160 Ma | 88% | 84% | -3 | 0 km | 0 km at 0 Ma |
 | Arabia &ndash; Africa | 30 Ma | 31% | 38% | +8 | 0 km | 0 km at 0 Ma |
-| Iberia &ndash; North America | 130 Ma | 0% | 0% | +0 | 483 km | 483 km at 130 Ma |
-| India &ndash; East Antarctica | 135 Ma | 0% | 0% | +0 | 2339 km | 1603 km at 190 Ma |
-| Antarctica &ndash; Africa | 170 Ma | 0% | 8% | +8 | 13 km | 1 km at 185 Ma |
-| Antarctica &ndash; South America | watched | 0% | 22% | +22 | 8 km | 0 km at 110 Ma |
-| Australia &ndash; North America | watched | 0% | 0% | +0 | 1256 km | 1256 km at 200 Ma |
+| Iberia &ndash; North America | 130 Ma | 0% | 0% | +0 | 580 km | 543 km at 135 Ma |
+| India &ndash; East Antarctica | 135 Ma | 0% | 0% | +0 | 2370 km | 1534 km at 185 Ma |
+| Antarctica &ndash; Africa | 170 Ma | 0% | 10% | +10 | 17 km | 1 km at 185 Ma |
+| Antarctica &ndash; South America | watched | 0% | 20% | +20 | 8 km | 0 km at 115 Ma |
+| Australia &ndash; North America | watched | 0% | 0% | +0 | 1422 km | 1334 km at 175 Ma |
 <!-- /from-the-run -->
 
 Only fits with independent support are scored, and only ones plate tectonics and
@@ -2895,19 +2895,19 @@ Superchron, 83 to 120.6 Ma, and its middle is not a date anything cooled at.
 <!-- from-the-run: external -->
 | plate pair | segments | ages | median apart | p90 | published &sigma; |
 |---|---|---|---|---|---|
-| NAM-AFR | 338 | 10&ndash;79 Ma | 187 km | 562 km | 4&ndash;5 km |
-| SOM-ANT-IND | 218 | 34&ndash;65 Ma | 498 km | 1106 km | 3.49&ndash;5 km |
-| SAM-AFR | 159 | 10&ndash;79 Ma | 192 km | 396 km | 4&ndash;10 km |
-| NAM-EUR | 144 | 10&ndash;68 Ma | 117 km | 312 km | 5&ndash;5 km |
-| ANT-AFR | 123 | 44&ndash;83 Ma | 693 km | 1183 km | 3&ndash;10 km |
-| AUS-LHR | 96 | 56&ndash;74 Ma | 158 km | 347 km | 5&ndash;5 km |
-| ANT-CAP | 79 | 43&ndash;83 Ma | 1131 km | 2164 km | 3&ndash;25.01 km |
-| ANT-AUS | 71 | 44&ndash;83 Ma | 340 km | 782 km | 2&ndash;15 km |
+| NAM-AFR | 338 | 10&ndash;79 Ma | 195 km | 558 km | 4&ndash;5 km |
+| SOM-ANT-IND | 218 | 34&ndash;65 Ma | 500 km | 1198 km | 3.49&ndash;5 km |
+| SAM-AFR | 159 | 10&ndash;79 Ma | 192 km | 411 km | 4&ndash;10 km |
+| NAM-EUR | 144 | 10&ndash;68 Ma | 116 km | 296 km | 5&ndash;5 km |
+| ANT-AFR | 123 | 44&ndash;83 Ma | 698 km | 1060 km | 3&ndash;10 km |
+| AUS-LHR | 96 | 56&ndash;74 Ma | 161 km | 356 km | 5&ndash;5 km |
+| ANT-CAP | 79 | 43&ndash;83 Ma | 1159 km | 2043 km | 3&ndash;25.01 km |
+| ANT-AUS | 71 | 44&ndash;83 Ma | 345 km | 756 km | 2&ndash;15 km |
 | MBL-ANT-AUS | 38 | 31&ndash;40 Ma | 245 km | 396 km | 4&ndash;10 km |
-| AUS-ANT-MBL | 16 | 27&ndash;27 Ma | 192 km | 288 km | 4&ndash;8 km |
-| AFR-ANT-CAP | 12 | 53&ndash;62 Ma | 990 km | 1106 km | 3.49&ndash;5 km |
-| MCQ-ANT | 4 | 6&ndash;6 Ma | 165 km | 343 km | 4&ndash;8 km |
-| AUS-LP | 4 | 53&ndash;61 Ma | 45 km | 81 km | 5&ndash;5 km |
+| AUS-ANT-MBL | 16 | 27&ndash;27 Ma | 199 km | 317 km | 4&ndash;8 km |
+| AFR-ANT-CAP | 12 | 53&ndash;62 Ma | 897 km | 1198 km | 3.49&ndash;5 km |
+| MCQ-ANT | 4 | 6&ndash;6 Ma | 164 km | 342 km | 4&ndash;8 km |
+| AUS-LP | 4 | 53&ndash;61 Ma | 69 km | 94 km | 5&ndash;5 km |
 <!-- /from-the-run -->
 
 Read the last column against the second-to-last. That is the comparison this
@@ -3028,11 +3028,11 @@ Ma.
 <!-- from-the-run: paleo -->
 | point | 200 Ma | 170 Ma | 120 Ma | 60 Ma |
 |---|---|---|---|---|
-| Johannesburg | **-79&deg;** (wants -46 to -40, off 32) | **-77&deg;** (wants -50 to -37, off 26) | **-64&deg;** (wants -45 to -40, off 19) | -42&deg; (wants -45 to -41) &#10003; |
+| Johannesburg | **-78&deg;** (wants -46 to -40, off 32) | **-77&deg;** (wants -50 to -37, off 26) | **-64&deg;** (wants -45 to -40, off 19) | -42&deg; (wants -45 to -41) &#10003; |
 | Nagpur | **-10&deg;** (wants -29 to -20, off 10) | **-8&deg;** (wants -39 to -27, off 18) | **-3&deg;** (wants -45 to -40, off 37) | **10&deg;** (wants -20 to -14, off 24) |
 | Schirmacher Oasis | **-72&deg;** (wants -43 to -36, off 29) | **-70&deg;** (wants -50 to -37, off 20) | **-64&deg;** (wants -59 to -54, off 4) | **-69&deg;** (wants -79 to -75, off 6) |
-| Alice Springs | **-50&deg;** (wants -45 to -34, off 5) | -50&deg; (wants -59 to -46) &#10003; | **-47&deg;** (wants -64 to -58, off 11) | **-34&deg;** (wants -48 to -43, off 9) |
-| Brasília | **-42&deg;** (wants -22 to -17, off 19) | **-41&deg;** (wants -24 to -10, off 17) | **-34&deg;** (wants -16 to -11, off 18) | **-22&deg;** (wants -27 to -22, off 0) |
+| Alice Springs | **-51&deg;** (wants -45 to -34, off 5) | -50&deg; (wants -59 to -46) &#10003; | **-47&deg;** (wants -64 to -58, off 11) | **-34&deg;** (wants -48 to -43, off 9) |
+| Brasília | **-42&deg;** (wants -22 to -17, off 20) | **-42&deg;** (wants -24 to -10, off 18) | **-34&deg;** (wants -16 to -11, off 18) | **-22&deg;** (wants -27 to -22, off 0) |
 <!-- /from-the-run -->
 
 Twenty cells, and one of them is inside. That is the flat answer, and it is
@@ -3099,9 +3099,9 @@ explain away.
 | age | rms miss on today&rsquo;s axis | with the best axis for that age | tilt it needed |
 |---|---|---|---|
 | 60 Ma | 13.5&deg; | **9.7&deg;** | 13.8&deg; |
-| 120 Ma | 23.2&deg; | **10.3&deg;** | 34.7&deg; |
-| 170 Ma | 24.1&deg; | **8.9&deg;** | 35.5&deg; |
-| 200 Ma | 24.8&deg; | **13.2&deg;** | 35.5&deg; |
+| 120 Ma | 23.3&deg; | **10.2&deg;** | 34.9&deg; |
+| 170 Ma | 24.2&deg; | **9.0&deg;** | 35.5&deg; |
+| 200 Ma | 24.9&deg; | **13.3&deg;** | 35.6&deg; |
 <!-- /from-the-run -->
 
 That is a real result and it cuts both ways.
@@ -3170,11 +3170,11 @@ error is the entire licence to deform.
 <!-- from-the-run: budget -->
 | time | the data allows | the run deforms | squeezed | stretched | over budget |
 |---|---|---|---|---|---|
-| 5 Ma | 0.41% | 7.0% | 3.7% | 3.3% | **&times;17** |
-| 30 Ma | 0.20% | 12.3% | 6.2% | 6.0% | **&times;62** |
-| 60 Ma | 0.13% | 17.2% | 8.7% | 8.5% | **&times;137** |
-| 120 Ma | 0.11% | 26.9% | 12.4% | 14.5% | **&times;253** |
-| 200 Ma | 0.29% | 30.7% | 14.0% | 16.6% | **&times;106** |
+| 5 Ma | 0.41% | 7.4% | 3.9% | 3.5% | **&times;18** |
+| 30 Ma | 0.20% | 12.9% | 6.7% | 6.3% | **&times;65** |
+| 60 Ma | 0.13% | 18.6% | 9.6% | 9.0% | **&times;149** |
+| 120 Ma | 0.11% | 28.8% | 14.0% | 14.8% | **&times;271** |
+| 200 Ma | 0.29% | 35.1% | 17.2% | 17.9% | **&times;121** |
 <!-- /from-the-run -->
 
 The data allows a few tenths of a percent. The reconstruction deforms a fifth of
