@@ -65,7 +65,8 @@ import {
   type Tiling,
 } from './coverage.js'
 import {
-  newContactScratch, separateIslands, touchingBodies, type IslandContacts,
+  findSeams, holdSeams, newContactScratch, newSeams, separateIslands, touchingBodies,
+  type IslandContacts,
 } from './contact.js'
 import { distortion, shapePairs } from './shape.js'
 import { conjugateFit } from './conjugates.js'
@@ -205,7 +206,8 @@ export const KNOBS = [
   'DRAG_FREE', 'DRAG_TOGETHER', 'EDGE_AGE', 'FLAT_K', 'FOLD_IN', 'FOLD_MARGIN',
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
-  'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SHORE_SHARE',
+  'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
+  'SHORE_SHARE',
   'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
   'STRENGTH', 'TRACK_K',
   // Keeping the shell a shell: hauling crust over bare sky, and pulling crust
@@ -314,6 +316,43 @@ function readConfig() {
    * compression. Bending and turning are allowed; losing ground is not.
    */
   islandHoldByStrength: Number(ENV.HOLD_STRENGTH ?? 1),
+  /**
+   * How hard a closed seam is held shut, per sweep. Zero is off.
+   *
+   * A reader's diagnosis of the overlap: *zodra korst is dichtgevouwen, dat
+   * gebied moet kunnen bewegen als 1 geheel... stel je voor je hebt een vouw
+   * over noord en zuid lopen, dan moet een druk van oosten beide flanken naar
+   * het westen duwen.* Nothing in the solver does that. A ridge that has shut
+   * leaves two rims touching and mechanically unrelated -- there is no spring,
+   * no area, no island between them -- so a push on one flank moves that flank
+   * and the other one stays, and where they were touching they now overlap.
+   *
+   * What is welded is the **seam**, not the bodies either side of it. Welding
+   * bodies would freeze the model: by 200 Ma nearly every ridge has shut, and
+   * a shell of one rigid piece cannot reconstruct anything. Welding the seam
+   * says only that the two rims are now one line of crust, which is what a
+   * shut ridge means, and leaves both plates free to deform away from it.
+   *
+   * It changes no topology. No vertex is merged, no triangle collapsed, no
+   * edge flipped: the two rims keep their own points and are asked to be in
+   * the same place. Crust identity and resolution survive, which is the whole
+   * reason the fold exists.
+   *
+   * Monotone in time, which is what makes it safe to remember: this runs
+   * backwards, so crust only ever disappears, and two rims that have met stay
+   * met for the rest of the run.
+   */
+  seamHold: Number(ENV.SEAM_K ?? 0),
+  /**
+   * How close two rims have to be, in kilometres, to count as one seam.
+   *
+   * Below the mesh spacing, which is about 70 km at the 4,000 km globe, so
+   * that second neighbours in one piece of crust cannot be mistaken for two
+   * pieces meeting. Direct neighbours are excluded outright -- vertices that
+   * share a live triangle are the same crust, and welding them would only
+   * shrink it.
+   */
+  seamKm: Number(ENV.SEAM_KM ?? 50),
   /**
    * How much of its proper size a triangle must keep, wound the right way,
    * before the orientation barrier stops pushing. A barrier, not a shape: the
@@ -1448,6 +1487,15 @@ export function solve(): void {
   }
   const liveVertex = new Uint8Array(vertexCount)
   const liveBuckets = cellBuckets()
+  /**
+   * The seams that have shut, remembered across the whole run.
+   *
+   * A union-find over vertices, so a rim welded at 30 Ma is still welded at
+   * 200. See `seamHold`.
+   */
+  const seams = newSeams(vertexCount)
+  const seamVertex = new Uint8Array(vertexCount)
+  const seamBuckets = cellBuckets()
   /** What each of the three edges of a face should measure at the current step. */
   const edgeTarget = new Float64Array(faceCount * 3)
 
@@ -2367,6 +2415,25 @@ export function solve(): void {
       }
     }
 
+    /*
+     * Which rims have met, once a step and never forgotten.
+     *
+     * Once because it is a search over every live vertex against its
+     * neighbourhood, and because a seam that shuts halfway through a step can
+     * wait for the next one -- the step is a million years.
+     */
+    if (CONFIG.seamHold > 0) {
+      const added = findSeams(
+        seams, pos, shell, faceCount, vertexCount, seamVertex, mesh.vertexAlive,
+        rNext, CONFIG.seamKm, seamBuckets,
+      )
+      if (added && ENV.STEP_TRACE) {
+        console.log(
+          `[seam] ${t} Ma  ${added} rims met; ${seams.a.length} stitches holding`,
+        )
+      }
+    }
+
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
       const forward = sweep % 2 === 0
       for (let n = 0; n < faceCount; n++) {
@@ -2509,6 +2576,12 @@ export function solve(): void {
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
         rNext, islandFacing, holdShare,
       )
+      // A shut ridge is one line of crust, not two rims that happen to touch.
+      // After the island hold, because the hold refits each island from its
+      // own points and would fit the weld straight back out.
+      if (CONFIG.seamHold > 0 && seams.a.length) {
+        holdSeams(pos, seams, CONFIG.seamHold)
+      }
       // After the hold, not before it. Composing the turn into the island's
       // carried orientation and letting holdIslands run does nothing at all:
       // the hold *refits* that orientation from the island's current positions

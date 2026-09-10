@@ -456,3 +456,204 @@ export function touchingBodies(
   for (let i = 0; i < islandCount; i++) of[i] = number.get(roots[i])!
   return { of, count: number.size }
 }
+
+/**
+ * Weld the two flanks of a ridge that has shut, so a push crosses it.
+ *
+ * A reader worked out what the overlap at a fold really is, and the code says
+ * they were right. Under the fold, un-erupted crust hangs inside the shell and
+ * is mechanically absent: `if (!crustAlive[f] && !shuts) continue` skips it in
+ * the spring loop, and the area constraint runs over live crust only. So the
+ * only thing joining the two sides of a shut ridge is the rim's own closing
+ * spring, which *pulls them together* but does not make them one piece.
+ *
+ * **There is no path for a force to cross a shut ridge.** Their words: if a
+ * fold runs north to south, a push from the east should carry both flanks
+ * west. It does not. The east flank moves, the west flank does not hear about
+ * it, and the first runs into the second -- which is an overlap.
+ *
+ * So: once shut, glued. Two pieces of *live* crust that come within
+ * `withinKm` of each other, with nothing living between them, are welded into
+ * one point for the rest of the run. Running backwards, crust only ever
+ * disappears, so a seam that has closed stays closed and the weld never needs
+ * undoing -- no bookkeeping, no reopening.
+ *
+ * It is a **seam** weld and deliberately not a body weld. Making the whole
+ * plate either side one rigid block, the way `touchingBodies` does for slab
+ * pull, would freeze the model: by 200 Ma nearly every ridge has shut, and the
+ * shell would be one block that cannot move at all. Welding only the paired
+ * points lets the force cross while the crust behind each flank goes on
+ * deforming -- which is what a suture is, welded rather than rigid.
+ *
+ * Nothing here touches the mesh. No collapse, no flip, no vertex merged away:
+ * the crust keeps its identity and its resolution, and this is a constraint
+ * like any other.
+ */
+export interface Seams {
+  /** One welded stitch per entry: `a[i]` is held against `b[i]`. */
+  a: number[]
+  b: number[]
+  /** Which stitches exist already, keyed on the pair. */
+  seen: Set<number>
+  vertexCount: number
+}
+
+export function newSeams(vertexCount: number): Seams {
+  return { a: [], b: [], seen: new Set(), vertexCount }
+}
+
+/**
+ * Find the seams that have closed since last time, and add them.
+ *
+ * **Stitches, not groups.** The first version of this unioned everything that
+ * met into one set and held each set on its own mean direction, which reads
+ * like the same thing and is not: a seam is a *line*, its vertices meet their
+ * neighbours all along it, and a transitive union therefore swallows the whole
+ * line into one set -- which the hold then pulls onto a single point. Measured
+ * at 10 Ma it took the doubled sphere from 0.1% to 15.5% and the strain in
+ * weak crust from 3% to 56%, which is a shell being crumpled up rather than
+ * held together. Each vertex gets **one** partner, its nearest, and the hold
+ * is pairwise, so a seam behaves like a row of stitches: local, and no amount
+ * of them can collapse anything.
+ *
+ * Once a step, because a seam that closes mid-step can wait for the next one
+ * and because the search is over every live vertex against its neighbourhood.
+ * Two vertices already sharing a live triangle are not a seam -- they are the
+ * same piece of crust, and welding them would only shrink it.
+ */
+export function findSeams(
+  seams: Seams,
+  pos: Float64Array,
+  mesh: Tiling,
+  faceCount: number,
+  vertexCount: number,
+  /** Which vertices are corners of crust that exists now; rebuilt here. */
+  liveVertex: Uint8Array,
+  vertexAlive: ArrayLike<number>,
+  radiusKm: number,
+  withinKm: number,
+  /** Reused between steps. */
+  buckets: number[][],
+): number {
+  // Who already shares a triangle with whom: those are not seams.
+  //
+  // The live corners are read off the same faces in the same pass. Under the
+  // fold a vertex that has sunk still has coordinates, and its *direction* can
+  // sit exactly under a vertex on the surface -- so asking who is live has to
+  // mean who is a corner of crust that exists now, or the weld would glue the
+  // shell to the crust hanging beneath it.
+  liveVertex.fill(0)
+  const neighbours = new Map<number, Set<number>>()
+  const note = (a: number, b: number) => {
+    let set = neighbours.get(a)
+    if (!set) { set = new Set(); neighbours.set(a, set) }
+    set.add(b)
+  }
+  for (let f = 0; f < faceCount; f++) {
+    if (!mesh.faceAlive[f]) continue
+    const a = mesh.faceVerts[f * 3], b = mesh.faceVerts[f * 3 + 1], c = mesh.faceVerts[f * 3 + 2]
+    liveVertex[a] = 1; liveVertex[b] = 1; liveVertex[c] = 1
+    note(a, b); note(b, a); note(b, c); note(c, b); note(c, a); note(a, c)
+  }
+
+  for (const list of buckets) list.length = 0
+  const unit = new Float64Array(vertexCount * 3)
+  for (let v = 0; v < vertexCount; v++) {
+    if (!liveVertex[v] || !vertexAlive[v]) continue
+    const i = v * 3
+    const l = Math.sqrt(pos[i] ** 2 + pos[i + 1] ** 2 + pos[i + 2] ** 2) || 1
+    unit[i] = pos[i] / l; unit[i + 1] = pos[i + 1] / l; unit[i + 2] = pos[i + 2] / l
+    buckets[cellOf(unit[i], unit[i + 1], unit[i + 2])].push(v)
+  }
+
+  // One partner each, so a vertex already stitched is not stitched again --
+  // the row of stitches is what holds the seam, not the count of them.
+  const taken = new Uint8Array(vertexCount)
+  for (let k = 0; k < seams.a.length; k++) {
+    taken[seams.a[k]] = 1
+    taken[seams.b[k]] = 1
+  }
+
+  const cos = Math.cos(withinKm / radiusKm)
+  let added = 0
+  for (let v = 0; v < vertexCount; v++) {
+    if (!liveVertex[v] || !vertexAlive[v] || taken[v]) continue
+    const i = v * 3
+    const cell = cellOf(unit[i], unit[i + 1], unit[i + 2])
+    const row = Math.floor(cell / GRID_COLS)
+    const col = cell % GRID_COLS
+    const near = neighbours.get(v)
+    let best = cos
+    let partner = -1
+    for (let dr = -1; dr <= 1; dr++) {
+      const r = row + dr
+      if (r < 0 || r >= GRID_ROWS) continue
+      for (let dc = -1; dc <= 1; dc++) {
+        const c = ((col + dc) % GRID_COLS + GRID_COLS) % GRID_COLS
+        for (const w of buckets[r * GRID_COLS + c]) {
+          if (w === v || taken[w] || near?.has(w)) continue
+          const j = w * 3
+          const dot = unit[i] * unit[j] + unit[i + 1] * unit[j + 1] + unit[i + 2] * unit[j + 2]
+          if (dot <= best) continue
+          best = dot
+          partner = w
+        }
+      }
+    }
+    if (partner < 0) continue
+    const lo = Math.min(v, partner)
+    const hi = Math.max(v, partner)
+    const key = lo * seams.vertexCount + hi
+    if (seams.seen.has(key)) continue
+    seams.seen.add(key)
+    seams.a.push(lo)
+    seams.b.push(hi)
+    taken[v] = 1
+    taken[partner] = 1
+    added++
+  }
+  return added
+}
+
+/**
+ * Hold every welded stitch shut: its two points move as one.
+ *
+ * Each pair is pulled onto the direction halfway between them, both keeping
+ * their own radius -- how deep a corner hangs is the fold's business, as
+ * everywhere else here. At full strength the two coincide, which is what a
+ * weld is; below that it is a stiff spring, which is what makes the first
+ * step after a seam closes something other than a jump.
+ */
+export function holdSeams(
+  pos: Float64Array,
+  seams: Seams,
+  strength: number,
+): number {
+  let held = 0
+  for (let k = 0; k < seams.a.length; k++) {
+    const i = seams.a[k] * 3
+    const j = seams.b[k] * 3
+    const la = Math.sqrt(pos[i] ** 2 + pos[i + 1] ** 2 + pos[i + 2] ** 2) || 1
+    const lb = Math.sqrt(pos[j] ** 2 + pos[j + 1] ** 2 + pos[j + 2] ** 2) || 1
+    const ax = pos[i] / la, ay = pos[i + 1] / la, az = pos[i + 2] / la
+    const bx = pos[j] / lb, by = pos[j + 1] / lb, bz = pos[j + 2] / lb
+    let mx = ax + bx, my = ay + by, mz = az + bz
+    const ml = Math.sqrt(mx * mx + my * my + mz * mz)
+    if (ml < 1e-9) continue
+    mx /= ml; my /= ml; mz /= ml
+    const place = (at: number, ux: number, uy: number, uz: number, radius: number) => {
+      let nx = ux + strength * (mx - ux)
+      let ny = uy + strength * (my - uy)
+      let nz = uz + strength * (mz - uz)
+      const nl = Math.sqrt(nx * nx + ny * ny + nz * nz)
+      if (nl < 1e-9) return
+      pos[at] = (nx / nl) * radius
+      pos[at + 1] = (ny / nl) * radius
+      pos[at + 2] = (nz / nl) * radius
+    }
+    place(i, ax, ay, az, la)
+    place(j, bx, by, bz, lb)
+    held++
+  }
+  return held
+}
