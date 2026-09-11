@@ -61,7 +61,7 @@ import {
   foldShape, markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
 } from './fold.js'
 import {
-  cellBuckets, coverage, drain, fillSky, inside, probeCells, probeDirections, unstack,
+  cellBuckets, coverage, fillSky, inside, probeCells, probeDirections, unstack,
   type Tiling,
 } from './coverage.js'
 import {
@@ -214,8 +214,8 @@ export const KNOBS = [
   // off crust it is lying on. A reader's order of badness -- a hole is worse
   // than an overlap, an overlap is worse than a squeeze -- and these are the
   // two passes that enforce it.
-  'DRAIN', 'DRAIN_KM', 'FILL_PROBES', 'FILL_ROUNDS', 'FILL_SKY', 'UNSTACK',
-  'UNSTACK_ROUNDS',
+  'FILL_PROBES', 'FILL_ROUNDS', 'FILL_SKY', 'UNSTACK', 'UNSTACK_EVERY',
+  'UNSTACK_PROBES', 'UNSTACK_ROUNDS',
   // How much a margin or a mountain belt is allowed to have moved, read
   // through `knob` in tools/lib/unstretching.ts rather than from ENV here.
   // They were missing from this list for as long as they existed, so a run
@@ -624,25 +624,32 @@ function readConfig() {
    */
   unstackRounds: Number(ENV.UNSTACK_ROUNDS ?? 7),
   /**
-   * How far a pile is walked towards the hole beside it each round, as a
-   * fraction of the way there. Zero leaves every overlap to be shrunk.
+   * How many sweeps apart the overlap is also cleared *during* the solve.
+   * Zero leaves it to the rounds after the sweeps, as it was.
    *
-   * See `drain`: the bare share and the doubled share track each other across
-   * every run, which says the shell is wrinkled rather than overfull, and a
-   * pile with a hole a few triangles away can be moved into it instead of
-   * being crushed where it stands.
+   * The rounds above are a projection onto a pile the eighty sweeps have
+   * already built, and the next step's sweeps build it again -- the pass and
+   * the solve are arguing rather than agreeing. The seam weld got its result
+   * by being inside the sweep loop instead of after it, where the springs can
+   * answer it and spread the correction, and this is the same move for the
+   * same reason.
+   *
+   * Every eighth sweep, like `cohere`, because it is not an exact thing: it
+   * only has to stop a pile forming while the crust is still free to go
+   * somewhere else.
    */
-  drainToHoles: Number(ENV.DRAIN ?? 0),
+  unstackEvery: Number(ENV.UNSTACK_EVERY ?? 0),
   /**
-   * How far away a hole may be and still be worth walking to, km.
+   * How many directions the in-sweep overlap check asks, against the hundred
+   * thousand the frame is measured on.
    *
-   * The median doubled direction has bare sky 154 km off at 120 Ma and the
-   * tenth percentile has it at 48, so a few hundred kilometres reaches most
-   * of them; the ninetieth percentile is 869 km away and that one is not a
-   * wrinkle, it is two different failures that happen to be the nearest to
-   * each other.
+   * A quarter of them. This pass runs ten times a step rather than once, and
+   * it is not the measurement -- it does not have to find every doubled
+   * direction, only the patches big enough to be worth pushing apart while
+   * there is still time to. What it misses, the rounds after the sweeps and
+   * the frame's own coverage still see.
    */
-  drainReachKm: Number(ENV.DRAIN_KM ?? 400),
+  unstackProbes: Number(ENV.UNSTACK_PROBES ?? 25000),
   /** How many hauling rounds run after the sweeps. */
   fillRounds: Number(ENV.FILL_ROUNDS ?? 8),
   /** How many welding rounds run after the sweeps. */
@@ -1537,6 +1544,10 @@ export function solve(): void {
    */
   const fillProbes = probeDirections(Number(ENV.FILL_PROBES ?? 100000))
   const fillCells = probeCells(fillProbes)
+  /** The coarse set the in-sweep overlap check asks; see `unstackEvery`. */
+  const stackProbes = probeDirections(CONFIG.unstackProbes)
+  const stackCells = probeCells(stackProbes)
+  const stackedAt: number[] = []
   const cells = probeCells(probes)
   const buckets = cellBuckets()
   const faceIsland = new Uint16Array(faceCount)
@@ -2610,6 +2621,23 @@ export function solve(): void {
       // back out. Measured identical to fifteen digits. Turning the placed
       // positions instead sticks, because the next sweep's fit then finds the
       // island where the turn left it.
+      // Crust off crust while the crust can still answer for it, rather than
+      // only as a projection once the sweeps have finished piling it up.
+      if (
+        CONFIG.unstackCrust > 0 && CONFIG.unstackEvery > 0
+        && sweep % CONFIG.unstackEvery === CONFIG.unstackEvery - 1
+      ) {
+        coverage(
+          pos, shell, faceCount, stackProbes, stackCells, buckets, faceIsland,
+          undefined, stackedAt,
+        )
+        if (stackedAt.length) {
+          unstack(
+            pos, mesh.faceVerts, rigidity, faceIsland, stackedAt, CONFIG.unstackCrust,
+            weldTarget, weldWeight,
+          )
+        }
+      }
       // Neighbouring crust moves together. Every eighth sweep rather than
       // every one: it is a smoothing pass over forty thousand points and it
       // does not need to be exact, only present.
@@ -2791,19 +2819,9 @@ export function solve(): void {
       for (let round = 0; round < CONFIG.unstackRounds; round++) {
         coverage(
           pos, shell, faceCount, fillProbes, fillCells, buckets, faceIsland,
-          CONFIG.drainToHoles > 0 ? bareProbes : undefined, doubledAt,
+          undefined, doubledAt,
         )
         if (!doubledAt.length) break
-        // The wrinkle first: a pile with a hole beside it is walked into it,
-        // which clears both at once. What is left has nowhere to go, and for
-        // that the trade is the old one -- doubled crust becomes squeezed.
-        if (CONFIG.drainToHoles > 0 && bareProbes.length) {
-          drain(
-            pos, mesh.faceVerts, rigidity, faceIsland, doubledAt, bareProbes, fillProbes,
-            CONFIG.drainReachKm, rNext, CONFIG.drainToHoles, weldTarget, weldWeight,
-            liveBuckets,
-          )
-        }
         unstack(
           pos, mesh.faceVerts, rigidity, faceIsland, doubledAt, CONFIG.unstackCrust,
           weldTarget, weldWeight,
