@@ -1194,6 +1194,24 @@ export function solve(): void {
     }
     console.log('[solve] strength taken from ECM1 thickness rather than crustal class')
   }
+  /*
+   * Every triangle equally stiff -- `STRENGTH=equal`.
+   *
+   * Not a strength field but the absence of one, and it is here so that the
+   * absence can be measured. A reader put the case: *puur gelijke krachten
+   * waarbij elk driehoek dus zo veel mogelijk hetzelfde wil blijven.* Every
+   * weight this model carries -- which crust is a shield, which is basalt, how
+   * thick it is, which points are one rigid island -- is a claim about the
+   * Earth, and each of them has been argued for separately and none of them
+   * has ever been measured against having no weights at all. This is that
+   * baseline: one uniform elastic shell, and whatever it does is what the
+   * geometry alone produces.
+   */
+  const equalStrength = ENV.STRENGTH === 'equal'
+  if (equalStrength) {
+    rigidity.fill(1)
+    console.log('[solve] every triangle equally stiff; no strength field')
+  }
 
   const stretchResist = new Float64Array(faceCount)
   {
@@ -1203,7 +1221,7 @@ export function solve(): void {
     const reference = intact.length ? intact[Math.floor(intact.length / 2)] : 40
     let stiffened = 0
     for (let f = 0; f < faceCount; f++) {
-      const byThickness = Math.min(1, thickness[f] / reference)
+      const byThickness = equalStrength ? 0 : Math.min(1, thickness[f] / reference)
       stretchResist[f] = Math.max(rigidity[f], byThickness)
       if (stretchResist[f] > rigidity[f] + 0.05) stiffened++
     }
