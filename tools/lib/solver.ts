@@ -342,7 +342,7 @@ function readConfig() {
    * backwards, so crust only ever disappears, and two rims that have met stay
    * met for the rest of the run.
    */
-  seamHold: Number(ENV.SEAM_K ?? 0),
+  seamHold: Number(ENV.SEAM_K ?? 1),
   /**
    * How close two rims have to be, in kilometres, to count as one seam.
    *
