@@ -214,8 +214,7 @@ export const KNOBS = [
   // off crust it is lying on. A reader's order of badness -- a hole is worse
   // than an overlap, an overlap is worse than a squeeze -- and these are the
   // two passes that enforce it.
-  'FILL_PROBES', 'FILL_ROUNDS', 'FILL_SKY', 'UNSTACK', 'UNSTACK_EVERY',
-  'UNSTACK_PROBES', 'UNSTACK_ROUNDS',
+  'FILL_PROBES', 'FILL_ROUNDS', 'FILL_SKY', 'UNSTACK', 'UNSTACK_ROUNDS',
   // How much a margin or a mountain belt is allowed to have moved, read
   // through `knob` in tools/lib/unstretching.ts rather than from ENV here.
   // They were missing from this list for as long as they existed, so a run
@@ -623,33 +622,6 @@ function readConfig() {
    * inside-out crust, so this is where it stops.
    */
   unstackRounds: Number(ENV.UNSTACK_ROUNDS ?? 7),
-  /**
-   * How many sweeps apart the overlap is also cleared *during* the solve.
-   * Zero leaves it to the rounds after the sweeps, as it was.
-   *
-   * The rounds above are a projection onto a pile the eighty sweeps have
-   * already built, and the next step's sweeps build it again -- the pass and
-   * the solve are arguing rather than agreeing. The seam weld got its result
-   * by being inside the sweep loop instead of after it, where the springs can
-   * answer it and spread the correction, and this is the same move for the
-   * same reason.
-   *
-   * Every eighth sweep, like `cohere`, because it is not an exact thing: it
-   * only has to stop a pile forming while the crust is still free to go
-   * somewhere else.
-   */
-  unstackEvery: Number(ENV.UNSTACK_EVERY ?? 0),
-  /**
-   * How many directions the in-sweep overlap check asks, against the hundred
-   * thousand the frame is measured on.
-   *
-   * A quarter of them. This pass runs ten times a step rather than once, and
-   * it is not the measurement -- it does not have to find every doubled
-   * direction, only the patches big enough to be worth pushing apart while
-   * there is still time to. What it misses, the rounds after the sweeps and
-   * the frame's own coverage still see.
-   */
-  unstackProbes: Number(ENV.UNSTACK_PROBES ?? 25000),
   /** How many hauling rounds run after the sweeps. */
   fillRounds: Number(ENV.FILL_ROUNDS ?? 8),
   /** How many welding rounds run after the sweeps. */
@@ -1560,10 +1532,6 @@ export function solve(): void {
    */
   const fillProbes = probeDirections(Number(ENV.FILL_PROBES ?? 100000))
   const fillCells = probeCells(fillProbes)
-  /** The coarse set the in-sweep overlap check asks; see `unstackEvery`. */
-  const stackProbes = probeDirections(CONFIG.unstackProbes)
-  const stackCells = probeCells(stackProbes)
-  const stackedAt: number[] = []
   const cells = probeCells(probes)
   const buckets = cellBuckets()
   const faceIsland = new Uint16Array(faceCount)
@@ -2637,23 +2605,6 @@ export function solve(): void {
       // back out. Measured identical to fifteen digits. Turning the placed
       // positions instead sticks, because the next sweep's fit then finds the
       // island where the turn left it.
-      // Crust off crust while the crust can still answer for it, rather than
-      // only as a projection once the sweeps have finished piling it up.
-      if (
-        CONFIG.unstackCrust > 0 && CONFIG.unstackEvery > 0
-        && sweep % CONFIG.unstackEvery === CONFIG.unstackEvery - 1
-      ) {
-        coverage(
-          pos, shell, faceCount, stackProbes, stackCells, buckets, faceIsland,
-          undefined, stackedAt,
-        )
-        if (stackedAt.length) {
-          unstack(
-            pos, mesh.faceVerts, rigidity, faceIsland, stackedAt, CONFIG.unstackCrust,
-            weldTarget, weldWeight,
-          )
-        }
-      }
       // Neighbouring crust moves together. Every eighth sweep rather than
       // every one: it is a smoothing pass over forty thousand points and it
       // does not need to be exact, only present.
