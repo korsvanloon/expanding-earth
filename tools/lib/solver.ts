@@ -208,8 +208,7 @@ export const KNOBS = [
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
   'SHORE_SHARE',
-  'SHUT_FIRST', 'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS',
-  'SMALLEST_PLATE',
+  'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
   'STRENGTH', 'TRACK_K',
   // Keeping the shell a shell: hauling crust over bare sky, and pulling crust
   // off crust it is lying on. A reader's order of badness -- a hole is worse
@@ -574,14 +573,6 @@ function readConfig() {
    * 1 welds completely; 0 leaves the spring alone, which is how it was.
    */
   weldRim: Number(ENV.SHUT_WELD ?? 1),
-  /**
-   * Whether the ridges are clapped shut *before* the sweeps rather than after.
-   *
-   * See `clapRimsShut`. Before, the closure is a condition the sweeps relax
-   * around and the seam search finds the rims this step brought together;
-   * after, it is a correction nothing gets to smooth out.
-   */
-  shutFirst: Number(ENV.SHUT_FIRST ?? 0) > 0,
   /**
    * How hard bare sky is filled by hauling the nearest crust over it.
    *
@@ -2464,17 +2455,17 @@ export function solve(): void {
      * Each round welds and then re-imposes the sphere and the fold, because
      * moving a corner across the surface moves it off both.
      *
-     * **When this runs decides what it costs.** It used to be the last thing
-     * in a step, and a reader saw what was wrong with that: the deformation a
-     * hard clap causes is then never relaxed by anything, because the eighty
-     * sweeps that could have spread it out have already finished. Run it
-     * *first* -- `SHUT_FIRST` -- and closing the ridge becomes a condition the
-     * sweeps then solve around, which is what a reader asked for: *eerst de
-     * korst hard dichten, lassen, en dan de relaxing sweeps.*
+     * **Before the sweeps, and that is not a setting.** It used to be the last
+     * thing in a step, and a reader put plainly what was wrong with that:
+     * *het was gewoon fout eerst.* The deformation a hard clap causes was then
+     * never relaxed by anything, because the sweeps that could have spread it
+     * out had already finished. Closing the ridge is a condition the sweeps
+     * solve around -- *eerst de korst hard dichten, lassen, en dan de relaxing
+     * sweeps* -- not a correction applied to their answer.
      *
-     * The seam search moves with it, and that matters as much. `findSeams`
-     * welds rims that are within 50 km of each other, and run before anything
-     * has been brought together it can only find what happened to be touching
+     * The seam search moved with it, and that matters as much. `findSeams`
+     * welds rims within 50 km of each other, and running before anything had
+     * been brought together it could only find what happened to be touching
      * already. After the clap it finds the seams this step actually made.
      */
     const clapRimsShut = () => {
@@ -2516,7 +2507,7 @@ export function solve(): void {
         }
     }
 
-    if (CONFIG.shutFirst) clapRimsShut()
+    clapRimsShut()
 
     /*
      * Which rims have met, once a step and never forgotten.
@@ -2708,7 +2699,6 @@ export function solve(): void {
         )
       }
     }
-    if (!CONFIG.shutFirst) clapRimsShut()
     /*
      * The relaxing sweeps, after the rest and not among them.
      *
