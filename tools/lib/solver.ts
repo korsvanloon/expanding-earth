@@ -881,8 +881,24 @@ function readConfig() {
    * which leaves a long-wavelength motion untouched and suppresses exactly the
    * short-wavelength churn. It is what a plate is, expressed without having to
    * find one.
+   *
+   * It defaulted to zero -- switched off -- until three passes aimed at the
+   * overlap had each failed, and what they had in common was that all three
+   * act on one triangle at a time. Crust lying over crust is not a
+   * triangle-sized failure: the bare share and the doubled share track each
+   * other in every run measured, and a doubled direction has bare sky a median
+   * 154 km away at 120 Ma, so the shell carries about the right amount of
+   * crust, folded. This is the only pass here that works at a longer
+   * wavelength than an edge.
+   *
+   * On at 0.5 over the full run it is worth a small, consistent amount: worst
+   * bare sky 2.06% -> 1.97%, worst crust over crust 2.16% -> 1.99%, the
+   * held-back pairs at 120 Ma 185 -> 117 km, with the deformation and the
+   * craton strain where they were. The strength is not an optimum -- 0.3 and
+   * 0.8 both come out worse at 40 Ma and the three do not line up in order --
+   * so it is the best of what was sampled rather than a tuned number.
    */
-  coherence: Number(ENV.COHERE ?? 0),
+  coherence: Number(ENV.COHERE ?? 0.5),
   /** How many neighbourhood rounds each application spreads over. */
   coherenceRounds: Number(ENV.COHERE_ROUNDS ?? 2),
   /**
