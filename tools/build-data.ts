@@ -143,7 +143,21 @@ export const CONFIG = {
   landFraction: 0.292,
   /** Fraction of the globe underlain by continental crust including margins. */
   continentalFraction: 0.41,
-  endTimeMa: 200,
+  /**
+   * Where the run stops, Ma.
+   *
+   * A hundred and eighty, because past that the age grid has nothing left to
+   * take away and the model is not reconstructing anything, it is settling.
+   * Measured on the 200 Ma run it replaces: the crust removed per million
+   * years falls from 0.127% at 160 Ma to 0.057% at 170 and 0.028% at 180, and
+   * is 0.000% by 200. Over those last twenty million years the radius moves 15
+   * km in total -- four tenths of a percent -- while the median surface speed
+   * collapses from 8.4 km/Myr to 2.4 and the block count from 34 to 2, the
+   * biggest of them covering 99% of the shell. None of that is history. It is
+   * a relaxation with nothing driving it, and reading the Jurassic off it
+   * would be reading the solver.
+   */
+  endTimeMa: 180,
   radiusStepMa: 1,
   frameStepMa: 5,
   /**
