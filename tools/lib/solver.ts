@@ -208,7 +208,8 @@ export const KNOBS = [
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
   'SHORE_SHARE',
-  'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
+  'SHUT_FIRST', 'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS',
+  'SMALLEST_PLATE',
   'STRENGTH', 'TRACK_K',
   // Keeping the shell a shell: hauling crust over bare sky, and pulling crust
   // off crust it is lying on. A reader's order of badness -- a hole is worse
@@ -573,6 +574,14 @@ function readConfig() {
    * 1 welds completely; 0 leaves the spring alone, which is how it was.
    */
   weldRim: Number(ENV.SHUT_WELD ?? 1),
+  /**
+   * Whether the ridges are clapped shut *before* the sweeps rather than after.
+   *
+   * See `clapRimsShut`. Before, the closure is a condition the sweeps relax
+   * around and the seam search finds the rims this step brought together;
+   * after, it is a correction nothing gets to smooth out.
+   */
+  shutFirst: Number(ENV.SHUT_FIRST ?? 0) > 0,
   /**
    * How hard bare sky is filled by hauling the nearest crust over it.
    *
@@ -2450,6 +2459,66 @@ export function solve(): void {
     }
 
     /*
+     * Clap every rim of a shut ridge together, as a projection.
+     *
+     * Each round welds and then re-imposes the sphere and the fold, because
+     * moving a corner across the surface moves it off both.
+     *
+     * **When this runs decides what it costs.** It used to be the last thing
+     * in a step, and a reader saw what was wrong with that: the deformation a
+     * hard clap causes is then never relaxed by anything, because the eighty
+     * sweeps that could have spread it out have already finished. Run it
+     * *first* -- `SHUT_FIRST` -- and closing the ridge becomes a condition the
+     * sweeps then solve around, which is what a reader asked for: *eerst de
+     * korst hard dichten, lassen, en dan de relaxing sweeps.*
+     *
+     * The seam search moves with it, and that matters as much. `findSeams`
+     * welds rims that are within 50 km of each other, and run before anything
+     * has been brought together it can only find what happened to be touching
+     * already. After the clap it finds the seams this step actually made.
+     */
+    const clapRimsShut = () => {
+      if (!(CONFIG.foldInward && CONFIG.weldRim > 0)) return
+
+        const rimGap = () => {
+          const gaps: number[] = []
+          for (let f = 0; f < faceCount; f++) {
+            if (!closing[f]) continue
+            for (let k = 0; k < 3; k++) {
+              const i = mesh.faceVerts[f * 3 + k] * 3
+              const j = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
+              const la = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+              const lb = length3(pos[j], pos[j + 1], pos[j + 2]) || 1
+              const dot = Math.min(1, Math.max(-1,
+                (pos[i] * pos[j] + pos[i + 1] * pos[j + 1] + pos[i + 2] * pos[j + 2]) / (la * lb)))
+              gaps.push(Math.acos(dot) * rNext)
+            }
+          }
+          gaps.sort((a, b) => a - b)
+          return gaps.length ? gaps[gaps.length >> 1] : 0
+        }
+        const before = ENV.STEP_TRACE ? rimGap() : 0
+        let welded = 0
+        for (let round = 0; round < CONFIG.weldRounds; round++) {
+          welded = weldRim(
+            pos, mesh.faceVerts, closing, faceCount, vertexCount, CONFIG.weldRim,
+            weldTarget, weldWeight,
+          )
+          relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
+          pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm,
+            CONFIG.shoreShare, shorePush, shoreCount)
+        }
+        if (ENV.STEP_TRACE) {
+          console.log(
+            `[weld] ${t} Ma  ${welded} rim faces, median rim edge `
+            + `${before.toFixed(0)} -> ${rimGap().toFixed(0)} km`,
+          )
+        }
+    }
+
+    if (CONFIG.shutFirst) clapRimsShut()
+
+    /*
      * Which rims have met, once a step and never forgotten.
      *
      * Once because it is a search over every live vertex against its
@@ -2639,48 +2708,7 @@ export function solve(): void {
         )
       }
     }
-    /*
-     * Clap the rim shut, after the sweeps and as a projection.
-     *
-     * Each round welds and then re-imposes the sphere and the fold, because
-     * moving a corner across the surface moves it off both.
-     */
-    if (CONFIG.foldInward && CONFIG.weldRim > 0) {
-      const rimGap = () => {
-        const gaps: number[] = []
-        for (let f = 0; f < faceCount; f++) {
-          if (!closing[f]) continue
-          for (let k = 0; k < 3; k++) {
-            const i = mesh.faceVerts[f * 3 + k] * 3
-            const j = mesh.faceVerts[f * 3 + ((k + 1) % 3)] * 3
-            const la = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
-            const lb = length3(pos[j], pos[j + 1], pos[j + 2]) || 1
-            const dot = Math.min(1, Math.max(-1,
-              (pos[i] * pos[j] + pos[i + 1] * pos[j + 1] + pos[i + 2] * pos[j + 2]) / (la * lb)))
-            gaps.push(Math.acos(dot) * rNext)
-          }
-        }
-        gaps.sort((a, b) => a - b)
-        return gaps.length ? gaps[gaps.length >> 1] : 0
-      }
-      const before = ENV.STEP_TRACE ? rimGap() : 0
-      let welded = 0
-      for (let round = 0; round < CONFIG.weldRounds; round++) {
-        welded = weldRim(
-          pos, mesh.faceVerts, closing, faceCount, vertexCount, CONFIG.weldRim,
-          weldTarget, weldWeight,
-        )
-        relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
-        pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm,
-          CONFIG.shoreShare, shorePush, shoreCount)
-      }
-      if (ENV.STEP_TRACE) {
-        console.log(
-          `[weld] ${t} Ma  ${welded} rim faces, median rim edge `
-          + `${before.toFixed(0)} -> ${rimGap().toFixed(0)} km`,
-        )
-      }
-    }
+    if (!CONFIG.shutFirst) clapRimsShut()
     /*
      * The relaxing sweeps, after the rest and not among them.
      *
