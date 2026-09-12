@@ -2339,6 +2339,25 @@ export function solve(): void {
   let contactBucketed = 0
   let contactsTotal = 0
   let deepestContactKm = 0
+  /*
+   * Where a step's time actually goes.
+   *
+   * Not a profiler and not meant to be: six accumulators and a line at the
+   * end, because this pipeline's own working agreement is about whether a wait
+   * is worth it, and that cannot be judged by guessing which part is slow. It
+   * was guessed once and the guess was wrong -- the sweeps, which look like
+   * the whole solver, turned out to be a sixth of a step.
+   */
+  const spent: Record<string, number> = {
+    fold: 0, clap: 0, seams: 0, sweeps: 0, unstack: 0, fill: 0, record: 0, rest: 0,
+  }
+  const clock = <T>(phase: string, run: () => T): T => {
+    const at = Date.now()
+    const out = run()
+    spent[phase] += Date.now() - at
+    return out
+  }
+
   for (let t = CONFIG.stepMa; t <= endTimeMa; t += CONFIG.stepMa) {
     let contactsNow = 0
     const rPrev = radiusAt(t - CONFIG.stepMa)
@@ -2521,7 +2540,7 @@ export function solve(): void {
         }
     }
 
-    clapRimsShut()
+    clock('clap', clapRimsShut)
 
     /*
      * Which rims have met, once a step and never forgotten.
@@ -2551,10 +2570,10 @@ export function solve(): void {
     }
 
     if (CONFIG.seamHold > 0) {
-      const added = findSeams(
+      const added = clock('seams', () => findSeams(
         seams, pos, shell, faceCount, vertexCount, seamVertex, mesh.vertexAlive,
         rNext, CONFIG.seamKm, seamBuckets,
-      )
+      ))
       if ((added || seams.dropped) && ENV.STEP_TRACE) {
         console.log(
           `[seam] ${t} Ma  ${added} rims met, ${seams.dropped} let go having folded down; `
@@ -2565,6 +2584,7 @@ export function solve(): void {
 
     asOne()
 
+    const sweepsAt = Date.now()
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
       const forward = sweep % 2 === 0
       for (let n = 0; n < faceCount; n++) {
@@ -2734,6 +2754,7 @@ export function solve(): void {
         )
       }
     }
+    spent.sweeps += Date.now() - sweepsAt
     /*
      * The relaxing sweeps, after the rest and not among them.
      *
@@ -2853,6 +2874,7 @@ export function solve(): void {
      * is worse than a squeeze, and a hole is worse than either. So the overlap
      * is cleared first, and whatever hole that opens is closed after.
      */
+    const unstackAt = Date.now()
     if (CONFIG.unstackCrust > 0) {
       for (let round = 0; round < CONFIG.unstackRounds; round++) {
         coverage(
@@ -2874,6 +2896,7 @@ export function solve(): void {
         console.log(`[stack] ${t} Ma  ${doubledAt.length / 3} probes still doubled`)
       }
     }
+    spent.unstack += Date.now() - unstackAt
     /*
      * Then fill whatever sky is still bare, by hauling crust over it.
      *
@@ -2889,6 +2912,7 @@ export function solve(): void {
      * just closed. Filling the sky and then letting the triangulation move is
      * filling it twice and keeping neither.
      */
+    const fillAt = Date.now()
     if (CONFIG.fillSky > 0 && t % meta.frameStepMa === 0) {
       /*
        * Only on the frames that get kept, and only the first round pays for a
@@ -2933,8 +2957,9 @@ export function solve(): void {
         console.log(`[fill] ${t} Ma  ${bareProbes.length} probes still bare after hauling`)
       }
     }
+    spent.fill += Date.now() - fillAt
     if (t % meta.frameStepMa === 0) {
-      record(t)
+      clock('record', () => record(t))
       TELL?.(t, endTimeMa)
       const d = diagnostics[diagnostics.length - 1]
       console.log(
@@ -2960,6 +2985,17 @@ export function solve(): void {
           ` (biggest ${plateReport.biggest.slice(0, 3).map((x) => `${(100 * x).toFixed(0)}%`).join(' ')})`,
       )
     }
+  }
+  {
+    const total = (Date.now() - started) / 1000
+    spent.rest = Math.max(0, total * 1000 - Object.values(spent).reduce((a, b) => a + b, 0))
+    console.log(
+      `[cost] ${total.toFixed(0)}s in total: `
+      + Object.entries(spent)
+        .sort((a, b) => b[1] - a[1])
+        .map(([k, v]) => `${k} ${(v / 1000).toFixed(0)}s (${(100 * v / 1000 / total).toFixed(0)}%)`)
+        .join(', '),
+    )
   }
   console.log(
     `[solve] ${((Date.now() - started) / 1000).toFixed(1)}s; ` +
