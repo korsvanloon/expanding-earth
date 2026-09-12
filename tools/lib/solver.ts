@@ -854,7 +854,14 @@ function readConfig() {
   pressureRelax: Number(ENV.RELAX_K ?? 0),
   /** Let strong crust trade as readily as weak; for measuring the weighting. */
   relaxFlat: Number(ENV.RELAX_FLAT ?? 0) > 0,
-  /** How many relaxing rounds run after the sweeps. */
+  /**
+   * How many rounds of the pressure exchange run *after* the sweeps.
+   *
+   * Ignored when the sweep is a force graph, where the exchange is one of the
+   * forces inside it and runs once a sweep instead. It is still read by the
+   * sequential sweep, which is what every measurement before that was made
+   * with.
+   */
   relaxRounds: Number(ENV.RELAX_ROUNDS ?? 4),
   /** Let the exchange pull crust off the sky it is covering; for measuring it. */
   relaxOverSky: Number(ENV.RELAX_OVER_SKY ?? 0) > 0,
@@ -2934,11 +2941,25 @@ export function solve(): void {
           CONFIG.areaByStrength ? stretchResist : undefined,
         )
       }
+      // Area moves from the squeezed triangle to the stretched one, as one more
+      // force rather than as a second loop with the last word; see
+      // `relaxPressure`. Once a sweep, so eighty times a step instead of
+      // `relaxRounds` times at the end -- and inside the same average, so it
+      // cannot overrule what the springs and the area hold asked for.
+      if (jacobi && CONFIG.pressureRelax > 0) {
+        relaxPressure(
+          pos, mesh, crustAlive, restAreaNow, rigidity, faceCount, rNext,
+          CONFIG.pressureRelax, CONFIG.relaxFlat, relaxScratch,
+          CONFIG.relaxOverSky ? undefined : coversSky,
+          pushSum, pushCount,
+        )
+      }
       // One move per point, made of everything that pulled on it: the edge
-      // springs and the area hold above, averaged, with the radial part taken
-      // out and the shell re-imposed exactly. Nothing below writes into the
-      // same argument -- the fold, the weld and the island fit are projections
-      // applied to the answer, not forces competing inside it.
+      // springs, the area hold and the pressure exchange above, averaged, with
+      // the radial part taken out and the shell re-imposed exactly. Nothing
+      // below writes into the same argument -- the fold, the weld and the
+      // island fit are projections applied to the answer, not forces competing
+      // inside it.
       if (jacobi) {
         swept = 0; sweptMax = 0; sweptCount = 0
         applyPushes()
@@ -3016,7 +3037,8 @@ export function solve(): void {
      * The sphere is re-imposed after each round, because trading area across
      * an edge moves both its corners off the shell by a little.
      */
-    for (let round = 0; round < CONFIG.relaxRounds && CONFIG.pressureRelax > 0; round++) {
+    const relaxAfter = CONFIG.sweepJacobi > 0 ? 0 : CONFIG.relaxRounds
+    for (let round = 0; round < relaxAfter && CONFIG.pressureRelax > 0; round++) {
       relaxPressure(
         pos, mesh, crustAlive, restAreaNow, rigidity, faceCount, rNext,
         CONFIG.pressureRelax, CONFIG.relaxFlat, relaxScratch,
@@ -4788,6 +4810,18 @@ function relaxPressure(
    * gaps worse, and why that is not a bug*.
    */
   coversSky?: Uint8Array,
+  /**
+   * Where the correction goes, when the sweep is a force graph.
+   *
+   * Given these, nothing is written to `pos`: the exchange becomes one more
+   * contributor to each point's total, measured against the same positions as
+   * the springs and the area hold and applied with them. It was a second loop
+   * after the sweeps with its own sphere projection, which is the shape this
+   * solver has been getting rid of -- the pass that runs last wins, and the
+   * one designed to move area across the shell was the one winning.
+   */
+  push?: Float64Array,
+  pushes?: Float64Array,
 ): number {
   let traded = 0
   const area = (f: number) => {
@@ -4851,6 +4885,15 @@ function relaxPressure(
       const l = (-c * stiffness * scale) / norm
       const iu = u * 3
       const iv = v * 3
+      if (push && pushes) {
+        for (let i = 0; i < 3; i++) {
+          push[iu + i] += l * du[i]
+          push[iv + i] += l * dv[i]
+        }
+        pushes[u]++; pushes[v]++
+        traded++
+        continue
+      }
       for (let i = 0; i < 3; i++) {
         pos[iu + i] += l * du[i]
         pos[iv + i] += l * dv[i]
