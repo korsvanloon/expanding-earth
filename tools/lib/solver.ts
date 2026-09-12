@@ -593,7 +593,13 @@ function readConfig() {
    * It stretches whatever it hauls, and that is the trade as the reader put it:
    * *that would cause enormous stretch and solving that becomes our problem.*
    */
-  fillSky: Number(ENV.FILL_SKY ?? 1),
+  /*
+   * Off, with `unstackCrust` and for the same reason: hauling the nearest
+   * crust over a hole is not a motion any force in this model produces. It is
+   * the bare sphere being tidied away after the fact, and a hole the solve
+   * cannot close is a thing the reader of this model should see.
+   */
+  fillSky: Number(ENV.FILL_SKY ?? 0),
   /**
    * How hard crust lying over crust is pulled off itself, into a squeeze.
    *
@@ -613,7 +619,27 @@ function readConfig() {
    * softness, `islandOverlapFraction` counts it, and squeezing a craton to
    * hide it would be the worst answer of the three.
    */
-  unstackCrust: Number(ENV.UNSTACK ?? 1),
+  /*
+   * Off. A reader's line, and the measurement agrees with it twice over.
+   *
+   * The principle first: *ik denk dat de hoofd sweep voldoende zou moeten
+   * zijn. correcties achteraf zijn denk ik een red flag.* This pass and the
+   * hole filling below are the two corrections applied to the solver's answer
+   * after it has finished, and neither is a force anything in the model could
+   * feel. What they produce is a picture that reads better than the
+   * reconstruction underneath it.
+   *
+   * And the cost, which was not suspected until a step was clocked: this pass
+   * alone was 83% of the run. Up to seven rounds a step, each a full coverage
+   * pass over a hundred thousand directions -- fifteen seconds a step, every
+   * step. It was cheap for years for one reason only, that the loop breaks as
+   * soon as nothing is doubled and in the early steps nothing was. Closing the
+   * ridges before the sweeps makes overlap in exactly those steps, so it
+   * stopped breaking early and a full run went from seven minutes to fifty.
+   *
+   * The knob stays, because the alternative has to stay measurable.
+   */
+  unstackCrust: Number(ENV.UNSTACK ?? 0),
   /**
    * How many unstacking rounds run, before the sky is filled again.
    *
