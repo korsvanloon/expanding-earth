@@ -496,10 +496,12 @@ export interface Seams {
   /** Which stitches exist already, keyed on the pair. */
   seen: Set<number>
   vertexCount: number
+  /** How many stitches the last search let go of, their crust having sunk. */
+  dropped: number
 }
 
 export function newSeams(vertexCount: number): Seams {
-  return { a: [], b: [], seen: new Set(), vertexCount }
+  return { a: [], b: [], seen: new Set(), vertexCount, dropped: 0 }
 }
 
 /**
@@ -566,6 +568,38 @@ export function findSeams(
     buckets[cellOf(unit[i], unit[i + 1], unit[i + 2])].push(v)
   }
 
+  /*
+   * Let go of every stitch whose crust has folded down.
+   *
+   * A reader drew the line: *in principe hoeven we alleen lasnaden te houden
+   * bij het oppervlakte. als korst naar beneden is gevouwen hoeft het niet
+   * meer gelast te zijn.* A seam welded at 60 Ma was being held every sweep at
+   * 120, long after both its rims had sunk inside the shell -- and crust in
+   * there exists in no spring, no area, no island and no coverage. Holding it
+   * is three kinds of wrong at once. It means nothing, because that crust is
+   * not part of the surface any more. It costs: the list only ever grew, past
+   * nine thousand stitches, and each of them was re-imposed eighty times a
+   * step. And it does harm, because a pair held together deep inside the Earth
+   * still shares its corners with triangles that reach the surface, so a weld
+   * nobody can see pulls on crust everybody can.
+   *
+   * This runs backwards, so a rim that has gone under never comes back: the
+   * pruning is as monotone as the welding was, and a stitch dropped here is
+   * dropped for good.
+   */
+  let kept = 0
+  for (let k = 0; k < seams.a.length; k++) {
+    const a = seams.a[k]
+    const b = seams.b[k]
+    if (!liveVertex[a] || !liveVertex[b] || !vertexAlive[a] || !vertexAlive[b]) continue
+    seams.a[kept] = a
+    seams.b[kept] = b
+    kept++
+  }
+  const dropped = seams.a.length - kept
+  seams.a.length = kept
+  seams.b.length = kept
+
   // One partner each, so a vertex already stitched is not stitched again --
   // the row of stitches is what holds the seam, not the count of them.
   const taken = new Uint8Array(vertexCount)
@@ -612,6 +646,7 @@ export function findSeams(
     taken[partner] = 1
     added++
   }
+  seams.dropped = dropped
   return added
 }
 

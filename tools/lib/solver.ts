@@ -2521,9 +2521,10 @@ export function solve(): void {
         seams, pos, shell, faceCount, vertexCount, seamVertex, mesh.vertexAlive,
         rNext, CONFIG.seamKm, seamBuckets,
       )
-      if (added && ENV.STEP_TRACE) {
+      if ((added || seams.dropped) && ENV.STEP_TRACE) {
         console.log(
-          `[seam] ${t} Ma  ${added} rims met; ${seams.a.length} stitches holding`,
+          `[seam] ${t} Ma  ${added} rims met, ${seams.dropped} let go having folded down; `
+          + `${seams.a.length} stitches holding`,
         )
       }
     }
