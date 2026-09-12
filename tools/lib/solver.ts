@@ -209,6 +209,7 @@ export const KNOBS = [
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
+  'JACOBI', 'JACOBI_RELAX',
   'SEAM_MERGE',
   'SHORE_SHARE',
   'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
@@ -367,6 +368,42 @@ function readConfig() {
    * and can still be told apart in the cross-section.
    */
   seamMerge: Number(ENV.SEAM_MERGE ?? 1),
+  /**
+   * One movement per point per sweep, instead of three passes taking turns.
+   *
+   * A reader, looking at the sweep: *"kunnen randveren, holdarea en
+   * relaxtosphere 1 functie worden? volgens mij wordt het dan wat meer zoals
+   * een echte force graph."*
+   *
+   * They were right about what was wrong. Applied in turn, each pass writes
+   * straight into the positions and the next one starts from that -- so the
+   * last one to run wins, every sweep, eighty times a step. `relaxToSphere`
+   * ran after `holdArea`, which means the area was being given up to the
+   * sphere not because anyone decided that but because of the order the calls
+   * happen to be in.
+   *
+   * Here every constraint measures against the same positions and adds its
+   * correction to a per-point total. At the end of the sweep each point moves
+   * once, to the *average* of what was asked of it -- an average rather than a
+   * sum, because a point sits in about six triangles and adding eighteen full
+   * corrections overshoots by that factor and blows the shell apart in a few
+   * sweeps. What averaging costs in speed, `jacobiRelax` buys back.
+   *
+   * The result no longer depends on the order of the passes, nor on the
+   * numbering of the triangles -- and the sphere stops being a competitor and
+   * becomes what it should always have been: see the apply, where the radial
+   * part of the move is taken out before it happens rather than undone after.
+   */
+  sweepJacobi: Number(ENV.JACOBI ?? 1),
+  /**
+   * How much further than the average each point goes, to make up for it.
+   *
+   * Averaging is what keeps a force graph stable and it is also what makes it
+   * slow: every point moves a sixth of what any one triangle asked. One over
+   * this is the classic answer -- move further than the average, by a factor
+   * chosen so the sweep still converges. Above about 1.9 it rings.
+   */
+  jacobiRelax: Number(ENV.JACOBI_RELAX ?? 1.5),
   /**
    * How close two rims have to be, in kilometres, to count as one seam.
    *
@@ -1120,6 +1157,15 @@ export function solve(): void {
 
   const pos = new Float64Array(vertexCount * 3)
   for (let i = 0; i < vertexCount * 3; i++) pos[i] = dirs[i] * r0
+  /**
+   * What every constraint asked of each point this sweep, and how many asked.
+   *
+   * The force graph's accumulator: see CONFIG.sweepJacobi and `applyPushes`.
+   * Allocated once for the whole run and cleared as it is read, since it is
+   * touched forty thousand times a sweep and eighty times a step.
+   */
+  const pushSum = new Float64Array(vertexCount * 3)
+  const pushCount = new Float64Array(vertexCount)
   const previous = new Float64Array(pos)
   // Read from the mesh rather than worked out again, so the picture and the
   // physics cannot drift apart.
@@ -1195,6 +1241,18 @@ export function solve(): void {
    * that call is earning anything.
    */
   /**
+   * Which strength field the run uses, `equal` by default.
+   *
+   * A reader set the zero point: *"ik wil als 0 punt alle driehoeken even
+   * sterk laten zijn voor nu."* Every weight this model can carry is a claim
+   * about the Earth that was argued for on its own; none of them was ever
+   * measured against carrying none. So the shipped model carries none, and
+   * `STRENGTH=thickness` and `STRENGTH=field` are how the alternatives are
+   * measured against it.
+   */
+  const STRENGTH = ENV.STRENGTH ?? 'equal'
+
+  /**
    * Or weaken the sea floor alone, which is where the whole gain may come from.
    *
    * `OCEAN_K=0.05`. Taking strength from thickness improves the held-out pairs
@@ -1215,14 +1273,14 @@ export function solve(): void {
     }
     console.log(`[solve] ${n} sea-floor triangles given strength ${oceanK}, continents unchanged`)
   }
-  if (ENV.STRENGTH === 'thickness') {
+  if (STRENGTH === 'thickness') {
     for (let f = 0; f < faceCount; f++) {
       rigidity[f] = Math.max(0.02, Math.min(1, (thickness[f] - 5) / 70))
     }
     console.log('[solve] strength taken from ECM1 thickness rather than crustal class')
   }
   /*
-   * Every triangle equally stiff -- `STRENGTH=equal`.
+   * Every triangle equally stiff -- the default, `STRENGTH=equal`.
    *
    * Not a strength field but the absence of one, and it is here so that the
    * absence can be measured. A reader put the case: *puur gelijke krachten
@@ -1234,7 +1292,7 @@ export function solve(): void {
    * baseline: one uniform elastic shell, and whatever it does is what the
    * geometry alone produces.
    */
-  const equalStrength = ENV.STRENGTH === 'equal'
+  const equalStrength = STRENGTH === 'equal'
   if (equalStrength) {
     rigidity.fill(1)
     console.log('[solve] every triangle equally stiff; no strength field')
@@ -2594,6 +2652,58 @@ export function solve(): void {
     }
 
     /**
+     * Take the average of everything that pulled on each point, and move it.
+     *
+     * Three things happen here that used to be three passes fighting over the
+     * same array. The correction is the *mean* of what the triangles asked, so
+     * no point is moved six times for sitting in six triangles. The radial part
+     * of that mean is taken out before the point moves -- a reader's
+     * requirement, and the right one: *"omdat 2 driehoeken schuin tegen elkaar
+     * drukken, moet die kracht gecorrigeerd worden zodat punten altijd op de
+     * bol blijven."* Two triangles pressing on each other at an angle want to
+     * lift the point off the shell, and removing that component keeps the
+     * sideways part of the push at full strength instead of letting the sphere
+     * undo it afterwards. Then the point is put back at exactly r, so the crust
+     * never leaves the sphere at all rather than being pulled back towards it.
+     *
+     * The one exception is the lip of a closing ridge, where `holdOut` is nought
+     * and crust is meant to tip into the slot rather than be squashed flat. A
+     * point there that has dipped below the shell is left at the depth it
+     * reached; nothing is ever left *above* it.
+     */
+    const applyPushes = () => {
+      for (let v = 0; v < vertexCount; v++) {
+        const n = pushCount[v]
+        if (!n) continue
+        pushCount[v] = 0
+        const i = v * 3
+        let dx = (pushSum[i] / n) * CONFIG.jacobiRelax
+        let dy = (pushSum[i + 1] / n) * CONFIG.jacobiRelax
+        let dz = (pushSum[i + 2] / n) * CONFIG.jacobiRelax
+        pushSum[i] = 0; pushSum[i + 1] = 0; pushSum[i + 2] = 0
+        if (!mesh.vertexAlive[v]) continue
+        const shell = !onShell || onShell[v]
+        if (shell) {
+          const l = length3(pos[i], pos[i + 1], pos[i + 2])
+          if (l > 1e-9) {
+            const ux = pos[i] / l, uy = pos[i + 1] / l, uz = pos[i + 2] / l
+            const radial = dx * ux + dy * uy + dz * uz
+            dx -= radial * ux; dy -= radial * uy; dz -= radial * uz
+          }
+        }
+        pos[i] += dx; pos[i + 1] += dy; pos[i + 2] += dz
+        if (!shell) continue
+        const moved = length3(pos[i], pos[i + 1], pos[i + 2])
+        if (moved < 1e-9) continue
+        // Below the shell is allowed only where the fold says the lip may tip
+        // in; everywhere else, and always above, the radius is exactly r.
+        if (moved < rNext && holdOut && holdOut[v] < 1) continue
+        const s = rNext / moved
+        pos[i] *= s; pos[i + 1] *= s; pos[i + 2] *= s
+      }
+    }
+
+    /**
      * How far apart the welded pairs actually are, in kilometres on the shell.
      *
      * A weld is meant to make two points one, and everything downstream of the
@@ -2650,6 +2760,8 @@ export function solve(): void {
     const sweepsAt = Date.now()
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
       const forward = sweep % 2 === 0
+      const jacobi = CONFIG.sweepJacobi > 0
+
       for (let n = 0; n < faceCount; n++) {
         const f = forward ? n : faceCount - 1 - n
         // Three kinds of triangle under the fold, and only the first exists as
@@ -2719,6 +2831,16 @@ export function solve(): void {
             if (na < 1e-9 || nb < 1e-9) continue
             nax /= na; nay /= na; naz /= na
             nbx /= nb; nby /= nb; nbz /= nb
+            if (jacobi) {
+              pushSum[i] += nax * la - pos[i]
+              pushSum[i + 1] += nay * la - pos[i + 1]
+              pushSum[i + 2] += naz * la - pos[i + 2]
+              pushSum[j] += nbx * lb - pos[j]
+              pushSum[j + 1] += nby * lb - pos[j + 1]
+              pushSum[j + 2] += nbz * lb - pos[j + 2]
+              pushCount[va]++; pushCount[vb]++
+              continue
+            }
             pos[i] = nax * la; pos[i + 1] = nay * la; pos[i + 2] = naz * la
             pos[j] = nbx * lb; pos[j + 1] = nby * lb; pos[j + 2] = nbz * lb
             continue
@@ -2735,6 +2857,12 @@ export function solve(): void {
             : stiffness
           const c = (0.5 * resist * (length - target)) / length
           const cx = dx * c, cy = dy * c, cz = dz * c
+          if (jacobi) {
+            pushSum[i] -= cx; pushSum[i + 1] -= cy; pushSum[i + 2] -= cz
+            pushSum[j] += cx; pushSum[j + 1] += cy; pushSum[j + 2] += cz
+            pushCount[va]++; pushCount[vb]++
+            continue
+          }
           pos[i] -= cx; pos[i + 1] -= cy; pos[i + 2] -= cz
           pos[j] += cx; pos[j + 1] += cy; pos[j + 2] += cz
         }
@@ -2764,14 +2892,20 @@ export function solve(): void {
           // strength meant the rim was being asked to shut against it.
           CONFIG.shutSlack < 1 ? rimRing : undefined,
           CONFIG.shutSlack, CONFIG.shutRings,
+          jacobi ? pushSum : undefined, jacobi ? pushCount : undefined,
         )
       }
+      // One move per point, made of everything that pulled on it: the edge
+      // springs and the area hold above, averaged, with the radial part taken
+      // out and the shell re-imposed exactly. Nothing below writes into the
+      // same argument -- the fold, the weld and the island fit are projections
+      // applied to the answer, not forces competing inside it.
+      if (jacobi) applyPushes()
       unfold(
         pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin, faceMargin,
       )
-      asOne()
-      relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness, onShell, holdOut)
+      if (!jacobi) relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness, onShell, holdOut)
       // Beside the sphere, not once a step: the closing rim hauls the top of
       // the curtain towards the surface every sweep, and this is what keeps
       // sending it back down.
@@ -2852,6 +2986,14 @@ export function solve(): void {
       pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
       faceMargin,
     )
+    // The weld has the last word here too, not only inside the sweeps. The
+    // pressure exchange and `unfold` above move a seam's two sides
+    // independently -- measured at five to nine kilometres of opening after a
+    // step that had closed them to nothing -- and there was nothing after them
+    // saying otherwise. The passes below cannot undo it: a collapse settles
+    // dead points onto their survivor, and removing the net rotation turns
+    // every point by the same amount.
+    asOne()
     settleCollapsed()
     removeNetRotation(pos, previous, vertexCount, shrink)
     settleCollapsed()
@@ -4697,6 +4839,16 @@ function holdArea(
   rimRing?: Uint8Array,
   slack = 1,
   rings = 6,
+  /**
+   * Where the correction goes, when the sweep is a force graph.
+   *
+   * Given these, nothing is written to `pos`: each corner's share is added up
+   * here instead, with a count beside it, and applied once at the end of the
+   * sweep together with everything else that pulled on the same point. See
+   * CONFIG.sweepJacobi.
+   */
+  push?: Float64Array,
+  pushes?: Float64Array,
 ) {
   for (let f = 0; f < faceCount; f++) {
     if (!alive[f]) continue
@@ -4722,6 +4874,13 @@ function holdArea(
       hold *= slack + (1 - slack) * fade
     }
     const l = (hold * (want - det)) / norm
+    if (push && pushes) {
+      push[a] += l * gax; push[a + 1] += l * gay; push[a + 2] += l * gaz
+      push[b] += l * gbx; push[b + 1] += l * gby; push[b + 2] += l * gbz
+      push[c] += l * gcx; push[c + 1] += l * gcy; push[c + 2] += l * gcz
+      pushes[a / 3]++; pushes[b / 3]++; pushes[c / 3]++
+      continue
+    }
     pos[a] += l * gax; pos[a + 1] += l * gay; pos[a + 2] += l * gaz
     pos[b] += l * gbx; pos[b + 1] += l * gby; pos[b + 2] += l * gbz
     pos[c] += l * gcx; pos[c + 1] += l * gcy; pos[c + 2] += l * gcz
