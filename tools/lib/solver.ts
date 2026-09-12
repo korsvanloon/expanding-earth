@@ -209,7 +209,7 @@ export const KNOBS = [
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
-  'AREA_STRENGTH', 'JACOBI', 'JACOBI_RELAX',
+  'AREA_STRENGTH', 'JACOBI', 'JACOBI_RELAX', 'RELAX_WEIGHT',
   'SEAM_MERGE',
   'SHORE_SHARE',
   'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
@@ -405,6 +405,16 @@ function readConfig() {
    * back, which is what every measurement before this was made with.
    */
   areaByStrength: Number(ENV.AREA_STRENGTH ?? 1) > 0,
+  /**
+   * How much of the pressure exchange reaches the crust each sweep.
+   *
+   * One is one full round of it per sweep, since it is averaged over its own
+   * edges rather than mixed into everything else; see `pushTrade`. Below one it
+   * is a fraction of a round, above one it is more than a round, and the number
+   * that matters is how far the latitude dipole closes -- which is the only
+   * thing in this model that asks area to travel further than a triangle.
+   */
+  pressureWeight: Number(ENV.RELAX_WEIGHT ?? 1),
   sweepJacobi: Number(ENV.JACOBI ?? 1),
   /**
    * How much further than the average each point goes, to make up for it.
@@ -1184,6 +1194,24 @@ export function solve(): void {
    */
   const pushSum = new Float64Array(vertexCount * 3)
   const pushCount = new Float64Array(vertexCount)
+  /**
+   * And the pressure exchange's own total, kept apart from the rest.
+   *
+   * Averaging is what keeps a force graph stable, and it is also what made this
+   * force useless: a point gets about eighteen corrections a sweep and the
+   * exchange contributes two, so dividing by twenty left it at a twentieth of
+   * its strength and eighty sweeps of that came to what four rounds of the old
+   * shape did. Measured -- the latitude dipole went straight back to where it
+   * had been.
+   *
+   * Every other force here is local, a triangle against its neighbour, and
+   * averaging them against each other is right. This one has to carry area
+   * across a hemisphere, and it is the only one that does. So it is averaged
+   * over its *own* edges and then weighted, which makes `pressureWeight` mean
+   * something: one is one full round of the exchange per sweep.
+   */
+  const pushTrade = new Float64Array(vertexCount * 3)
+  const tradeCount = new Float64Array(vertexCount)
   const previous = new Float64Array(pos)
   // Read from the mesh rather than worked out again, so the picture and the
   // physics cannot drift apart.
@@ -2711,13 +2739,24 @@ export function solve(): void {
     const applyPushes = () => {
       for (let v = 0; v < vertexCount; v++) {
         const n = pushCount[v]
-        if (!n) continue
+        const m = tradeCount[v]
+        if (!n && !m) continue
         pushCount[v] = 0
+        tradeCount[v] = 0
         const i = v * 3
-        let dx = (pushSum[i] / n) * CONFIG.jacobiRelax
-        let dy = (pushSum[i + 1] / n) * CONFIG.jacobiRelax
-        let dz = (pushSum[i + 2] / n) * CONFIG.jacobiRelax
+        let dx = 0, dy = 0, dz = 0
+        if (n) {
+          dx = (pushSum[i] / n) * CONFIG.jacobiRelax
+          dy = (pushSum[i + 1] / n) * CONFIG.jacobiRelax
+          dz = (pushSum[i + 2] / n) * CONFIG.jacobiRelax
+        }
+        if (m) {
+          dx += (pushTrade[i] / m) * CONFIG.pressureWeight
+          dy += (pushTrade[i + 1] / m) * CONFIG.pressureWeight
+          dz += (pushTrade[i + 2] / m) * CONFIG.pressureWeight
+        }
         pushSum[i] = 0; pushSum[i + 1] = 0; pushSum[i + 2] = 0
+        pushTrade[i] = 0; pushTrade[i + 1] = 0; pushTrade[i + 2] = 0
         if (!mesh.vertexAlive[v]) continue
         const shell = !onShell || onShell[v]
         if (shell) {
@@ -2951,7 +2990,7 @@ export function solve(): void {
           pos, mesh, crustAlive, restAreaNow, rigidity, faceCount, rNext,
           CONFIG.pressureRelax, CONFIG.relaxFlat, relaxScratch,
           CONFIG.relaxOverSky ? undefined : coversSky,
-          pushSum, pushCount,
+          pushTrade, tradeCount,
         )
       }
       // One move per point, made of everything that pulled on it: the edge
