@@ -64,6 +64,8 @@ export interface CollapseResult {
    * where a whole ocean has to disappear at once, which is the Pacific.
    */
   eased: number
+  /** Why the refusals were refused, counted per attempt; see `canCollapse`. */
+  why: Map<string, number>
 }
 
 export class DynamicMesh {
@@ -217,22 +219,32 @@ export class DynamicMesh {
     a: number, b: number, ringA: Set<number>, ringB: Set<number>,
     /** Positions, to refuse a collapse that would turn a triangle inside out. */
     pos?: Float64Array,
-  ): boolean {
-    if (a === b || !this.vertexAlive[a] || !this.vertexAlive[b]) return false
-    if (this.liveVertices <= 4) return false
+    /**
+     * Where the merged point would go, if not the middle of the edge.
+     *
+     * The middle is the honest answer -- the crust between the two erupted
+     * there -- but it is not the only place the pair can meet, and insisting on
+     * it is what refused half of every closure. Either end is a legitimate
+     * answer too: it says the rim arrived at the crust already there rather
+     * than the two meeting halfway.
+     */
+    at?: [number, number, number],
+  ): string | null {
+    if (a === b || !this.vertexAlive[a] || !this.vertexAlive[b]) return 'gone'
+    if (this.liveVertices <= 4) return 'nothing left'
     const along = this.facesAlong(a, b, [])
-    if (along.length !== 2) return false
+    if (along.length !== 2) return 'not an interior edge'
     this.ring(a, ringA)
     this.ring(b, ringB)
     let shared = 0
     for (const u of ringA) if (ringB.has(u)) shared++
-    if (shared !== 2) return false
+    if (shared !== 2) return 'rings meet more than twice'
     // The merged point inherits both neighbourhoods. Let that run and a few
     // points end up with thirty neighbours each, with long thin triangles
     // fanning out from them across the ocean -- the mesh stops being a grid and
     // becomes a spider's web, and every triangle in the fan is one nudge from
     // turning inside out.
-    if (ringA.size + ringB.size - shared - 2 > MAX_NEIGHBOURS) return false
+    if (ringA.size + ringB.size - shared - 2 > MAX_NEIGHBOURS) return 'too many neighbours'
     // A triangle with all three corners on the ring of the other end would be
     // turned inside out rather than removed.
     for (const f of along) {
@@ -242,15 +254,15 @@ export class DynamicMesh {
         : this.faceVerts[i + 1] !== a && this.faceVerts[i + 1] !== b
           ? this.faceVerts[i + 1]
           : this.faceVerts[i + 2]
-      if (this.incident[opposite].size <= 3) return false
+      if (this.incident[opposite].size <= 3) return 'would strand a triangle'
     }
     if (pos) {
       // Where b is going to end up. A triangle that would be turned inside out
       // by the move is a fold, and a fold is not something relaxation can undo
       // afterwards -- it has to be refused now.
-      const mx = (pos[a * 3] + pos[b * 3]) * 0.5
-      const my = (pos[a * 3 + 1] + pos[b * 3 + 1]) * 0.5
-      const mz = (pos[a * 3 + 2] + pos[b * 3 + 2]) * 0.5
+      const mx = at ? at[0] : (pos[a * 3] + pos[b * 3]) * 0.5
+      const my = at ? at[1] : (pos[a * 3 + 1] + pos[b * 3 + 1]) * 0.5
+      const mz = at ? at[2] : (pos[a * 3 + 2] + pos[b * 3 + 2]) * 0.5
       for (const end of [a, b]) {
         for (const f of this.incident[end]) {
           if (f === along[0] || f === along[1]) continue
@@ -264,11 +276,11 @@ export class DynamicMesh {
             moved(u1) ? mz : pos[u1 * 3 + 2],
             moved(u2) ? mx : pos[u2 * 3], moved(u2) ? my : pos[u2 * 3 + 1],
             moved(u2) ? mz : pos[u2 * 3 + 2],
-          )) return false
+          )) return 'would turn a triangle inside out'
         }
       }
     }
-    return true
+    return null
   }
 
   /**
@@ -600,6 +612,7 @@ export function collapseVanished(
   const ringA = new Set<number>()
   const ringB = new Set<number>()
   const along: number[] = []
+  const why = new Map<string, number>()
   let collapsed = 0
   let refused = 0
   let eased = 0
@@ -638,15 +651,33 @@ export function collapseVanished(
       // Keep whichever end has fewer neighbours, so the merged point does not
       // become a hub.
       const [keep, drop] = mesh.facesAt(a).size <= mesh.facesAt(b).size ? [a, b] : [b, a]
-      if (!mesh.canCollapse(keep, drop, ringA, ringB, pos)) {
+      // The two sides meet in the middle, which is where the crust between them
+      // erupted -- and when the fan around them is tight enough that meeting in
+      // the middle would turn a neighbour inside out, at one end or the other
+      // instead. Measured: insisting on the middle refused about half of every
+      // closure, and it is the reason the zip stalled.
+      const middle: [number, number, number] = [
+        (pos[keep * 3] + pos[drop * 3]) * 0.5,
+        (pos[keep * 3 + 1] + pos[drop * 3 + 1]) * 0.5,
+        (pos[keep * 3 + 2] + pos[drop * 3 + 2]) * 0.5,
+      ]
+      const ends: [number, number, number][] = [
+        middle,
+        [pos[keep * 3], pos[keep * 3 + 1], pos[keep * 3 + 2]],
+        [pos[drop * 3], pos[drop * 3 + 1], pos[drop * 3 + 2]],
+      ]
+      let place: [number, number, number] | null = null
+      let no: string | null = null
+      for (const candidate of ends) {
+        no = mesh.canCollapse(keep, drop, ringA, ringB, pos, candidate)
+        if (!no) { place = candidate; break }
+      }
+      if (!place) {
+        why.set(no!, (why.get(no!) ?? 0) + 1)
         refused++
         continue
       }
-      // The two sides meet in the middle, which is where the crust between them
-      // erupted.
-      for (let c = 0; c < 3; c++) {
-        pos[keep * 3 + c] = (pos[keep * 3 + c] + pos[drop * 3 + c]) * 0.5
-      }
+      for (let c = 0; c < 3; c++) pos[keep * 3 + c] = place[c]
       mesh.collapse(keep, drop)
       collapsed++
       did++
@@ -658,7 +689,7 @@ export function collapseVanished(
     if (refused > before) eased += easeDeadCrust(mesh, pos, restEdge, faceAge, timeMa, knob('EASE_PASSES', 2))
     if (!did && refused === before) break
   }
-  return { collapsed, refused, eased }
+  return { collapsed, refused, eased, why }
 }
 
 

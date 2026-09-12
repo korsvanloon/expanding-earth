@@ -2411,6 +2411,7 @@ export function solve(): void {
 
   const endTimeMa = CONFIG.endMa ?? meta.endTimeMa
   let refusedTotal = 0
+  const refusedWhy = new Map<string, number>()
   let easedTotal = 0
   let foldedNow = 0
   let contacts: IslandContacts = { found: 0, deepestKm: 0, tests: 0, bucketed: 0 }
@@ -2473,6 +2474,17 @@ export function solve(): void {
       const closed = collapseVanished(mesh, faceAges, pos, t, restEdge)
       refusedTotal += closed.refused
       easedTotal += closed.eased
+      for (const [reason, n] of closed.why) {
+        refusedWhy.set(reason, (refusedWhy.get(reason) ?? 0) + n)
+      }
+      if (ENV.STEP_TRACE) {
+        console.log(
+          `[zip] ${t} Ma  ${closed.collapsed} edges closed, ${closed.refused} refused `
+          + `(${[...closed.why].sort((x, y) => y[1] - x[1])
+            .map(([w, n]) => `${n} ${w}`).join(', ')}), ${closed.eased} redrawn; `
+          + `${mesh.liveVertices} points left`,
+        )
+      }
       settleCollapsed()
     }
     markIslands()
@@ -3205,7 +3217,9 @@ export function solve(): void {
           + `${fold.hangingKm.toFixed(0)} km of crust, `
         : `${vertexCount - mesh.liveVertices} of ${vertexCount} points closed away, `
           + `${refusedTotal} collapses refused to keep the surface whole, `
-          + `${easedTotal} edges redrawn inside dying crust to let the closure carry on, `),
+          + `${easedTotal} edges redrawn inside dying crust to let the closure carry on `
+          + `(${[...refusedWhy].sort((x, y) => y[1] - x[1])
+            .map(([w, n]) => `${n} ${w}`).join(', ')}), `),
   )
   if (mesh.eulerCharacteristic() !== 2) {
     throw new Error('the mesh stopped being a sphere; every area measured here would be a lie')
