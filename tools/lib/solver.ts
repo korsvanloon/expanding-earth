@@ -2478,6 +2478,10 @@ export function solve(): void {
         refusedWhy.set(reason, (refusedWhy.get(reason) ?? 0) + n)
       }
       if (ENV.STEP_TRACE) {
+        const euler = mesh.eulerCharacteristic()
+        if (euler !== 2) {
+          console.log(`[zip] ${t} Ma  the mesh is no longer a sphere: V-E+F = ${euler}`)
+        }
         console.log(
           `[zip] ${t} Ma  ${closed.collapsed} edges closed, ${closed.refused} refused `
           + `(${[...closed.why].sort((x, y) => y[1] - x[1])
