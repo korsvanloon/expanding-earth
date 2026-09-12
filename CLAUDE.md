@@ -69,7 +69,7 @@ it is long:
 
 The reconstruction is **not committed**, and it is **not solved by the
 deploy**. A run is solved here, where it can be measured, and published to the
-store with `pnpm publish --label "..."`; the Pages workflow restores that run
+store with `pnpm publish-run --label "..."`; the Pages workflow restores that run
 and builds the app around it. So the order is: solve, look at it, publish,
 then push. `pnpm check-run` asks the one question that matters -- is the run in
 `public/data` the run this code would produce -- and the deploy asks it too and

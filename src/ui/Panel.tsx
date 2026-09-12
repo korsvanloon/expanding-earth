@@ -442,6 +442,12 @@ export function Panel({ data, exploring, onExplore, onRevert, runs, run, onRun }
                     fit.separationKm.length - 1,
                     Math.round(fit.joinedByMa / meta.frameStepMa),
                   )
+              // The frame the index landed on, which is the date asked for
+              // unless the geology dates the pair past where the run stops --
+              // North America and Africa at 195 Ma against a run ending at 180.
+              // Then the last frame is read, and the heading has to say that
+              // rather than quote a date the run never reached.
+              const readAtMa = index * meta.frameStepMa
               const km = fit.separationKm[index] ?? 0
               // How much margin is in contact, against how much already was
               // today. A pair that starts in contact has nothing to prove, and
@@ -455,7 +461,13 @@ export function Panel({ data, exploring, onExplore, onRevert, runs, run, onRun }
                   <th>
                     {label(fit.a)} – {label(fit.b)}
                   </th>
-                  <td>{watched ? `${meta.endTimeMa} Ma` : `${fit.joinedByMa} Ma`}</td>
+                  <td>
+                    {watched
+                      ? `${meta.endTimeMa} Ma`
+                      : readAtMa < fit.joinedByMa
+                        ? `${fit.joinedByMa} Ma, read at ${readAtMa}`
+                        : `${fit.joinedByMa} Ma`}
+                  </td>
                   <td className={watched ? 'watched' : gained > 0.15 ? 'good' : gained > 0.05 ? 'fair' : 'poor'}>
                     {Math.round(100 * held)}%
                   </td>
@@ -852,7 +864,7 @@ function RunCard({ runs, run }: { runs: RunIndex; run: string }) {
                   {' – '}
                   {REGIONS.find((r) => r.id === fit.b)?.label ?? fit.b}
                 </th>
-                <td>{fit.watched ? `${fit.atMa} Ma*` : `${fit.atMa} Ma`}</td>
+                <td>{fit.watched || fit.beyond ? `${fit.atMa} Ma*` : `${fit.atMa} Ma`}</td>
                 <td>{versus(fit.km, against?.fits[i]?.km, ' km')}</td>
               </tr>
             ))}
@@ -891,10 +903,10 @@ function RunCard({ runs, run }: { runs: RunIndex; run: string }) {
           </tbody>
         </table>
       )}
-      {summary?.fits.some((fit) => fit.watched) && (
+      {summary?.fits.some((fit) => fit.watched || fit.beyond) && (
         <p className="caption">
-          * Watched rather than scored: the geology gives no date for those two,
-          so they are read at the end of the run.
+          * Read at the end of the run: either the geology gives no date for
+          those two, or it gives one past where the run stops.
         </p>
       )}
       {against && (

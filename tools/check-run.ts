@@ -30,7 +30,7 @@ if (!stamped) {
   console.error(
     '[check] there is no run in public/data, or it carries no stamp.\n'
     + '        Solve one with `pnpm data` and publish it with\n'
-    + '        `pnpm tsx tools/publish-run.ts --to s3 --label "..."`.',
+    + '        `pnpm publish-run --label "..."`.',
   )
   process.exit(1)
 }
@@ -40,7 +40,7 @@ if (stamped !== hash) {
     `[check] the run in public/data was solved from ${stamped.slice(0, 12)} and this tree\n`
     + `        hashes to ${hash.slice(0, 12)}, so it is not this code's answer.\n`
     + '        Solve it here with `pnpm data` and publish it with\n'
-    + '        `pnpm tsx tools/publish-run.ts --to s3 --label "..."`.',
+    + '        `pnpm publish-run --label "..."`.',
   )
   process.exit(1)
 }

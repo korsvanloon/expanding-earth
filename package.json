@@ -16,7 +16,7 @@
     "test": "vitest run",
     "docs": "tsx tools/write-docs.ts",
     "check-run": "tsx tools/check-run.ts",
-    "publish": "tsx tools/publish-run.ts --to s3"
+    "publish-run": "tsx tools/publish-run.ts --to s3"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.6",

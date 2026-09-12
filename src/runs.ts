@@ -59,7 +59,14 @@ export interface RunSummary {
   crustModel?: string
   radiusKm: number
   pairs: { timeMa: number; medianKm: number; within: number }[]
-  fits: { a: string; b: string; atMa: number; watched?: true; km: number; matched: number }[]
+  fits: {
+    a: string; b: string; atMa: number
+    /** No date from the geology, so read at the end of the run. */
+    watched?: true
+    /** Dated past where the run stops, so read at the end of it instead. */
+    beyond?: true
+    km: number; matched: number
+  }[]
   bare: number
   islandOverlap: number
   /** How far past its deformation licence the run ended; see the publisher. */

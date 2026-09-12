@@ -163,7 +163,14 @@ export interface RunSummary {
    * read at the end of the run instead, where they are worth looking at. They
    * say so, because a number with no date behind it is not a check.
    */
-  fits: { a: string; b: string; atMa: number; watched?: true; km: number; matched: number }[]
+  fits: {
+    a: string; b: string; atMa: number
+    /** No date from the geology, so read at the end of the run. */
+    watched?: true
+    /** Dated past where the run stops, so read at the end of it instead. */
+    beyond?: true
+    km: number; matched: number
+  }[]
   /** Of the sphere at the end: bare, and under two islands at once. */
   bare: number
   islandOverlap: number
@@ -230,15 +237,26 @@ function summarise(meta: Meta & {
       // rather than scored. Read at the end of the run, where two continents
       // that never parted should be together if they ever will be.
       const watched = !fit.joinedByMa
-      const atMa = watched ? meta.endTimeMa : fit.joinedByMa
-      const frame = Math.round(atMa / meta.frameStepMa)
+      // And a date past where the run stops is a third case, which ending at
+      // 180 Ma created: the geology has North America and Africa parted by 195
+      // Ma and there is no frame there. Reading past the end threw, which is
+      // how this was found; clamping and saying nothing would have printed the
+      // 180 Ma separation under a 195 Ma heading, which is worse than a crash.
+      // So it is read at the last frame there is and the row says so.
+      const wanted = watched ? meta.endTimeMa : fit.joinedByMa
+      const frame = Math.min(
+        fit.separationKm.length - 1,
+        Math.round(wanted / meta.frameStepMa),
+      )
+      const atMa = watched ? meta.endTimeMa : frame * meta.frameStepMa
       return {
         a: fit.a,
         b: fit.b,
         atMa,
         ...(watched ? { watched: true as const } : {}),
-        km: Math.round(fit.separationKm[frame]),
-        matched: Number(fit.matchedFraction[frame].toFixed(3)),
+        ...(!watched && atMa < wanted ? { beyond: true as const } : {}),
+        km: Math.round(fit.separationKm[frame] ?? 0),
+        matched: Number((fit.matchedFraction[frame] ?? 0).toFixed(3)),
       }
     }),
     bare: Number((end?.gapFraction ?? 0).toFixed(4)),
