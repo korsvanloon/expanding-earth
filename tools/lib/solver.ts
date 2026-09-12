@@ -2687,6 +2687,9 @@ export function solve(): void {
      * point there that has dipped below the shell is left at the depth it
      * reached; nothing is ever left *above* it.
      */
+    let swept = 0
+    let sweptMax = 0
+    let sweptCount = 0
     const applyPushes = () => {
       for (let v = 0; v < vertexCount; v++) {
         const n = pushCount[v]
@@ -2708,6 +2711,14 @@ export function solve(): void {
           }
         }
         pos[i] += dx; pos[i + 1] += dy; pos[i + 2] += dz
+        // How far this sweep actually moved anything, which is the only honest
+        // answer to "would more sweeps help": a sweep that moves nothing is a
+        // sweep nobody needs, and one that still moves kilometres is a sweep
+        // that was cut short. Free, since the move is already in hand.
+        const far = length3(dx, dy, dz)
+        swept += far
+        sweptCount++
+        if (far > sweptMax) sweptMax = far
         if (!shell) continue
         const moved = length3(pos[i], pos[i + 1], pos[i + 2])
         if (moved < 1e-9) continue
@@ -2916,7 +2927,17 @@ export function solve(): void {
       // out and the shell re-imposed exactly. Nothing below writes into the
       // same argument -- the fold, the weld and the island fit are projections
       // applied to the answer, not forces competing inside it.
-      if (jacobi) applyPushes()
+      if (jacobi) {
+        swept = 0; sweptMax = 0; sweptCount = 0
+        applyPushes()
+        if (ENV.STEP_TRACE && (sweep < 4 || sweep % 20 === 19)) {
+          console.log(
+            `[sweep] ${t} Ma  ${String(sweep + 1).padStart(3)}  mean `
+            + `${(swept / Math.max(1, sweptCount)).toFixed(3)} km, worst `
+            + `${sweptMax.toFixed(1)} km, over ${sweptCount} points`,
+          )
+        }
+      }
       unfold(
         pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin, faceMargin,
