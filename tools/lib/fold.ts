@@ -504,3 +504,179 @@ export function readSink(
     sink[v] = Math.max(0, Math.min(255, Math.round((at / r) * 255)))
   }
 }
+
+/** Room for the curtain collapse, reused between steps. */
+export interface CurtainScratch {
+  /** Whether each vertex is a corner of crust that has not erupted yet. */
+  inCurtain: Uint8Array
+  /** Whether it is also a corner of crust that has, i.e. it is a flank. */
+  onFlank: Uint8Array
+  /** Steps of mesh from the nearest flank, through the curtain only. */
+  fromFlank: Int32Array
+  /** Which vertex of the ridge line each curtain vertex belongs to, or -1. */
+  onRidge: Int32Array
+  queue: Int32Array
+}
+
+export function newCurtainScratch(vertexCount: number): CurtainScratch {
+  return {
+    inCurtain: new Uint8Array(vertexCount),
+    onFlank: new Uint8Array(vertexCount),
+    fromFlank: new Int32Array(vertexCount),
+    onRidge: new Int32Array(vertexCount),
+    queue: new Int32Array(vertexCount),
+  }
+}
+
+/**
+ * Pull every curtain onto the line its ridge ran along, in one projection.
+ *
+ * The thing this replaces was a zip: each edge of un-erupted crust pulled its
+ * two ends towards their own midpoint, averaged over every such edge a corner
+ * belongs to. That works while a curtain is one triangle wide and stops
+ * working exactly as it stops being narrow, because a corner in the middle of
+ * a wide curtain has those midpoints *all around* it -- their average is
+ * roughly where it already sits, so it does not move. Only the outermost ring
+ * of the curtain moves, so the zip eats inward about one ring per round, and
+ * it gets six. Measured on the run that prompted this: 23,283 curtain faces at
+ * 49 Ma and the median rim edge going 53 km to 48 in those six rounds, nine
+ * percent. By 180 Ma the curtain is 49,081 of 81,920 triangles -- sixty
+ * percent of the planet, every piece of sea floor younger than 180 Ma -- and
+ * nibbling at its edges is not a mechanism for closing it.
+ *
+ * A reader named what to do instead: *trek het hele gordijn in één keer op
+ * zijn eigen ridge-lijn* -- and *"bepaal de lijn waar de rug liep" dit is
+ * essentieel inderdaad.*
+ *
+ * **Where that line is.** The curtain at time t is every piece of crust
+ * younger than t, which is a band with the ridge it erupted from running down
+ * the middle of it: sea floor spreads both ways at once, so the band is
+ * symmetric about its ridge by construction. Its two edges against surviving
+ * crust are the same isochron on either flank -- the crust that was *at* the
+ * ridge at time t -- and at time t those two edges were one place. So the line
+ * to pull onto is the middle of the band, and the middle is found by walking
+ * inward from both flanks at once and seeing where the two fronts meet.
+ *
+ * Two passes over the mesh, both breadth-first and both linear:
+ *
+ *  1. From every flank vertex inward through the curtain, counting steps. The
+ *     vertices no step reaches from any nearer place -- the local furthest --
+ *     are the middle of the band, and that is the ridge line.
+ *  2. From that line outward again, so every curtain vertex knows which point
+ *     of the line it belongs to.
+ *
+ * Then each of them is moved onto it, keeping its own radius, because how deep
+ * a point hangs is the fold's business and this is only about where on the
+ * globe it is. The flank vertices move furthest and they drag the live crust
+ * behind them, which *is* the closure: the ocean shuts because its two shores
+ * are pulled onto the ridge that made them.
+ *
+ * What that costs the crust behind them is not this function's problem. A
+ * reader settled that too: *je hoeft geen rekening te houden met hoeveel korst
+ * mag rekken bij het lassen, want dat lossen we op tijdens de sweeps.*
+ */
+export function collapseCurtains(
+  pos: Float64Array,
+  faceVerts: Int32Array,
+  /** 1 where a triangle's crust has not erupted yet. */
+  closing: Uint8Array,
+  /** 1 where it has. */
+  crustAlive: Uint8Array,
+  faceCount: number,
+  vertexCount: number,
+  adjacency: { offsets: Uint32Array; neighbours: Uint32Array },
+  strength: number,
+  scratch: CurtainScratch,
+): { moved: number; ridge: number; widest: number } {
+  const { inCurtain, onFlank, fromFlank, onRidge, queue } = scratch
+  inCurtain.fill(0)
+  onFlank.fill(0)
+  fromFlank.fill(-1)
+  onRidge.fill(-1)
+
+  for (let f = 0; f < faceCount; f++) {
+    const mark = closing[f] ? inCurtain : crustAlive[f] ? onFlank : null
+    if (!mark) continue
+    mark[faceVerts[f * 3]] = 1
+    mark[faceVerts[f * 3 + 1]] = 1
+    mark[faceVerts[f * 3 + 2]] = 1
+  }
+  // A flank is a corner of both: the curtain's edge against crust that exists.
+  let head = 0
+  let tail = 0
+  for (let v = 0; v < vertexCount; v++) {
+    if (!inCurtain[v]) { onFlank[v] = 0; continue }
+    if (!onFlank[v]) continue
+    fromFlank[v] = 0
+    queue[tail++] = v
+  }
+  if (tail === 0) return { moved: 0, ridge: 0, widest: 0 }
+
+  // Inward from both flanks at once.
+  let widest = 0
+  while (head < tail) {
+    const v = queue[head++]
+    const d = fromFlank[v] + 1
+    for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+      const w = adjacency.neighbours[k]
+      if (!inCurtain[w] || fromFlank[w] >= 0) continue
+      fromFlank[w] = d
+      if (d > widest) widest = d
+      queue[tail++] = w
+    }
+  }
+
+  /*
+   * The middle of the band: a vertex no curtain neighbour stands further in
+   * than. Where the two fronts met, that is every vertex of the meeting; where
+   * the curtain is one triangle wide it is the flank itself, and the whole
+   * curtain is then its own ridge line and stays where it is -- which is right,
+   * because a curtain that narrow has already shut.
+   */
+  head = 0
+  tail = 0
+  let ridge = 0
+  for (let v = 0; v < vertexCount; v++) {
+    if (!inCurtain[v]) continue
+    let furthest = true
+    for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1] && furthest; k++) {
+      const w = adjacency.neighbours[k]
+      if (inCurtain[w] && fromFlank[w] > fromFlank[v]) furthest = false
+    }
+    if (!furthest) continue
+    onRidge[v] = v
+    queue[tail++] = v
+    ridge++
+  }
+
+  // Outward again, so every vertex knows which point of the line it belongs to.
+  while (head < tail) {
+    const v = queue[head++]
+    for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+      const w = adjacency.neighbours[k]
+      if (!inCurtain[w] || onRidge[w] >= 0) continue
+      onRidge[w] = onRidge[v]
+      queue[tail++] = w
+    }
+  }
+
+  let moved = 0
+  for (let v = 0; v < vertexCount; v++) {
+    const to = onRidge[v]
+    if (to < 0 || to === v) continue
+    const i = v * 3
+    const j = to * 3
+    const l = Math.sqrt(pos[i] ** 2 + pos[i + 1] ** 2 + pos[i + 2] ** 2) || 1
+    const m = Math.sqrt(pos[j] ** 2 + pos[j + 1] ** 2 + pos[j + 2] ** 2) || 1
+    const ux = pos[i] / l, uy = pos[i + 1] / l, uz = pos[i + 2] / l
+    let nx = ux + strength * (pos[j] / m - ux)
+    let ny = uy + strength * (pos[j + 1] / m - uy)
+    let nz = uz + strength * (pos[j + 2] / m - uz)
+    const nl = Math.sqrt(nx * nx + ny * ny + nz * nz)
+    if (nl < 1e-9) continue
+    // Its own radius kept: where on the globe, not how deep.
+    pos[i] = (nx / nl) * l; pos[i + 1] = (ny / nl) * l; pos[i + 2] = (nz / nl) * l
+    moved++
+  }
+  return { moved, ridge, widest }
+}

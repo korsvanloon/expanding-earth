@@ -58,7 +58,8 @@ import { writeChannel, writeFrames } from '../../shared/frames.js'
 import { directionToUv, length3, lonLatToDirection } from '../../shared/sphere.js'
 import { DynamicMesh, collapseVanished, retriangulate } from './dynamic-mesh.js'
 import {
-  foldShape, markCrust, measureFold, newFoldScratch, pullInward, readSink, type FoldResult,
+  collapseCurtains, foldShape, markCrust, measureFold, newCurtainScratch, newFoldScratch,
+  pullInward, readSink, type FoldResult,
 } from './fold.js'
 import {
   cellBuckets, coverage, fillSky, inside, probeCells, probeDirections, unstack,
@@ -1045,6 +1046,7 @@ export function solve(): void {
    */
   const faceMargin = new Float64Array(faceCount)
   const foldScratch = newFoldScratch(vertexCount)
+  const curtainScratch = newCurtainScratch(vertexCount)
   /** Scratch for the coherence constraint; see CONFIG.coherence. */
   const moved = new Float64Array(vertexCount * 3)
   const smoothed = new Float64Array(vertexCount * 3)
@@ -2489,6 +2491,17 @@ export function solve(): void {
           return gaps.length ? gaps[gaps.length >> 1] : 0
         }
         const before = ENV.STEP_TRACE ? rimGap() : 0
+        // The whole curtain onto its own ridge line, once. See collapseCurtains.
+        const curtain = collapseCurtains(
+          pos, mesh.faceVerts, closing, crustAlive, faceCount, vertexCount, adjacency,
+          CONFIG.weldRim, curtainScratch,
+        )
+        relaxToSphere(pos, vertexCount, rNext, 1, onShell, holdOut)
+        pullInward(pos, vertexCount, foldScratch, 1, CONFIG.hangUnderFoldKm,
+          CONFIG.shoreShare, shorePush, shoreCount)
+        // Then the zip, for what the line projection leaves: a curtain one
+        // triangle wide is its own ridge line and is not moved by the above,
+        // and this is what shuts those.
         let welded = 0
         for (let round = 0; round < CONFIG.weldRounds; round++) {
           welded = weldRim(
@@ -2501,8 +2514,9 @@ export function solve(): void {
         }
         if (ENV.STEP_TRACE) {
           console.log(
-            `[weld] ${t} Ma  ${welded} rim faces, median rim edge `
-            + `${before.toFixed(0)} -> ${rimGap().toFixed(0)} km`,
+            `[weld] ${t} Ma  ${welded} rim faces; ${curtain.moved} points onto `
+            + `${curtain.ridge} of ridge line, curtain ${curtain.widest} deep; `
+            + `median rim edge ${before.toFixed(0)} -> ${rimGap().toFixed(0)} km`,
           )
         }
     }
