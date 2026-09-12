@@ -2516,6 +2516,26 @@ export function solve(): void {
      * neighbourhood, and because a seam that shuts halfway through a step can
      * wait for the next one -- the step is a million years.
      */
+    /*
+     * Two points that have been welded are one point.
+     *
+     * A reader on the previous version: *de las zet twee punten op elkaar, de
+     * veren trekken ze de sweep daarna weer uit elkaar, de las zet ze terug --
+     * dat zou dus niet mogen. na een las moeten die 2 punten als 1 bewegen.*
+     * They are right, and the difference is not cosmetic. Imposed once at the
+     * end of a sweep, a weld is one more opinion among twenty and the seam
+     * spends the whole sweep open; imposed after everything that could pull it
+     * apart, the pair never has a position of its own to be pulled from, which
+     * is what welded means.
+     *
+     * Short of merging the two vertices -- which the fold exists to avoid,
+     * because merging is what destroys crust identity and resolution -- this
+     * is as close to one degree of freedom as a position solver gets.
+     */
+    const asOne = () => {
+      if (CONFIG.seamHold > 0 && seams.a.length) holdSeams(pos, seams, CONFIG.seamHold)
+    }
+
     if (CONFIG.seamHold > 0) {
       const added = findSeams(
         seams, pos, shell, faceCount, vertexCount, seamVertex, mesh.vertexAlive,
@@ -2528,6 +2548,8 @@ export function solve(): void {
         )
       }
     }
+
+    asOne()
 
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
       const forward = sweep % 2 === 0
@@ -2620,6 +2642,7 @@ export function solve(): void {
           pos[j] += cx; pos[j + 1] += cy; pos[j + 2] += cz
         }
       }
+      asOne()
       closeConjugates(pos, t, rNext)
       straightenTracks(pos, t)
       // Rigid crust may not pass through rigid crust. Rebuilt only on the
@@ -2650,6 +2673,7 @@ export function solve(): void {
         pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext,
         CONFIG.foldMargin, faceMargin,
       )
+      asOne()
       relaxToSphere(pos, vertexCount, rNext, CONFIG.radialStiffness, onShell, holdOut)
       // Beside the sphere, not once a step: the closing rim hauls the top of
       // the curtain towards the surface every sweep, and this is what keeps
@@ -2658,6 +2682,7 @@ export function solve(): void {
         pullInward(pos, vertexCount, foldScratch, CONFIG.radialStiffness, CONFIG.hangUnderFoldKm,
           CONFIG.shoreShare, shorePush, shoreCount)
       }
+      asOne()
       // What the curtain is pulling at, as a turn of the whole plate.
       //
       // The push itself reaches the crust and then all but disappears:
@@ -2671,12 +2696,7 @@ export function solve(): void {
         pos, dirs, shape, islands.vertexIsland, islands.count, vertexCount, mesh.vertexAlive,
         rNext, islandFacing, holdShare,
       )
-      // A shut ridge is one line of crust, not two rims that happen to touch.
-      // After the island hold, because the hold refits each island from its
-      // own points and would fit the weld straight back out.
-      if (CONFIG.seamHold > 0 && seams.a.length) {
-        holdSeams(pos, seams, CONFIG.seamHold)
-      }
+      asOne()
       // After the hold, not before it. Composing the turn into the island's
       // carried orientation and letting holdIslands run does nothing at all:
       // the hold *refits* that orientation from the island's current positions
