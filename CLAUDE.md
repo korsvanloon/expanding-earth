@@ -1,19 +1,60 @@
 # Working agreements
 
+## Working with the reader
+
+Four things have been said more than once, which means they were not heard the
+first time. They are here so they do not have to be said again.
+
+**When they ask for all of it, do all of it.** *"ik vroeg allemaal en ik
+twijfelde niet dus dan moet je dat ook doen."* A sequence they approved without
+hesitation is a decision, not an opening to come back at the last step and ask
+again. If a result along the way is bad, say so plainly in the same breath as
+doing the thing -- the report and the action are not alternatives.
+
+**Do not measure what has already been decided.** *"ik wil niet beide meten.
+het was gewoon fout eerst."* When they say something was simply wrong, an A/B
+of it is not diligence, it is a wasted run and a second-guessing of their
+judgement. Delete the knob and move on.
+
+**Be modest in language.** *"je noemt het een overlap fix, maar het is maar een
+kwart beter. dat is geen fix."* A fix means the problem is gone. A quarter
+better is a quarter better. No celebrating a small gain, and no lyricism about
+a change that barely moves a number.
+
+**Brainstorm first, build second.** *"ik wil dat je meer gaat brainstormen met
+mij en met opties voor oplossingen komt ipv heel lang werken aan wat jij de
+hele tijd fixes noemt."* Put the options and a recommendation in front of them
+before disappearing into an hour of solo work. Two things they have named as
+the worst options: measuring more before acting, and edge flips, which destroy
+crust identity.
+
+And one design principle that has come out of all of it: **corrections applied
+after the solve are a red flag.** *"ik denk dat de hoofd sweep voldoende zou
+moeten zijn."* Anything that tidies the solver's answer rather than being a
+force the solver feels is suspect -- and when it was measured, it was both
+carrying the model and eating 83% of the runtime.
+
 ## Waiting
 
-A full solve is about seven and a half minutes (437 s measured, September, at
-subdivision 6 over 200 Ma) and the whole `pnpm run data` about nine. Whole-globe
-groove detection adds roughly three more, and a Pages build about eight. So
-most of what this pipeline does now runs past five minutes, and the rule below
-is about whether a wait is *worth* it rather than about whether it is long:
+A full solve is about ten minutes (594 s measured, September, at subdivision 6
+over 180 Ma with no post-solve corrections) and a Pages build about the same.
+It was fifty minutes for a while, and the reason is worth remembering: the pass
+that pulled crust off crust ran seven full coverage passes a step and only ever
+looked cheap because it broke out early when nothing was doubled. Set
+`STEP_TRACE=1` and the run ends with a `[cost]` line saying where its time went
+-- read that before guessing, because the guess was wrong twice.
+
+The rule below is about whether a wait is *worth* it rather than about whether
+it is long:
 
 - Is the task set up right at all? Two measurements in this project were
   abandoned mid-run because they were written O(misses x vertices) when the
   grid buckets that make them O(1) were already in `tools/lib/coverage.ts`.
 - Is it worth the wait, or is there a cheaper answer that decides the same
-  thing? `END_MA=40` costs 80 seconds and settles most questions that a full
-  200 Ma run would.
+  thing? `END_MA=40` costs a couple of minutes and settles most questions a
+  full run would -- but check that it really settles the *same* question, since
+  the deep end is where the curtain is sixty percent of the planet and where
+  several things behave differently.
 - Say so either way. An update beats silence, and "this will take seven
   minutes, here is what it will tell us" beats a seven-minute gap.
 
@@ -22,8 +63,9 @@ is about whether a wait is *worth* it rather than about whether it is long:
 The reconstruction is **not committed** -- `pnpm build` recomputes it, on a
 reader's machine and in the Pages workflow alike. So anything that only lives
 in an environment variable does not ship. Every setting that is meant to be
-the model belongs in `CONFIG` in `tools/solve.ts` as a default, with the
-variable left as the way to measure the alternative.
+the model belongs in `CONFIG` in `tools/lib/solver.ts` as a default, with the
+variable left as the way to measure the alternative -- and exactly one default
+per knob, which `pnpm test` now refuses to let slip.
 
 Do not push to `main` for every experiment. Push when there is something to
 look at, and say **what** to look at and **at which time on the timeline**. If
