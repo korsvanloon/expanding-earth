@@ -209,7 +209,7 @@ export const KNOBS = [
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
-  'JACOBI', 'JACOBI_RELAX',
+  'AREA_STRENGTH', 'JACOBI', 'JACOBI_RELAX',
   'SEAM_MERGE',
   'SHORE_SHARE',
   'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
@@ -394,6 +394,17 @@ function readConfig() {
    * becomes what it should always have been: see the apply, where the radial
    * part of the move is taken out before it happens rather than undone after.
    */
+  /**
+   * Whether a triangle's hold on its own area is weighted by its strength.
+   *
+   * It was not, and that was the one place the strength field did not reach:
+   * the edge springs took their stiffness from it and the area constraint was
+   * the same for every triangle in the shell. So strong crust could refuse to
+   * be pulled long and thin while giving up its area as readily as basalt --
+   * which is not what strong means. `AREA_STRENGTH=0` puts the uniform hold
+   * back, which is what every measurement before this was made with.
+   */
+  areaByStrength: Number(ENV.AREA_STRENGTH ?? 1) > 0,
   sweepJacobi: Number(ENV.JACOBI ?? 1),
   /**
    * How much further than the average each point goes, to make up for it.
@@ -2920,6 +2931,7 @@ export function solve(): void {
           CONFIG.shutSlack < 1 ? rimRing : undefined,
           CONFIG.shutSlack, CONFIG.shutRings,
           jacobi ? pushSum : undefined, jacobi ? pushCount : undefined,
+          CONFIG.areaByStrength ? stretchResist : undefined,
         )
       }
       // One move per point, made of everything that pulled on it: the edge
@@ -4888,6 +4900,18 @@ function holdArea(
    */
   push?: Float64Array,
   pushes?: Float64Array,
+  /**
+   * How hard each triangle holds its own area, one per face.
+   *
+   * Without this the area constraint is the one force in the model that does
+   * not know what the crust is made of: the springs are weighted by strength
+   * and this was uniform, so a shield and seven kilometres of basalt gave up
+   * their area at exactly the same rate. A reader spotted it from the other
+   * end -- Eurasia going deep blue on the strain map while its springs were
+   * supposedly stiff -- and the fix is to weight the hold the same way the
+   * springs are weighted.
+   */
+  strength?: Float64Array,
 ) {
   for (let f = 0; f < faceCount; f++) {
     if (!alive[f]) continue
@@ -4907,7 +4931,7 @@ function holdArea(
       gbx * gbx + gby * gby + gbz * gbz +
       gcx * gcx + gcy * gcy + gcz * gcz
     if (norm < 1e-12) continue
-    let hold = stiffness
+    let hold = strength ? stiffness * strength[f] : stiffness
     if (rimRing && rimRing[f] > 0) {
       const fade = (rimRing[f] - 1) / Math.max(1, rings)
       hold *= slack + (1 - slack) * fade
