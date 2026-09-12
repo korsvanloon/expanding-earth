@@ -472,6 +472,66 @@ export class DynamicMesh {
   /** Flips whose drawn equivalent could not be named; expected to stay zero. */
   drawnMisses = 0
 
+  /**
+   * May two rims be welded into one point?
+   *
+   * Not a collapse: a weld joins two vertices that share **no** triangle, so
+   * nothing is dropped and no crust is deleted -- the two sheets simply become
+   * one sheet along that point. That is the whole difference, and it is why
+   * this asks for the opposite of what `canCollapse` asks for.
+   *
+   * What it does refuse is the same list of ways a merged point stops being a
+   * point on a surface: a hub with more neighbours than a grid has, two
+   * triangles that would land on the same three corners, and a triangle that
+   * would be turned inside out by the move.
+   */
+  canWeld(
+    a: number, b: number, ringA: Set<number>, ringB: Set<number>, pos: Float64Array,
+  ): string | null {
+    if (a === b || !this.vertexAlive[a] || !this.vertexAlive[b]) return 'gone'
+    // Sharing a triangle makes this an edge, and an edge is collapsed, not
+    // welded: collapsing drops the triangles along it, which is crust.
+    if (this.facesAlong(a, b, []).length > 0) return 'shares a triangle'
+    this.ring(a, ringA)
+    this.ring(b, ringB)
+    let shared = 0
+    for (const u of ringA) if (ringB.has(u)) shared++
+    if (ringA.size + ringB.size - shared > MAX_NEIGHBOURS) return 'too many neighbours'
+    // Two triangles on the same three corners: the rename would make a
+    // duplicate rather than a join.
+    const others = (f: number, end: number) => {
+      const i = f * 3
+      const u0 = this.faceVerts[i], u1 = this.faceVerts[i + 1], u2 = this.faceVerts[i + 2]
+      const rest = [u0, u1, u2].filter((u) => u !== end)
+      return rest.length === 2 ? (Math.min(rest[0], rest[1]) * this.vertexCount
+        + Math.max(rest[0], rest[1])) : -1
+    }
+    const atA = new Set<number>()
+    for (const f of this.incident[a]) atA.add(others(f, a))
+    for (const f of this.incident[b]) if (atA.has(others(f, b))) return 'would duplicate a triangle'
+    // Where the welded point is going to be, on the direction halfway between
+    // the two and at the radius halfway between them.
+    const mx = (pos[a * 3] + pos[b * 3]) * 0.5
+    const my = (pos[a * 3 + 1] + pos[b * 3 + 1]) * 0.5
+    const mz = (pos[a * 3 + 2] + pos[b * 3 + 2]) * 0.5
+    for (const end of [a, b]) {
+      for (const f of this.incident[end]) {
+        const u0 = this.faceVerts[f * 3], u1 = this.faceVerts[f * 3 + 1]
+        const u2 = this.faceVerts[f * 3 + 2]
+        const moved = (u: number) => u === a || u === b
+        if (!outward(
+          moved(u0) ? mx : pos[u0 * 3], moved(u0) ? my : pos[u0 * 3 + 1],
+          moved(u0) ? mz : pos[u0 * 3 + 2],
+          moved(u1) ? mx : pos[u1 * 3], moved(u1) ? my : pos[u1 * 3 + 1],
+          moved(u1) ? mz : pos[u1 * 3 + 2],
+          moved(u2) ? mx : pos[u2 * 3], moved(u2) ? my : pos[u2 * 3 + 1],
+          moved(u2) ? mz : pos[u2 * 3 + 2],
+        )) return 'would turn a triangle inside out'
+      }
+    }
+    return null
+  }
+
   /** Merge b into a, dropping the two triangles along the edge. */
   collapse(a: number, b: number): void {
     const along = this.facesAlong(a, b, [])
@@ -601,17 +661,6 @@ export function collapseVanished(
   return { collapsed, refused, eased }
 }
 
-/** A triangle's roundness, for sorting the worst to the front. */
-function worstAngle(mesh: DynamicMesh, pos: Float64Array, f: number): number {
-  const a = mesh.faceVerts[f * 3] * 3
-  const b = mesh.faceVerts[f * 3 + 1] * 3
-  const c = mesh.faceVerts[f * 3 + 2] * 3
-  return quality(
-    pos[a], pos[a + 1], pos[a + 2],
-    pos[b], pos[b + 1], pos[b + 2],
-    pos[c], pos[c + 1], pos[c + 2],
-  )
-}
 
 function outward(
   ax: number, ay: number, az: number,
@@ -699,90 +748,3 @@ function easeDeadCrust(
   return flipped
 }
 
-/**
- * Redraw the edges the motion has ruined.
- *
- * Sliding a piece of crust a long way past its neighbours leaves triangles
- * stretched into slivers, and a sliver is one nudge away from turning inside
- * out. Where redrawing the diagonal of a pair makes them rounder, redraw it.
- * The crust is unchanged; only which piece is recorded as touching which.
- */
-export function retriangulate(
-  mesh: DynamicMesh,
-  pos: Float64Array,
-  restEdge: Float64Array,
-  passes: number,
-  /** Crustal strength per triangle, and the strength above which nothing gives. */
-  strength?: Float32Array,
-  breaksBelow = 1,
-  /**
-   * Present-day directions and the Earth's radius, so a new diagonal is asked
-   * to measure the distance its two ends really have on today's Earth rather
-   * than whatever it finds itself with. See the note in `flip`; without these
-   * the redrawing quietly writes the crust's current deformation into its own
-   * rest state, which is where three quarters of the stretch along the traced
-   * fracture zones was coming from.
-   */
-  dirs?: Float32Array,
-  r0?: number,
-  /** How far a new diagonal's rest length moves towards the truth; see `flip`. */
-  truth = 1,
-  /**
-   * Which faces may be redrawn at all, if not every live one.
-   *
-   * Under the fold (tools/lib/fold.ts) most of the mesh at 200 Ma is crust that
-   * has not erupted yet, hanging inside the shell. Redrawing that is worse than
-   * pointless: an edge flipped between a point on the surface and a point two
-   * thousand kilometres down is not a fault in any rock, and it would spend the
-   * flip budget on the one part of the mesh no measurement reads.
-   */
-  only?: Uint8Array,
-): number {
-  const along: number[] = []
-  const order: number[] = []
-  const roundness = new Float64Array(mesh.faceCount)
-  let flipped = 0
-  for (let pass = 0; pass < passes; pass++) {
-    let did = 0
-    // Worst first. Sweeping in face order spends the pass on triangles that
-    // were nearly fine and leaves the needles for a pass that never comes.
-    //
-    // The measure is taken once per triangle rather than inside the comparator.
-    // Nothing moves during a sort, so both give the same order -- but a sort of
-    // thirty-five thousand triangles asks its comparator half a million times,
-    // and measuring there meant a million measurements a pass instead of thirty
-    // thousand. Over the run that was a billion.
-    order.length = 0
-    for (let f = 0; f < mesh.faceCount; f++) {
-      if (!mesh.faceAlive[f] || (only && !only[f])) continue
-      order.push(f)
-      roundness[f] = worstAngle(mesh, pos, f)
-    }
-    order.sort((x, y) => roundness[x] - roundness[y])
-    for (const f of order) {
-      if (!mesh.faceAlive[f]) continue
-      for (let k = 0; k < 3; k++) {
-        const a = mesh.faceVerts[f * 3 + k]
-        const b = mesh.faceVerts[f * 3 + ((k + 1) % 3)]
-        if (a < 0 || b < 0) continue
-        const found = mesh.canFlip(a, b, pos, along)
-        if (!found) continue
-        // A flip is a fault: two pieces of rock that were not touching come
-        // into contact and the edge between them is born at whatever length it
-        // finds, which forgets everything that was ever asked of it. Through
-        // the middle of a shield that is not a fault, it is the model quietly
-        // giving itself permission to deform a craton for free -- and it did,
-        // until this line: the continents stopped travelling because the mesh
-        // was absorbing the motion instead of passing it on.
-        if (strength && Math.max(strength[found[2]], strength[found[3]]) >= breaksBelow) continue
-        if (only && (!only[found[2]] || !only[found[3]])) continue
-        mesh.flip(a, b, found[0], found[1], found[2], found[3], restEdge, pos, dirs, r0, truth)
-        flipped++
-        did++
-        break
-      }
-    }
-    if (!did) break
-  }
-  return flipped
-}

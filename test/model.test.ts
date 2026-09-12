@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { buildIcosphere, sphericalTriangleArea } from '../tools/lib/icosphere'
-import { DynamicMesh, collapseVanished, retriangulate } from '../tools/lib/dynamic-mesh'
+import { DynamicMesh, collapseVanished } from '../tools/lib/dynamic-mesh'
 import {
   applyTopology, readTopology, topologyDelta, writeTopology,
 } from '../shared/topology'
@@ -990,39 +990,6 @@ function restOf(mesh: DynamicMesh, pos: Float64Array) {
   return rest
 }
 
-describe('redrawing edges', () => {
-  it('keeps the mesh a sphere and never loses a triangle', () => {
-    const { positions, indices } = buildIcosphere(3)
-    const mesh = new DynamicMesh(positions.length / 3, indices.length / 3, indices)
-    const pos = Float64Array.from(positions)
-    const faceCount = mesh.faceCount
-    const restEdge = new Float64Array(faceCount * 3)
-    for (let f = 0; f < faceCount; f++) {
-      for (let k = 0; k < 3; k++) {
-        const a = indices[f * 3 + k] * 3
-        const b = indices[f * 3 + ((k + 1) % 3)] * 3
-        restEdge[f * 3 + k] = Math.hypot(pos[a] - pos[b], pos[a + 1] - pos[b + 1], pos[a + 2] - pos[b + 2])
-      }
-    }
-    // Squash one hemisphere sideways, which is what leaves slivers behind.
-    for (let v = 0; v < mesh.vertexCount; v++) {
-      if (pos[v * 3 + 1] < 0) continue
-      pos[v * 3] *= 0.35
-      const length = Math.hypot(pos[v * 3], pos[v * 3 + 1], pos[v * 3 + 2]) || 1
-      for (let c = 0; c < 3; c++) pos[v * 3 + c] /= length
-    }
-    const flipped = retriangulate(mesh, pos, restEdge, 6)
-    expect(flipped).toBeGreaterThan(0)
-    expect(mesh.eulerCharacteristic()).toBe(2)
-    expect(mesh.liveFaces).toBe(indices.length / 3)
-    // No triangle may be left with a repeated corner.
-    for (let f = 0; f < faceCount; f++) {
-      const [a, b, c] = [mesh.faceVerts[f * 3], mesh.faceVerts[f * 3 + 1], mesh.faceVerts[f * 3 + 2]]
-      expect(new Set([a, b, c]).size).toBe(3)
-    }
-  })
-})
-
 describe('carrying the triangulation with the frames', () => {
   /**
    * The bug this guards against is not subtle once you can see it, and it was
@@ -1048,7 +1015,6 @@ describe('carrying the triangulation with the frames', () => {
     const frames: { verts: Int32Array; alive: Uint8Array }[] = []
     for (const t of [0, 40, 80, 120, 160, 200]) {
       collapseVanished(mesh, age, pos, t, rest)
-      retriangulate(mesh, pos, rest, 3)
       deltas.push(topologyDelta(drawn, mesh.faceVerts, mesh.faceCount, mesh.faceAlive))
       frames.push({ verts: Int32Array.from(mesh.faceVerts), alive: Uint8Array.from(mesh.faceAlive) })
     }

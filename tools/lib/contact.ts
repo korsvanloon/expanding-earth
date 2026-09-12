@@ -26,6 +26,7 @@
  */
 
 import { GRID_COLS, GRID_ROWS, bucketFace, cellOf, inside, type Tiling } from './coverage.js'
+import type { DynamicMesh } from './dynamic-mesh.js'
 
 export interface IslandContacts {
   /** How many points of one island were found inside a triangle of another. */
@@ -648,6 +649,73 @@ export function findSeams(
   }
   seams.dropped = dropped
   return added
+}
+
+/**
+ * Weld every stitch into one point, so nothing downstream can open it.
+ *
+ * A reader, after the measurement: *"na een las moeten die 2 punten als 1
+ * bewegen."* Held as a constraint they do not. `holdSeams` pulls the pair onto
+ * a shared direction at full strength and everything after it -- the edge
+ * springs, the area hold, the island fit, the pressure exchange -- moves the
+ * two partners independently, because they sit in different triangles and
+ * nothing in those passes knows the two are meant to be the same rock. Over
+ * eighty sweeps the median pair ended up twenty kilometres apart and the worst
+ * two hundred, against a triangle of forty-two.
+ *
+ * So the pair stops being two points. Every triangle that named `b` names `a`
+ * instead, and there is one point where there were two -- after which no pass
+ * can separate it from itself, whatever order they run in and whichever of
+ * them writes last.
+ *
+ * **Nothing is deleted.** A stitch is only ever made between vertices that
+ * share no triangle (see `findSeams`), and `collapse` drops only the triangles
+ * *along* the edge it is given -- of which there are none here. The crust on
+ * both sides survives entire, and `drawnVerts` keeps both original names, so
+ * the globe and the cross-section still draw the two pieces of sea floor they
+ * were made of. What changes is only that the two sheets are now one sheet.
+ */
+export function weldSeams(
+  mesh: DynamicMesh,
+  pos: Float64Array,
+  seams: Seams,
+): { merged: number; refused: number; why: Map<string, number> } {
+  const ringA = new Set<number>()
+  const ringB = new Set<number>()
+  const why = new Map<string, number>()
+  let merged = 0
+  let refused = 0
+  let kept = 0
+  for (let k = 0; k < seams.a.length; k++) {
+    const a = mesh.survivor(seams.a[k])
+    const b = mesh.survivor(seams.b[k])
+    // Already one, by this weld or by a collapse: nothing left to do and
+    // nothing left to hold.
+    if (a === b) continue
+    const no = mesh.canWeld(a, b, ringA, ringB, pos)
+    if (no) {
+      why.set(no, (why.get(no) ?? 0) + 1)
+      // Keep it in the list, where `holdSeams` will go on pulling it shut. A
+      // stitch that cannot be welded today may weld tomorrow, once the crust
+      // around it has moved, and a held seam is better than no seam.
+      seams.a[kept] = a
+      seams.b[kept] = b
+      kept++
+      refused++
+      continue
+    }
+    // Both ends meet in the middle, and the survivor is put there, since a
+    // weld is two rims arriving at the same place rather than one being moved
+    // onto the other.
+    for (let c = 0; c < 3; c++) {
+      pos[a * 3 + c] = (pos[a * 3 + c] + pos[b * 3 + c]) * 0.5
+    }
+    mesh.collapse(a, b)
+    merged++
+  }
+  seams.a.length = kept
+  seams.b.length = kept
+  return { merged, refused, why }
 }
 
 /**

@@ -56,7 +56,7 @@ import { CRATON_RIGIDITY, CRUST_TYPES, WEAK_RIGIDITY } from '../../shared/crust.
 import { type TopologyDelta, topologyDelta, writeTopology } from '../../shared/topology.js'
 import { writeChannel, writeFrames } from '../../shared/frames.js'
 import { directionToUv, length3, lonLatToDirection } from '../../shared/sphere.js'
-import { DynamicMesh, collapseVanished, retriangulate } from './dynamic-mesh.js'
+import { DynamicMesh, collapseVanished } from './dynamic-mesh.js'
 import {
   collapseCurtains, foldShape, markCrust, measureFold, newCurtainScratch, newFoldScratch,
   pullInward, readSink, type FoldResult,
@@ -67,6 +67,7 @@ import {
 } from './coverage.js'
 import {
   findSeams, holdSeams, newContactScratch, newSeams, separateIslands, touchingBodies,
+  weldSeams,
   type IslandContacts,
 } from './contact.js'
 import { distortion, shapePairs } from './shape.js'
@@ -208,6 +209,7 @@ export const KNOBS = [
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
+  'SEAM_MERGE',
   'SHORE_SHARE',
   'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
   'STRENGTH', 'TRACK_K',
@@ -224,7 +226,7 @@ export const KNOBS = [
   // out of every file in tools/lib, so the hole cannot reopen.
   'MAX_SHORTENING', 'MAX_STRETCH',
   // Retriangulation, likewise read through `knob`, in tools/lib/dynamic-mesh.ts.
-  'EASE_PASSES', 'FLIP_PASSES', 'FLIP_TRUTH',
+  'EASE_PASSES',
   // How the run is carried out rather than what it says: resolution, extent,
   // effort, and what gets printed. Turning one of these does not make a
   // different model -- but it does make a different run, which is why they are
@@ -334,16 +336,37 @@ function readConfig() {
    * says only that the two rims are now one line of crust, which is what a
    * shut ridge means, and leaves both plates free to deform away from it.
    *
-   * It changes no topology. No vertex is merged, no triangle collapsed, no
-   * edge flipped: the two rims keep their own points and are asked to be in
-   * the same place. Crust identity and resolution survive, which is the whole
-   * reason the fold exists.
-   *
    * Monotone in time, which is what makes it safe to remember: this runs
    * backwards, so crust only ever disappears, and two rims that have met stay
    * met for the rest of the run.
+   *
+   * This is now the fallback rather than the weld. It holds the stitches
+   * `seamMerge` could not make into one point, and it is what those pairs get
+   * until they can be.
    */
   seamHold: Number(ENV.SEAM_K ?? 1),
+  /**
+   * Weld a stitch by making its two points one point, rather than holding them.
+   *
+   * Measured before this existed: the hold closes a stitch to nought and eighty
+   * sweeps open it again to a median of twenty kilometres and a worst of two
+   * hundred, on a mesh whose triangles are forty-two across. It cannot be
+   * otherwise. A hold is a stiff spring imposed five times a sweep while the
+   * edge springs, the area hold, the island fit and -- after the last hold of
+   * the last sweep -- the pressure exchange and `unfold` move each partner
+   * independently, none of them knowing the two are the same rock.
+   *
+   * A merge ends the argument instead of winning it. Every triangle naming the
+   * one point names the other, and there is one point where there were two: no
+   * pass can separate a point from itself, in any order, whichever writes last.
+   *
+   * Nothing is deleted by it. A stitch joins two vertices that share no
+   * triangle, and a collapse only drops the triangles along the edge it is
+   * given -- here, none. Both sides keep all their crust, and the renderer
+   * keeps both original names, so the two pieces of sea floor are still drawn
+   * and can still be told apart in the cross-section.
+   */
+  seamMerge: Number(ENV.SEAM_MERGE ?? 1),
   /**
    * How close two rims have to be, in kilometres, to count as one seam.
    *
@@ -382,19 +405,6 @@ function readConfig() {
    */
   landMargin: Number(ENV.LAND_MARGIN ?? 0.5),
   /** How many rounds of redrawing slivers per step. */
-  /**
-   * How many passes of retriangulation a step gets.
-   *
-   * None under the fold. A flip is the only thing left that can carry a
-   * triangle's corners apart once nothing is being collapsed, and it does it
-   * 287,643 times in a run -- which took the share of the shell painted from
-   * crust hundreds of kilometres away *up*, 31% to 48% at 200 Ma, against the
-   * collapse it replaced. A reader looking at the result asked for them off
-   * knowing the fit gets worse for it, and the fit does: bare sky 6.58% to
-   * 20.23% at 200 Ma. What is bought is a mesh where every triangle still
-   * stands for the crust it is painted with.
-   */
-  flipPasses: Number(ENV.FLIP_PASSES ?? (FOLDING ? 0 : 6)),
   /** Smoothing passes over the age field before differentiating it. */
   flowSmoothing: Number(ENV.FLOW_SMOOTH ?? 6),
   /** The fastest half-spreading rate believed, km/Myr. */
@@ -478,17 +488,6 @@ function readConfig() {
    * try one.
    */
   islandContactStiffness: Number(ENV.CONTACT_K ?? 0),
-  /**
-   * How far a redrawn edge's rest length moves towards the distance its two
-   * ends really have on today's Earth, 0 to 1.
-   *
-   * Zero is the old rule -- born at whatever length it finds -- which writes
-   * the crust's deformation at that instant into its own rest state, and is
-   * where 77% of all the stretch along the traced fracture zones came from.
-   * One is the honest answer and too abrupt to apply: see the note in
-   * dynamic-mesh.ts flip.
-   */
-  flipRestTruth: Number(ENV.FLIP_TRUTH ?? 0),
   radialStiffness: Number(ENV.RADIAL_K ?? 0.35),
   /**
    * Send un-erupted crust inside the shell instead of deleting it.
@@ -2354,7 +2353,6 @@ export function solve(): void {
 
   const endTimeMa = CONFIG.endMa ?? meta.endTimeMa
   let refusedTotal = 0
-  let flippedTotal = 0
   let easedTotal = 0
   let foldedNow = 0
   let contacts: IslandContacts = { found: 0, deepestKm: 0, tests: 0, bucketed: 0 }
@@ -2632,10 +2630,16 @@ export function solve(): void {
         seams, pos, shell, faceCount, vertexCount, seamVertex, mesh.vertexAlive,
         rNext, CONFIG.seamKm, seamBuckets,
       ))
-      if ((added || seams.dropped) && ENV.STEP_TRACE) {
+      const welded = CONFIG.seamMerge
+        ? weldSeams(mesh, pos, seams)
+        : { merged: 0, refused: 0, why: new Map<string, number>() }
+      if ((added || seams.dropped || welded.merged) && ENV.STEP_TRACE) {
         console.log(
           `[seam] ${t} Ma  ${added} rims met, ${seams.dropped} let go having folded down; `
-          + `${seams.a.length} stitches holding`,
+          + `${welded.merged} welded into one point, ${seams.a.length} still only held`
+          + (welded.why.size
+            ? ` (${[...welded.why].map(([w, n]) => `${n} ${w}`).join(', ')})`
+            : ''),
         )
       }
     }
@@ -2848,14 +2852,6 @@ export function solve(): void {
       pos, mesh.faceVerts, crustAlive, restAreaNow, faceCount, rNext, CONFIG.foldMargin,
       faceMargin,
     )
-    // Redraw whatever the move has left as slivers, then settle again: a
-    // triangulation that has stopped describing the crust well is one nudge
-    // from turning inside out.
-    flippedTotal += retriangulate(
-      mesh, pos, restEdge, CONFIG.flipPasses, rigidity, CONFIG.breaksBelow, dirs, r0,
-      CONFIG.flipRestTruth, CONFIG.foldInward ? crustHere : undefined,
-    )
-    if (tracing) trace.push(`flips ${stretchNow(t).toFixed(3)}`)
     settleCollapsed()
     removeNetRotation(pos, previous, vertexCount, shrink)
     settleCollapsed()
@@ -3067,8 +3063,7 @@ export function solve(): void {
           + `${fold.hangingKm.toFixed(0)} km of crust, `
         : `${vertexCount - mesh.liveVertices} of ${vertexCount} points closed away, `
           + `${refusedTotal} collapses refused to keep the surface whole, `
-          + `${easedTotal} edges redrawn inside dying crust to let the closure carry on, `) +
-      `${flippedTotal} edges redrawn`,
+          + `${easedTotal} edges redrawn inside dying crust to let the closure carry on, `),
   )
   if (mesh.eulerCharacteristic() !== 2) {
     throw new Error('the mesh stopped being a sphere; every area measured here would be a lie')
