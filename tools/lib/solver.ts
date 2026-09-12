@@ -2540,7 +2540,13 @@ export function solve(): void {
     markIslands()
 
     if (tracing) trace.push(`collapse ${stretchNow(t).toFixed(3)}`)
-    driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
+    const driven = driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
+    if (ENV.STEP_TRACE) {
+      console.log(
+        `[drive] ${t} Ma  ${driven.read} points read the field, ${driven.carried} still carry `
+        + `drift, mean ${driven.moved.toFixed(2)} km, of ${driven.live} live`,
+      )
+    }
     if (tracing) trace.push(`drive ${stretchNow(t).toFixed(3)}`)
 
     // What each edge is asked to measure, worked out once for the step rather
@@ -4205,8 +4211,13 @@ function driveByField(
   dt: number,
 ) {
   const memory = CONFIG.poleMemory
+  let read = 0
+  let carried = 0
+  let moved = 0
+  let live = 0
   for (let v = 0; v < mesh.vertexCount; v++) {
     if (!mesh.vertexAlive[v]) continue
+    live++
     const age = vertexAge[v]
     const reading = age < PERMANENT_MA && age >= t && age <= t + CONFIG.flowWindowMa
     const i = v * 3
@@ -4225,7 +4236,13 @@ function driveByField(
     pos[i] += drift[i]
     pos[i + 1] += drift[i + 1]
     pos[i + 2] += drift[i + 2]
+    if (reading) read++
+    const far = length3(drift[i], drift[i + 1], drift[i + 2])
+    if (far > 1e-6) { carried++; moved += far }
   }
+  // How much of the shell this pass actually touches, which is worth a line
+  // because it was assumed twice and never counted. See PERMANENT_MA below.
+  return { read, carried, moved: moved / Math.max(1, carried), live }
 }
 
 
