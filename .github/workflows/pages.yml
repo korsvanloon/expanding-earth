@@ -30,170 +30,68 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The reconstruction, if this exact set of inputs has been solved before.
-      #
-      # It is not committed -- 22 MB a run, and measured on two real versions
-      # git stores about 5.9 MB for each one with no delta compression between
-      # them at all, because the frames are byte-split differences and a model
-      # change moves nearly every byte. Committing it would grow the repository
-      # by roughly 7.5 MB per shipped change, permanently, and every clone and
-      # every CI checkout would pay for the whole history of runs.
-      #
-      # Caching it costs nothing and answers the same complaint. The key is a
-      # hash of everything the pipeline reads: the solver and the shared code,
-      # the age and height maps, and the datasets in data-src. A change to
-      # anything under src/ -- which is most days -- now deploys without
-      # solving. A change to the solver misses, and pays the four minutes,
-      # which is correct: the run really is different.
-      # Two caches, because the pipeline is two stages with different inputs and
-      # wildly different costs: two minutes to read the grids and cut the mesh,
-      # eleven to run two hundred steps over it. Under one key, editing the
-      # solver -- which is most changes -- threw the mesh away too and paid for
-      # both.
-      #
-      # The mesh, whose inputs are everything except the solver.
-      - uses: actions/cache@v4
-        with:
-          path: |
-            .stage
-            public/data/mesh.bin
-            public/data/tracks.bin
-            public/data/crust-age.bin
-            public/data/fabric.jpg
-            public/data/zones.png
-            public/data/preview
-            .stage/preview.sha
-          key: >-
-            stage-${{ hashFiles('tools/**/*.ts', '!tools/solve.ts',
-            '!tools/lib/solver.ts',
-            'shared/**/*.ts', 'public/textures/height-map.jpg',
-            'data-src/**') }}
-
-      # And the reconstruction, whose inputs are all of them.
-      #
-      # Neither key has to be exactly right. `tools/run.ts` hashes the inputs
-      # itself and re-runs the stage whose hash does not match what it finds on
-      # disk, so a key that is too loose -- if the negation above turns out not
-      # to hold, say -- restores a stale mesh and then rebuilds it. The keys buy
-      # time; the stamps are what keep the output honest.
-      - uses: actions/cache@v4
-        with:
-          path: |
-            public/data/frames.bin
-            public/data/strain.bin
-            public/data/plates.bin
-            public/data/sink.bin
-            public/data/topology.bin
-            public/data/meta.json
-            public/data/inputs.sha
-          key: >-
-            solve-${{ hashFiles('tools/**/*.ts', 'shared/**/*.ts',
-            'public/textures/height-map.jpg', 'data-src/**') }}
-
-
       # The reconstruction, solved somewhere else.
       #
-      # It used to be solved here, and that is eight minutes of this runner
-      # reaching an answer that already exists: the run is solved on the machine
-      # where it was measured, and published to a store the viewer fetches from
-      # (tools/publish-run.ts). This restores that same run into public/data, so
-      # the site also serves it from its own origin and every check below still
-      # has a run to check.
+      # **Nothing is solved here.** A run is made on the machine where it was
+      # measured and published to a store (tools/publish-run.ts); this restores
+      # it, and the rest of this job is the app being built around it. That is
+      # the whole of the arrangement, and it is why there are no caches left in
+      # this file: there is nothing expensive to cache.
       #
-      # Nothing here decides whether the run is *right*. `public/data/inputs.sha`
-      # is the hash of every input it was solved from, the solver included, and
-      # `tools/run.ts` compares it to what this checkout hashes to. Match, and
-      # the build does nothing. Mismatch -- a solver change that was never
-      # published, an age grid that moved -- and it solves, exactly as it did
-      # before, and the caches below are still there for it. A forgotten publish
-      # costs the old ten minutes; it cannot ship the wrong model.
+      # It used to solve, as a fallback, so that a forgotten publish cost ten
+      # minutes rather than a red build. That fallback was never reached and
+      # could not be: `pnpm test` runs first and compares the documents against
+      # the run that was restored, so a forgotten publish failed the job before
+      # anything could solve its way out of it -- which is exactly how it failed
+      # on the day the corrections came out of the solver. A fallback that
+      # cannot run is not a safety net, it is eight minutes of runner that has
+      # to be reasoned about every time somebody reads this file.
       #
-      # Two stores, because the runs are moving out of the repository and into
-      # a blob container: set the repository variable RUN_STORE to the
-      # container's public URL and this fetches from there, leave it unset and
-      # it reads the branch. The layout is the same in both, and each run's own
-      # entry lists its files, so nothing here has to know what a run contains.
+      # So the rule is now the one that was already true in practice: publish
+      # the run, then push. The step below says so when it is not done.
       - name: Restore the published run
         env:
           # A repository *variable* is where this belongs -- the store's URL is
           # not a secret -- but a secret of the same name is read too, since
-          # that is the other place someone reasonably puts it and an empty
-          # value here is invisible: the deploy simply falls back and looks
-          # merely slow.
+          # that is the other place someone reasonably puts it.
           RUN_STORE: ${{ vars.RUN_STORE || secrets.RUN_STORE }}
         run: |
           set -e
-          # Every way of getting a run is allowed to fail, and each failure
-          # falls through to the next: the store, then the branch, then solving
-          # it here. A store that is unreachable -- a bucket whose policy is
-          # halfway, a distribution still deploying -- should cost the old ten
-          # minutes and not the deploy.
-          restore_from_store() {
-            # --compressed here too: the index is stored gzipped like the rest,
-            # and a JSON parser handed gzip says only that the JSON is bad.
-            curl -fsSL --compressed "$RUN_STORE/runs.json" -o runs.json || return 1
-            id=$(node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).default") || return 1
-            node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).runs.find((r) => r.id === '$id').files.join('\n')" > files.txt || return 1
-            while read -r file; do
-              mkdir -p "public/data/$(dirname "$file")"
-              # --compressed, because a run is stored gzipped: the site serves
-              # these from its own origin as a fallback, and would serve the
-              # packed bytes without the header that says so.
-              curl -fsSL --compressed "$RUN_STORE/runs/$id/$file" -o "public/data/$file" || return 1
-            done < files.txt
-            rm -f runs.json files.txt
-          }
-          restore_from_branch() {
-            git fetch --depth 1 origin runs:refs/remotes/origin/runs || return 1
-            git worktree add --force --detach .stage/store origin/runs || return 1
-            id=$(node -p "JSON.parse(require('fs').readFileSync('.stage/store/runs.json','utf8')).default") || return 1
-            mkdir -p public/data
-            cp -r ".stage/store/runs/$id/." public/data/
-            git worktree remove --force .stage/store
-          }
-          id=
-          if [ -n "$RUN_STORE" ] && restore_from_store; then
-            echo "restored $id from $RUN_STORE"
-          elif restore_from_branch; then
-            echo "restored $id from the runs branch"
-          else
-            echo "no published run could be restored; the build will solve one"
+          if [ -z "$RUN_STORE" ]; then
+            echo "RUN_STORE is not set: it is the public URL of the store runs are"
+            echo "published to. Set it as a repository variable."
+            exit 1
           fi
-          [ -n "$id" ] && du -sh public/data | cut -f1
+          # --compressed throughout: a run is stored gzipped, and a JSON parser
+          # handed gzip says only that the JSON is bad.
+          curl -fsSL --compressed "$RUN_STORE/runs.json" -o runs.json
+          id=$(node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).default")
+          node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).runs.find((r) => r.id === '$id').files.join('\n')" > files.txt
+          while read -r file; do
+            mkdir -p "public/data/$(dirname "$file")"
+            curl -fsSL --compressed "$RUN_STORE/runs/$id/$file" -o "public/data/$file"
+          done < files.txt
+          rm -f runs.json files.txt
+          echo "restored $id from $RUN_STORE ($(du -sh public/data | cut -f1))"
+
+      # And that it is the run this checkout would have produced. `inputs.sha`
+      # is the hash of every input it was solved from, the solver included, so
+      # a solver change that was never published stops here and says which
+      # command to run, rather than deploying a site whose documents describe a
+      # model the viewer is not showing.
+      - run: pnpm check-run
 
       - run: pnpm typecheck
       - run: pnpm test
 
-      # `pnpm build` regenerates the reconstruction from the textures and the
-      # crustal model in the repository before bundling. That is two hundred
-      # one-million-year steps over eighty thousand triangles, eighty relaxation
-      # sweeps each: ten minutes on this runner. Nothing is fetched from the
-      # network.
-      #
-      # It deliberately does *not* rewrite the documents the way `pnpm data`
-      # does. It used to, and that made the check below vacuous: the build
-      # refilled MODEL.md's generated tables from whatever it had just
-      # computed, so the committed numbers were compared against themselves
-      # and a document quoting a different run than the one being deployed
-      # passed every time. It happened -- the whole fold was written up,
-      # committed and shipped while the run on the site was still the collapse,
-      # because the solver's default lived in an environment variable that only
-      # a local shell ever set.
-      - run: pnpm build
+      # Just the app. `pnpm build` is `pnpm data` and then this; `pnpm data` is
+      # the part that solves, and it has no business on a runner.
+      - run: pnpm bundle
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
           # Where the viewer fetches runs from, and what the run picker lists.
-          # Unset, it falls back to the branch that jsDelivr serves; see
-          # vite.config.ts.
+          # Unset, it falls back to the store's default URL; see vite.config.ts.
           RUN_STORE: ${{ vars.RUN_STORE || secrets.RUN_STORE }}
-
-      # Again, now that there is a run to check. Every test that reads
-      # public/data is written as "if the data is there", and on a fresh
-      # checkout it is not -- so the pass above skips exactly the checks that
-      # would catch a bad build: the documents matching the run they quote, the
-      # mesh agreeing with its own header, the fabric raster covering the globe.
-      # It costs five seconds and it is the only place those ever run.
-      - run: pnpm test
 
       - uses: actions/upload-pages-artifact@v3
         with:

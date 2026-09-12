@@ -67,12 +67,21 @@ it is long:
 
 ## Deploying
 
-The reconstruction is **not committed** -- `pnpm build` recomputes it, on a
-reader's machine and in the Pages workflow alike. So anything that only lives
-in an environment variable does not ship. Every setting that is meant to be
-the model belongs in `CONFIG` in `tools/lib/solver.ts` as a default, with the
-variable left as the way to measure the alternative -- and exactly one default
-per knob, which `pnpm test` now refuses to let slip.
+The reconstruction is **not committed**, and it is **not solved by the
+deploy**. A run is solved here, where it can be measured, and published to the
+store with `pnpm publish --label "..."`; the Pages workflow restores that run
+and builds the app around it. So the order is: solve, look at it, publish,
+then push. `pnpm check-run` asks the one question that matters -- is the run in
+`public/data` the run this code would produce -- and the deploy asks it too and
+goes red when the answer is no, which is what a forgotten publish looks like.
+
+Because the run is made here and not there, anything that only lives in an
+environment variable does not ship. Every setting that is meant to be the model
+belongs in `CONFIG` in `tools/lib/solver.ts` as a default, with the variable
+left as the way to measure the alternative -- and exactly one default per knob,
+which `pnpm test` now refuses to let slip. A variable set on the run itself is
+recorded in its metadata and marks it an experiment, `STEP_TRACE` included, so
+a run meant to ship is solved with a clean environment.
 
 Do not push to `main` for every experiment. Push when there is something to
 look at, and say **what** to look at and **at which time on the timeline**. If

@@ -9,7 +9,7 @@ import { blocksIn, fillBlocks, runBlocks } from '../tools/lib/docs'
 import { loadAgeGrid } from '../tools/lib/agegrid'
 import { cellBuckets, coverage, probeCells, probeDirections } from '../tools/lib/coverage'
 import { newContactScratch, separateIslands } from '../tools/lib/contact'
-import { sourceGraph } from '../tools/lib/inputs'
+import { allInputs, hashOf, sourceGraph } from '../tools/lib/inputs'
 import { distortion, shapePairs } from '../tools/lib/shape'
 import {
   conjugateFit, conjugatePairs, faceSnapper, traceFlowLines, vertexSnapper,
@@ -688,6 +688,20 @@ describe('the built dataset', () => {
   // that is exactly how a real one gets explained away too. A run records
   // which environment variables were set; if any were, this stands down and
   // says so.
+  //
+  // It stands down for one more reason, which is about where this runs. A
+  // working copy spends most of its time holding the run from before the change
+  // being worked on, and the documents quote whatever was last measured; those
+  // two disagreeing is the normal state of an afternoon, not a defect, and a
+  // test that fails all afternoon is a test that gets ignored by the evening.
+  //
+  // `inputs.sha` is the hash of everything the run was solved from. If it
+  // disagrees with this checkout then the data is not this code's answer and
+  // the documents were never about it, so there is nothing here to check. What
+  // makes that safe is that it is checked somewhere it cannot be shrugged off:
+  // `pnpm check-run` fails the deploy on the same mismatch, and the publisher
+  // refuses to publish one, so by the time a run is being deployed the stamp
+  // matches and this test has its teeth.
   it.runIf(present)('quotes the run it ships with, in every document', () => {
     const meta = JSON.parse(readFileSync(resolve(data, 'meta.json'), 'utf8')) as Meta
     const overrides = meta.overrides ?? []
@@ -695,6 +709,19 @@ describe('the built dataset', () => {
       console.log(
         `[test] public/data is an experiment (${overrides.join(', ')} set), ` +
           'not the shipped model; not checking the documents against it',
+      )
+      return
+    }
+    const root = resolve(import.meta.dirname, '..')
+    const stamped = existsSync(resolve(data, 'inputs.sha'))
+      ? readFileSync(resolve(data, 'inputs.sha'), 'utf8').trim()
+      : ''
+    const hash = hashOf(root, allInputs(root))
+    if (stamped !== hash) {
+      console.log(
+        `[test] public/data was solved from ${stamped.slice(0, 12) || 'nothing'} and this tree ` +
+          `hashes to ${hash.slice(0, 12)}; it is not this code's run, so the documents ` +
+          'are not checked against it',
       )
       return
     }

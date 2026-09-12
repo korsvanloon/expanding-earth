@@ -14,7 +14,9 @@
     "artifact": "pnpm run build && tsx tools/build-artifact.ts",
     "typecheck": "tsc -b && tsc -p tsconfig.tools.json",
     "test": "vitest run",
-    "docs": "tsx tools/write-docs.ts"
+    "docs": "tsx tools/write-docs.ts",
+    "check-run": "tsx tools/check-run.ts",
+    "publish": "tsx tools/publish-run.ts --to s3"
   },
   "dependencies": {
     "@react-three/drei": "^10.7.6",
