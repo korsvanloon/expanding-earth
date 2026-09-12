@@ -30,67 +30,29 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      # The reconstruction, solved somewhere else.
+      # Just the app.
       #
-      # **Nothing is solved here.** A run is made on the machine where it was
-      # measured and published to a store (tools/publish-run.ts); this restores
-      # it, and the rest of this job is the app being built around it. That is
-      # the whole of the arrangement, and it is why there are no caches left in
-      # this file: there is nothing expensive to cache.
+      # The site is a viewer and nothing else: every reconstruction it shows
+      # lives in the store (tools/publish-run.ts), and it fetches the list of
+      # them at runtime. So nothing is solved here, nothing is restored here,
+      # and publishing a run does not need a deploy -- which is the point, since
+      # a solve is ten minutes on the machine that can measure it and an hour of
+      # nobody's attention on a runner.
       #
-      # It used to solve, as a fallback, so that a forgotten publish cost ten
-      # minutes rather than a red build. That fallback was never reached and
-      # could not be: `pnpm test` runs first and compares the documents against
-      # the run that was restored, so a forgotten publish failed the job before
-      # anything could solve its way out of it -- which is exactly how it failed
-      # on the day the corrections came out of the solver. A fallback that
-      # cannot run is not a safety net, it is eight minutes of runner that has
-      # to be reasoned about every time somebody reads this file.
-      #
-      # So the rule is now the one that was already true in practice: publish
-      # the run, then push. The step below says so when it is not done.
-      - name: Restore the published run
-        env:
-          # A repository *variable* is where this belongs -- the store's URL is
-          # not a secret -- but a secret of the same name is read too, since
-          # that is the other place someone reasonably puts it.
-          RUN_STORE: ${{ vars.RUN_STORE || secrets.RUN_STORE }}
-        run: |
-          set -e
-          if [ -z "$RUN_STORE" ]; then
-            echo "RUN_STORE is not set: it is the public URL of the store runs are"
-            echo "published to. Set it as a repository variable."
-            exit 1
-          fi
-          # --compressed throughout: a run is stored gzipped, and a JSON parser
-          # handed gzip says only that the JSON is bad.
-          curl -fsSL --compressed "$RUN_STORE/runs.json" -o runs.json
-          id=$(node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).default")
-          node -p "JSON.parse(require('fs').readFileSync('runs.json','utf8')).runs.find((r) => r.id === '$id').files.join('\n')" > files.txt
-          while read -r file; do
-            mkdir -p "public/data/$(dirname "$file")"
-            curl -fsSL --compressed "$RUN_STORE/runs/$id/$file" -o "public/data/$file"
-          done < files.txt
-          rm -f runs.json files.txt
-          echo "restored $id from $RUN_STORE ($(du -sh public/data | cut -f1))"
-
-      # And that it is the run this checkout would have produced. `inputs.sha`
-      # is the hash of every input it was solved from, the solver included, so
-      # a solver change that was never published stops here and says which
-      # command to run, rather than deploying a site whose documents describe a
-      # model the viewer is not showing.
-      - run: pnpm check-run
-
+      # Two earlier shapes of this file are worth not going back to. It solved
+      # the run, which cost ten minutes a deploy for an answer that already
+      # existed. Then it restored the published run and checked the documents
+      # against it, which turned a forgotten publish into a red build -- and
+      # that is what it did, twice, on the day the corrections came out of the
+      # solver. The checks that read a run belong where a run is made.
       - run: pnpm typecheck
       - run: pnpm test
 
-      # Just the app. `pnpm build` is `pnpm data` and then this; `pnpm data` is
-      # the part that solves, and it has no business on a runner.
       - run: pnpm bundle
         env:
           BASE_PATH: /${{ github.event.repository.name }}/
-          # Where the viewer fetches runs from, and what the run picker lists.
-          # Unset, it falls back to the store's default URL; see vite.config.ts.
+          # Which store the viewer reads, and what its run picker lists.
+          # Unset, it falls back to the store's own URL; see vite.config.ts.
           RUN_STORE: ${{ vars.RUN_STORE || secrets.RUN_STORE }}
 
       - uses: actions/upload-pages-artifact@v3

@@ -698,10 +698,10 @@ describe('the built dataset', () => {
   // `inputs.sha` is the hash of everything the run was solved from. If it
   // disagrees with this checkout then the data is not this code's answer and
   // the documents were never about it, so there is nothing here to check. What
-  // makes that safe is that it is checked somewhere it cannot be shrugged off:
-  // `pnpm check-run` fails the deploy on the same mismatch, and the publisher
-  // refuses to publish one, so by the time a run is being deployed the stamp
-  // matches and this test has its teeth.
+  // makes that safe is that the publisher refuses the same mismatch outright:
+  // a run cannot reach the store unless its stamp matches the tree it is
+  // published from, so by the time anyone can see a run, this test has already
+  // had its teeth in it.
   it.runIf(present)('quotes the run it ships with, in every document', () => {
     const meta = JSON.parse(readFileSync(resolve(data, 'meta.json'), 'utf8')) as Meta
     const overrides = meta.overrides ?? []

@@ -15,7 +15,6 @@
     "typecheck": "tsc -b && tsc -p tsconfig.tools.json",
     "test": "vitest run",
     "docs": "tsx tools/write-docs.ts",
-    "check-run": "tsx tools/check-run.ts",
     "publish-run": "tsx tools/publish-run.ts --to s3"
   },
   "dependencies": {

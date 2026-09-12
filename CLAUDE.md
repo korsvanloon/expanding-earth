@@ -67,16 +67,23 @@ it is long:
 
 ## Deploying
 
-The reconstruction is **not committed**, and it is **not solved by the
-deploy**. A run is solved here, where it can be measured, and published to the
-store with `pnpm publish-run --label "..."`; the Pages workflow restores that run
-and builds the app around it. So the order is: solve, look at it, publish,
-then push. `pnpm check-run` asks the one question that matters -- is the run in
-`public/data` the run this code would produce -- and the deploy asks it too and
-goes red when the answer is no, which is what a forgotten publish looks like.
+**The site is a viewer and nothing else.** Every reconstruction it shows lives
+in the store; it reads the list of them at runtime, so a run becomes visible the
+moment it is published and no deploy is involved. The deploy builds the React
+app, and that is all it does.
 
-Because the run is made here and not there, anything that only lives in an
-environment variable does not ship. Every setting that is meant to be the model
+So a run and a deploy are two separate things:
+
+- **A run**: solve it here, where it can be measured, then
+  `pnpm publish-run --label "..."`. It is the default the viewer opens with
+  unless `--default no` says otherwise, which is how a run goes up to be looked
+  at without becoming the model. The publisher refuses to publish a run whose
+  stamp does not match this tree, so what is in the store is always some
+  checkout's real answer.
+- **A deploy**: push to `main`. Only worth doing when the app changed.
+
+Because the run is made here and not on a runner, anything that only lives in
+an environment variable does not ship. Every setting that is meant to be the model
 belongs in `CONFIG` in `tools/lib/solver.ts` as a default, with the variable
 left as the way to measure the alternative -- and exactly one default per knob,
 which `pnpm test` now refuses to let slip. A variable set on the run itself is
