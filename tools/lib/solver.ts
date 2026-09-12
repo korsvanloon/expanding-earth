@@ -209,7 +209,8 @@ export const KNOBS = [
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
-  'AREA_STRENGTH', 'JACOBI', 'JACOBI_RELAX', 'RELAX_WEIGHT',
+  'AREA_STRENGTH', 'JACOBI', 'JACOBI_RELAX', 'PLATE_RIDE', 'PLATE_RIDE_RINGS',
+  'RELAX_WEIGHT',
   'SEAM_MERGE',
   'SHORE_SHARE',
   'SHUT_RINGS', 'SHUT_SLACK', 'SHUT_WELD', 'SHUT_WELD_ROUNDS', 'SMALLEST_PLATE',
@@ -415,6 +416,21 @@ function readConfig() {
    * thing in this model that asks area to travel further than a triangle.
    */
   pressureWeight: Number(ENV.RELAX_WEIGHT ?? 1),
+  /**
+   * How much of a neighbour's motion a piece of attached crust takes, per pass.
+   *
+   * `PLATE_RIDE=0` is the model as it was, where only sea floor erupting now
+   * moved and a continent moved only by being dragged.
+   */
+  plateRide: Number(ENV.PLATE_RIDE ?? 0.8),
+  /**
+   * How far the motion is handed on, in rings of the mesh.
+   *
+   * A ring is about 130 km today, so sixty of them reach across a continent.
+   * Short of that the interior of a plate does not hear that its margin has
+   * moved, which is the failure this is for.
+   */
+  plateRideRounds: Number(ENV.PLATE_RIDE_RINGS ?? 60),
   sweepJacobi: Number(ENV.JACOBI ?? 1),
   /**
    * How much further than the average each point goes, to make up for it.
@@ -1601,6 +1617,8 @@ export function solve(): void {
    * ocean beside it has closed and there is nothing left to read.
    */
   const drift = new Float64Array(vertexCount * 3)
+  const plateRiders = new Uint8Array(vertexCount)
+  const plateNext = new Uint8Array(vertexCount)
 
   const { stretch, riftMa } = unstretching(
     thickness, faceAges, rigidity, faceCount, indices, crustType,
@@ -2540,7 +2558,9 @@ export function solve(): void {
     markIslands()
 
     if (tracing) trace.push(`collapse ${stretchNow(t).toFixed(3)}`)
-    const driven = driveByField(pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa)
+    const driven = driveByField(
+      pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa, adjacency, plateRiders, plateNext,
+    )
     if (ENV.STEP_TRACE) {
       console.log(
         `[drive] ${t} Ma  ${driven.read} points read the field, ${driven.carried} still carry `
@@ -4209,8 +4229,14 @@ function driveByField(
   vertexAge: Float32Array,
   t: number,
   dt: number,
+  adjacency: { offsets: Uint32Array; neighbours: Uint32Array },
+  /** Who has a drift to hand on, and who took one this pass; reused. */
+  readers: Uint8Array,
+  next: Uint8Array,
 ) {
   const memory = CONFIG.poleMemory
+  readers.fill(0)
+  next.fill(0)
   let read = 0
   let carried = 0
   let moved = 0
@@ -4233,10 +4259,68 @@ function driveByField(
       drift[i + 1] *= memory
       drift[i + 2] *= memory
     }
+    if (reading) read++
+    if (reading) readers[v] = 1
+  }
+
+  /**
+   * And the crust attached to it goes along, which is what a plate is.
+   *
+   * Counted before this existed: the field reaches about 2,600 of 40,000 live
+   * points, always the same narrow band of sea floor erupting within
+   * `flowWindowMa` of now, and never a continent -- the gate opens with
+   * `age < PERMANENT_MA` and continental crust is given a billion years. So
+   * nothing in the model drove a continent anywhere. They moved only by being
+   * dragged when the ocean between them closed, and Eurasia, ringed by the one
+   * latitude band where barely a fifth of the crust is younger than 180 Ma,
+   * travelled two degrees in 180 million years.
+   *
+   * The missing line is the one plate tectonics starts from: crust that is
+   * attached to moving crust moves with it. A point that read nothing takes
+   * the mean drift of its neighbours that have some, passed outwards over the
+   * mesh's own connectivity -- so a margin takes the motion of the sea floor
+   * welded to it, and the interior takes the margin's.
+   *
+   * It is the same reading either way: the drift being handed on is the
+   * gradient of the Muller 2019 age grid and nothing else. What is new is who
+   * receives it, not where it comes from.
+   *
+   * The known risk is a trench. Connectivity says South America is attached to
+   * the Pacific floor being subducted beneath it, and it is not -- that is a
+   * plate boundary, and this cannot see one. Watch South America's walk and
+   * its paleolatitude for it.
+   */
+  if (CONFIG.plateRide > 0) {
+    for (let pass = 0; pass < CONFIG.plateRideRounds; pass++) {
+      let spread = 0
+      for (let v = 0; v < mesh.vertexCount; v++) {
+        if (!mesh.vertexAlive[v] || readers[v]) continue
+        let x = 0, y = 0, z = 0, n = 0
+        for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+          const w = adjacency.neighbours[k]
+          if (!readers[w] || !mesh.vertexAlive[w]) continue
+          x += drift[w * 3]; y += drift[w * 3 + 1]; z += drift[w * 3 + 2]
+          n++
+        }
+        if (!n) continue
+        const i = v * 3
+        drift[i] += CONFIG.plateRide * (x / n - drift[i])
+        drift[i + 1] += CONFIG.plateRide * (y / n - drift[i + 1])
+        drift[i + 2] += CONFIG.plateRide * (z / n - drift[i + 2])
+        next[v] = 1
+        spread++
+      }
+      if (!spread) break
+      for (let v = 0; v < mesh.vertexCount; v++) if (next[v]) { readers[v] = 1; next[v] = 0 }
+    }
+  }
+
+  for (let v = 0; v < mesh.vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    const i = v * 3
     pos[i] += drift[i]
     pos[i + 1] += drift[i + 1]
     pos[i + 2] += drift[i + 2]
-    if (reading) read++
     const far = length3(drift[i], drift[i + 1], drift[i + 2])
     if (far > 1e-6) { carried++; moved += far }
   }
