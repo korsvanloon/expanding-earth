@@ -2595,6 +2595,38 @@ export function solve(): void {
       if (CONFIG.seamHold > 0 && seams.a.length) holdSeams(pos, seams, CONFIG.seamHold)
     }
 
+    /**
+     * How far apart the welded pairs actually are, in kilometres on the shell.
+     *
+     * A weld is meant to make two points one, and everything downstream of the
+     * seam search assumes it did. This asks instead of assuming, at whichever
+     * point in the step it is called: directions rather than positions, since
+     * two welded rims may hang at different depths under the fold and it is the
+     * direction that decides what covers the sphere.
+     */
+    const seamGapKm = () => {
+      if (!seams.a.length) return null
+      const gaps = new Float64Array(seams.a.length)
+      for (let k = 0; k < seams.a.length; k++) {
+        const i = seams.a[k] * 3
+        const j = seams.b[k] * 3
+        const la = Math.sqrt(pos[i] ** 2 + pos[i + 1] ** 2 + pos[i + 2] ** 2) || 1
+        const lb = Math.sqrt(pos[j] ** 2 + pos[j + 1] ** 2 + pos[j + 2] ** 2) || 1
+        const dot = (pos[i] * pos[j] + pos[i + 1] * pos[j + 1] + pos[i + 2] * pos[j + 2])
+          / (la * lb)
+        gaps[k] = Math.acos(Math.max(-1, Math.min(1, dot))) * rNext
+      }
+      gaps.sort()
+      const q = (f: number) => gaps[Math.min(gaps.length - 1, Math.floor(f * gaps.length))]
+      return `${gaps.length} stitches, median ${q(0.5).toFixed(1)} km, `
+        + `p90 ${q(0.9).toFixed(1)}, worst ${gaps[gaps.length - 1].toFixed(1)}`
+    }
+    const sayGap = (where: string) => {
+      if (!ENV.STEP_TRACE) return
+      const said = seamGapKm()
+      if (said) console.log(`[weld] ${t} Ma ${where.padEnd(14)} ${said}`)
+    }
+
     if (CONFIG.seamHold > 0) {
       const added = clock('seams', () => findSeams(
         seams, pos, shell, faceCount, vertexCount, seamVertex, mesh.vertexAlive,
@@ -2609,6 +2641,7 @@ export function solve(): void {
     }
 
     asOne()
+    sayGap('welded')
 
     const sweepsAt = Date.now()
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
@@ -2781,6 +2814,7 @@ export function solve(): void {
       }
     }
     spent.sweeps += Date.now() - sweepsAt
+    sayGap('after sweeps')
     /*
      * The relaxing sweeps, after the rest and not among them.
      *
@@ -2826,6 +2860,7 @@ export function solve(): void {
     removeNetRotation(pos, previous, vertexCount, shrink)
     settleCollapsed()
     followRegions(rNext)
+    sayGap('end of step')
 
     if (CONFIG.stepReport) {
       // Against the rest area the step itself used, not a freshly computed one:
