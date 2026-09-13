@@ -1881,6 +1881,39 @@ export function solve(): void {
     const length = length3(x, y, z) || 1
     return [x / length, y / length, z / length]
   }
+  /**
+   * Where each continent is, and which way it is being pushed.
+   *
+   * The endpoints alone could not tell two very different failures apart: a
+   * continent driven the wrong way, and a continent nothing is driving at all.
+   * Australia ends eight degrees south of where it starts when it should be
+   * heading north into the Pacific, and Antarctica moves three degrees in a
+   * hundred and eighty million years -- one of those is a push in the wrong
+   * direction and the other is no push, and this says which.
+   */
+  const sayRegionDrift = (t: number, drift: Float64Array) => {
+    const rows = REGIONS.map((region) => {
+      const verts = regionVertices.get(region.id) ?? []
+      let north = 0
+      let n = 0
+      let y = 0
+      for (const v of verts) {
+        const s = mesh.survivor(v)
+        if (!mesh.vertexAlive[s]) continue
+        const i = s * 3
+        north += northward(pos, i, drift[i], drift[i + 1], drift[i + 2])
+        const l = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+        y += pos[i + 1] / l
+        n++
+      }
+      if (!n) return `${region.id} gone`
+      const lat = (Math.asin(Math.max(-1, Math.min(1, y / n))) * 180) / Math.PI
+      return `${region.id} ${lat.toFixed(0)}\u00b0 ${(north / n >= 0 ? '+' : '')}`
+        + `${(north / n).toFixed(2)}`
+    })
+    console.log(`[push] ${t} Ma  ${rows.join('  ')}`)
+  }
+
   const followRegions = (radiusKm: number) => {
     for (const region of REGIONS) {
       const centre = regionCentre(region.id)
@@ -2572,6 +2605,7 @@ export function solve(): void {
       pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa, adjacency, plateRiders, plateNext,
       plateDriftAge,
     )
+    if (ENV.STEP_TRACE && t % 20 === 0) sayRegionDrift(t, drift)
     if (ENV.STEP_TRACE) {
       console.log(
         `[drive] ${t} Ma  ${driven.read} read the field, ${driven.carried} carry drift, `
