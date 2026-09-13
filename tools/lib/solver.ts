@@ -210,7 +210,7 @@ export const KNOBS = [
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
   'AREA_STRENGTH', 'CLOSE_PULL', 'CLOSE_REACH',
-  'JACOBI', 'JACOBI_RELAX', 'PLATE_RIDE', 'PLATE_RIDE_AGE', 'PLATE_RIDE_RINGS',
+  'JACOBI', 'JACOBI_RELAX', 'PLATE_RIDE', 'PLATE_RIDE_RINGS',
   'RELAX_WEIGHT',
   'SEAM_MERGE',
   'SHORE_SHARE',
@@ -424,15 +424,6 @@ function readConfig() {
    * moved and a continent moved only by being dragged.
    */
   plateRide: Number(ENV.PLATE_RIDE ?? 0.8),
-  /**
-   * How sharply the hand-off prefers motion that came from older crust.
-   *
-   * Nought weights every neighbour alike, which is what dragged Africa south
-   * across a trench it is not attached to. One weights by the age itself. The
-   * number is an exponent on the age, so between the two is a softer version of
-   * the same preference.
-   */
-  plateRideAge: Number(ENV.PLATE_RIDE_AGE ?? 1),
   /**
    * How far the motion is handed on, in rings of the mesh.
    *
@@ -1653,7 +1644,6 @@ export function solve(): void {
   const drift = new Float64Array(vertexCount * 3)
   const plateRiders = new Uint8Array(vertexCount)
   const plateNext = new Uint8Array(vertexCount)
-  const plateDriftAge = new Float64Array(vertexCount)
   /** The crust shortfall field and its two working arrays; see `crustDeficit`. */
   const deficitHave = new Float64Array(vertexCount)
   const deficit = new Float64Array(vertexCount)
@@ -2639,7 +2629,6 @@ export function solve(): void {
     if (tracing) trace.push(`collapse ${stretchNow(t).toFixed(3)}`)
     const driven = driveByField(
       pos, mesh, flow, drift, vertexAge, t, CONFIG.stepMa, adjacency, plateRiders, plateNext,
-      plateDriftAge,
     )
     if (ENV.STEP_TRACE && t % 20 === 0) sayRegionDrift(t, drift)
     if (ENV.STEP_TRACE) {
@@ -4344,8 +4333,6 @@ function driveByField(
   /** Who has a drift to hand on, and who took one this pass; reused. */
   readers: Uint8Array,
   next: Uint8Array,
-  /** How old the crust each point's motion came from is; see the hand-off. */
-  driftAge: Float64Array,
 ) {
   const memory = CONFIG.poleMemory
   readers.fill(0)
@@ -4409,57 +4396,35 @@ function driveByField(
    * the Pacific floor being subducted beneath it, and it is not -- that is a
    * plate boundary, and this cannot see one. Watch South America's walk and
    * its paleolatitude for it.
+   *
+   * That risk was answered for a day by preferring the motion of older crust,
+   * on the reasoning that the ocean at a trench is young and the ocean at a
+   * passive margin is old. It measured well -- the Indian Ocean's external
+   * pairs went from 3,381 km to 127 -- and it is gone anyway, because the
+   * reasoning is not this model's. RESEARCH-FINDINGS.md, Q10: no Expanding
+   * Earth account quantifies descending lithosphere at all, and every author
+   * read treats the Pacific margins as extensional. There is no trench here to
+   * protect against, so the rule was a plate-tectonic assumption smuggled into
+   * a model that rejects it -- and around Australia it suppressed exactly the
+   * pull towards the Pacific that the same research says belongs there.
    */
   if (CONFIG.plateRide > 0) {
-    for (let v = 0; v < mesh.vertexCount; v++) {
-      driftAge[v] = readers[v] ? vertexAge[v] : -1
-    }
     for (let pass = 0; pass < CONFIG.plateRideRounds; pass++) {
       let spread = 0
       for (let v = 0; v < mesh.vertexCount; v++) {
         if (!mesh.vertexAlive[v] || readers[v]) continue
-        let x = 0, y = 0, z = 0, weight = 0, oldest = -1
+        let x = 0, y = 0, z = 0, weight = 0
         for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
           const w = adjacency.neighbours[k]
           if (!readers[w] || !mesh.vertexAlive[w]) continue
-          /*
-           * Weighted by how old the crust the motion came from is.
-           *
-           * The first attempt handed drift across every edge of the mesh and
-           * moved the continents -- India 27 degrees to 37, its paleolatitude
-           * at 170 Ma from 18.8 degrees out to 8.6, craton strain halved --
-           * and broke the Atlantic: North America and South America against
-           * Africa both three times worse, Johannesburg from 1.9 degrees out
-           * to 13.3, and the south pole squeezed for the first time. Africa was
-           * being dragged south by crust it is not attached to. Connectivity
-           * says South America touches the Pacific floor subducting beneath it,
-           * and a mesh cannot see a trench.
-           *
-           * The age grid can, indirectly, and it is the same Muller grid this
-           * already reads. The ocean against a passive margin is the *oldest*
-           * in its basin: it is the crust that formed when the continent
-           * rifted, so it is the crust the continent is actually attached to.
-           * The ocean at a trench is young -- the old floor is gone down it.
-           * So a margin takes its motion from its oldest living neighbour
-           * rather than the average of everything it touches, and the trench
-           * side, being young, barely counts.
-           *
-           * It also expires by itself: at a time deeper than the age of the
-           * subducting floor that floor is not in the mesh at all, having been
-           * removed as crust that did not exist yet.
-           */
-          const age = Math.max(1, Math.min(driftAge[w], PERMANENT_MA - 1))
-          const by = age ** CONFIG.plateRideAge
-          x += drift[w * 3] * by; y += drift[w * 3 + 1] * by; z += drift[w * 3 + 2] * by
-          weight += by
-          if (driftAge[w] > oldest) oldest = driftAge[w]
+          x += drift[w * 3]; y += drift[w * 3 + 1]; z += drift[w * 3 + 2]
+          weight++
         }
         if (weight <= 0) continue
         const i = v * 3
         drift[i] += CONFIG.plateRide * (x / weight - drift[i])
         drift[i + 1] += CONFIG.plateRide * (y / weight - drift[i + 1])
         drift[i + 2] += CONFIG.plateRide * (z / weight - drift[i + 2])
-        driftAge[v] = oldest
         next[v] = 1
         spread++
       }

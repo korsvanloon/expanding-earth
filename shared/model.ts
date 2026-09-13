@@ -605,13 +605,29 @@ export const FIT_TARGETS: FitTarget[] = [
     a: 'antarctica', b: 'africa', joinedByMa: 170,
     note: 'East Antarctica against Mozambique and Tanzania, before the Mozambique Basin opened',
   },
-  // Watched, not scored. Where Antarctica and Australia end up as the Pacific
-  // shuts is the open question in this reconstruction, and hand-assembled
-  // Expanding Earth maps put them somewhere the evidence cannot confirm.
   {
-    a: 'antarctica', b: 'south-america', joinedByMa: 0,
-    note: 'Watched: does Antarctica swing up the west side of South America, or stay on the pole?',
+    /*
+     * The Weddell side of this pair has a date, and it was being watched rather
+     * than scored as though it did not.
+     *
+     * Where Antarctica ends up as the Pacific shuts is genuinely open, and
+     * hand-assembled Expanding Earth maps put it somewhere the evidence cannot
+     * confirm -- that was the reason for watching. But the Antarctic margin
+     * against the Falkland Plateau is not that question: sea-floor spreading
+     * was established in the Weddell Sea around 140 Ma and the oldest crust
+     * there reads about 147, so 150 is the last joined instant. Koenig & Jokat
+     * 2006, JGR 111, B12102.
+     *
+     * What stays watched is Australia against North America, where the same
+     * research pass found no author willing to state a distance.
+     */
+    a: 'antarctica', b: 'south-america', joinedByMa: 150,
+    note: 'Antarctica against the Falkland Plateau, before the Weddell Sea opened',
   },
+  // Watched, not scored. How far across the Pacific Australia comes is the
+  // open question in this reconstruction, and the reconstructions that answer
+  // it are hand-assembled: Barnett, Broesske, Maxlow and Scalera all put
+  // eastern Australia against the Americas, none of them in kilometres.
   {
     a: 'australia', b: 'north-america', joinedByMa: 0,
     note: 'Watched: how far across the Pacific does Australia come?',
