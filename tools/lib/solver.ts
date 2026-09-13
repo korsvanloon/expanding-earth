@@ -1895,6 +1895,7 @@ export function solve(): void {
     const rows = REGIONS.map((region) => {
       const verts = regionVertices.get(region.id) ?? []
       let north = 0
+      let east = 0
       let n = 0
       let y = 0
       for (const v of verts) {
@@ -1902,14 +1903,20 @@ export function solve(): void {
         if (!mesh.vertexAlive[s]) continue
         const i = s * 3
         north += northward(pos, i, drift[i], drift[i + 1], drift[i + 2])
+        east += eastward(pos, i, drift[i], drift[i + 2])
         const l = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
         y += pos[i + 1] / l
         n++
       }
       if (!n) return `${region.id} gone`
       const lat = (Math.asin(Math.max(-1, Math.min(1, y / n))) * 180) / Math.PI
-      return `${region.id} ${lat.toFixed(0)}\u00b0 ${(north / n >= 0 ? '+' : '')}`
-        + `${(north / n).toFixed(2)}`
+      const nk = north / n
+      const ek = east / n
+      // As a compass bearing and a distance, which is how a plate motion is
+      // read: 0 is due north, 90 due east.
+      const bearing = ((Math.atan2(ek, nk) * 180) / Math.PI + 360) % 360
+      return `${region.id} ${lat.toFixed(0)}\u00b0 `
+        + `${bearing.toFixed(0)}\u00b0/${length3(nk, ek, 0).toFixed(2)}km`
     })
     console.log(`[push] ${t} Ma  ${rows.join('  ')}`)
   }
@@ -4445,6 +4452,25 @@ function northward(pos: Float64Array, i: number, dx: number, dy: number, dz: num
   if (nl < 1e-9) return 0
   nx /= nl; ny /= nl; nz /= nl
   return dx * nx + dy * ny + dz * nz
+}
+
+/**
+ * And how far east, so that a push can be reported as a direction.
+ *
+ * A north component alone could not tell whether Australia is being pushed
+ * towards the Pacific and losing to a stronger southward pull, or whether
+ * there is nothing pulling it east at all. East is the pole crossed with the
+ * point, which is the usual convention and degenerate only at the poles.
+ */
+function eastward(pos: Float64Array, i: number, dx: number, dz: number) {
+  const l = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+  const ux = pos[i] / l, uz = pos[i + 2] / l
+  // The pole (0,1,0) crossed with the point, normalised.
+  let ex = uz, ey = 0, ez = -ux
+  const el = length3(ex, ey, ez)
+  if (el < 1e-9) return 0
+  ex /= el; ez /= el
+  return dx * ex + dz * ez
 }
 
 
