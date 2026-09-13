@@ -2574,8 +2574,10 @@ export function solve(): void {
     )
     if (ENV.STEP_TRACE) {
       console.log(
-        `[drive] ${t} Ma  ${driven.read} points read the field, ${driven.carried} still carry `
-        + `drift, mean ${driven.moved.toFixed(2)} km, of ${driven.live} live`,
+        `[drive] ${t} Ma  ${driven.read} read the field, ${driven.carried} carry drift, `
+        + `mean ${driven.moved.toFixed(2)} km, of ${driven.live} live; `
+        + `northward: field ${driven.fieldNorth.toFixed(3)} km, drift `
+        + `${driven.driftNorth.toFixed(3)} km`,
       )
     }
     if (tracing) trace.push(`drive ${stretchNow(t).toFixed(3)}`)
@@ -4250,6 +4252,9 @@ function driveByField(
   const memory = CONFIG.poleMemory
   readers.fill(0)
   next.fill(0)
+  let fieldNorth = 0
+  let fieldCount = 0
+  let driftNorth = 0
   let read = 0
   let carried = 0
   let moved = 0
@@ -4273,7 +4278,11 @@ function driveByField(
       drift[i + 2] *= memory
     }
     if (reading) read++
-    if (reading) readers[v] = 1
+    if (reading) {
+      readers[v] = 1
+      fieldNorth += northward(pos, i, flow[i] * dt, flow[i + 1] * dt, flow[i + 2] * dt)
+      fieldCount++
+    }
   }
 
   /**
@@ -4368,11 +4377,40 @@ function driveByField(
     pos[i + 1] += drift[i + 1]
     pos[i + 2] += drift[i + 2]
     const far = length3(drift[i], drift[i + 1], drift[i + 2])
-    if (far > 1e-6) { carried++; moved += far }
+    if (far > 1e-6) {
+      carried++
+      moved += far
+      driftNorth += northward(pos, i, drift[i], drift[i + 1], drift[i + 2])
+    }
   }
   // How much of the shell this pass actually touches, which is worth a line
   // because it was assumed twice and never counted. See PERMANENT_MA below.
-  return { read, carried, moved: moved / Math.max(1, carried), live }
+  return {
+    read, carried, moved: moved / Math.max(1, carried), live,
+    fieldNorth: fieldNorth / Math.max(1, fieldCount),
+    driftNorth: driftNorth / Math.max(1, carried),
+  }
+}
+
+/**
+ * How far north a move carries a point, in the same units as the move.
+ *
+ * The component of the displacement along the local north -- the pole
+ * direction with the radial part taken out -- so that a run can be asked
+ * whether its motion has a net drift towards one pole. Going backwards most
+ * continents should travel south, and Australia and Antarctica north into the
+ * Pacific, so a single number for the whole shell says whether there is a bias
+ * on top of that rather than whether any one continent is right.
+ */
+function northward(pos: Float64Array, i: number, dx: number, dy: number, dz: number) {
+  const l = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
+  const ux = pos[i] / l, uy = pos[i + 1] / l, uz = pos[i + 2] / l
+  // North at this point: the pole direction, minus whatever of it is radial.
+  let nx = -uy * ux, ny = 1 - uy * uy, nz = -uy * uz
+  const nl = length3(nx, ny, nz)
+  if (nl < 1e-9) return 0
+  nx /= nl; ny /= nl; nz /= nl
+  return dx * nx + dy * ny + dz * nz
 }
 
 
