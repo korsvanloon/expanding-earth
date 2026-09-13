@@ -209,7 +209,8 @@ export const KNOBS = [
   'HANG_KM', 'HOLD_STRENGTH', 'ISLAND_HOLD', 'LAND_MARGIN', 'LIP_KM',
   'MAX_RATE', 'OCEAN_K', 'PAIR_K', 'PLATE_TOL', 'POLE_MEMORY', 'RADIAL_K',
   'RELAX_FLAT', 'RELAX_K', 'RELAX_OVER_SKY', 'RELAX_ROUNDS', 'SEAM_K', 'SEAM_KM',
-  'AREA_STRENGTH', 'JACOBI', 'JACOBI_RELAX', 'PLATE_RIDE', 'PLATE_RIDE_AGE', 'PLATE_RIDE_RINGS',
+  'AREA_STRENGTH', 'CLOSE_PULL', 'CLOSE_REACH',
+  'JACOBI', 'JACOBI_RELAX', 'PLATE_RIDE', 'PLATE_RIDE_AGE', 'PLATE_RIDE_RINGS',
   'RELAX_WEIGHT',
   'SEAM_MERGE',
   'SHORE_SHARE',
@@ -440,6 +441,30 @@ function readConfig() {
    * moved, which is the failure this is for.
    */
   plateRideRounds: Number(ENV.PLATE_RIDE_RINGS ?? 60),
+  /**
+   * How hard crust is drawn towards the room that has opened beside it.
+   *
+   * The one force that can answer an uneven closure: see `crustDeficit`. Nought
+   * is the model without it, where the only thing pulling a continent anywhere
+   * was its own margin.
+   *
+   * Nought is also the default, because at 0.05 it did not do what it is for.
+   * The latitude dipole it was built to close went from -7.5% to -6.2% at
+   * 45 north, which is nothing, while it swapped one ocean for another: South
+   * America against Africa 3,524 km to 741, and the Indian Ocean's external
+   * pairs 127 km to 3,834. A force that moves crust three thousand kilometres
+   * and leaves the imbalance where it was has not been shown to belong in the
+   * model, whatever else it does.
+   */
+  closingPull: Number(ENV.CLOSE_PULL ?? 0),
+  /**
+   * How far the shortfall is smoothed before it is felt, in rings.
+   *
+   * A ring is about 130 km, so this is what decides whether a hole in the
+   * Pacific is felt in Australia at all. Cheap -- it is one scalar over the
+   * points, once a step, not once a sweep.
+   */
+  closingReach: Number(ENV.CLOSE_REACH ?? 40),
   sweepJacobi: Number(ENV.JACOBI ?? 1),
   /**
    * How much further than the average each point goes, to make up for it.
@@ -1629,6 +1654,10 @@ export function solve(): void {
   const plateRiders = new Uint8Array(vertexCount)
   const plateNext = new Uint8Array(vertexCount)
   const plateDriftAge = new Float64Array(vertexCount)
+  /** The crust shortfall field and its two working arrays; see `crustDeficit`. */
+  const deficitHave = new Float64Array(vertexCount)
+  const deficit = new Float64Array(vertexCount)
+  const deficitSmooth = new Float64Array(vertexCount)
 
   const { stretch, riftMa } = unstretching(
     thickness, faceAges, rigidity, faceCount, indices, crustType,
@@ -2921,6 +2950,27 @@ export function solve(): void {
     asOne()
     sayGap('welded')
 
+    // Where the sphere has room and no crust over it, once for the step: the
+    // field is smooth and planetary and does not change while the sweeps run.
+    if (CONFIG.closingPull > 0) {
+      crustDeficit(
+        pos, mesh, crustAlive, restAreaNow, faceCount, vertexCount, rNext, adjacency,
+        CONFIG.closingReach, deficitHave, deficit, deficitSmooth,
+      )
+      if (ENV.STEP_TRACE) {
+        let lo = Infinity, hi = -Infinity
+        for (let v = 0; v < vertexCount; v++) {
+          if (!mesh.vertexAlive[v]) continue
+          if (deficit[v] < lo) lo = deficit[v]
+          if (deficit[v] > hi) hi = deficit[v]
+        }
+        console.log(
+          `[room] ${t} Ma  shortfall from ${(lo / 1e3).toFixed(1)} to `
+          + `${(hi / 1e3).toFixed(1)} thousand km2 a point`,
+        )
+      }
+    }
+
     const sweepsAt = Date.now()
     for (let sweep = 0; sweep < CONFIG.sweeps; sweep++) {
       const forward = sweep % 2 === 0
@@ -3058,6 +3108,13 @@ export function solve(): void {
           CONFIG.shutSlack, CONFIG.shutRings,
           jacobi ? pushSum : undefined, jacobi ? pushCount : undefined,
           CONFIG.areaByStrength ? stretchResist : undefined,
+        )
+      }
+      if (jacobi && CONFIG.closingPull > 0) {
+        pullToDeficit(
+          pos, mesh, vertexCount, adjacency, deficit, CONFIG.closingPull,
+          4 * Math.PI * rNext * rNext / Math.max(1, mesh.liveVertices),
+          pushSum, pushCount,
         )
       }
       // Area moves from the squeezed triangle to the stretched one, as one more
@@ -4443,6 +4500,114 @@ function driveByField(
  * Pacific, so a single number for the whole shell says whether there is a bias
  * on top of that rather than whether any one continent is right.
  */
+/**
+ * Where the sphere has more room than there is crust to cover it.
+ *
+ * The radius curve is set so that the crust alive at t covers the sphere at t,
+ * and it does -- in total. It is not spread that way: going back to 180 Ma,
+ * three quarters of the surface south of 15 degrees is removed as crust that
+ * had not erupted yet, against barely a fifth north of 45. The sphere shrinks
+ * by the same factor everywhere, so the north ends up with about twice as much
+ * crust as it has room for and the south with two thirds of what it needs. A
+ * shell cannot answer that by shrinking harder in one place. The only answer
+ * is crust moving from where there is too much to where there is too little,
+ * which is what a plate does and what nothing in this model was asking for.
+ *
+ * So: for each live point, how much sphere belongs to it against how much
+ * crust it is a corner of, both as area. Positive means room with nothing over
+ * it. The field is then smoothed, which is what gives it range -- a shortfall
+ * in the Pacific has to be felt in Australia, and one ring of neighbours
+ * reaches 130 km.
+ */
+function crustDeficit(
+  pos: Float64Array,
+  mesh: DynamicMesh,
+  alive: Uint8Array,
+  restAreaNow: Float64Array,
+  faceCount: number,
+  vertexCount: number,
+  r: number,
+  adjacency: { offsets: Uint32Array; neighbours: Uint32Array },
+  rounds: number,
+  have: Float64Array,
+  want: Float64Array,
+  smoothed: Float64Array,
+) {
+  have.fill(0)
+  want.fill(0)
+  for (let f = 0; f < faceCount; f++) {
+    if (!alive[f]) continue
+    const a = mesh.faceVerts[f * 3], b = mesh.faceVerts[f * 3 + 1], c = mesh.faceVerts[f * 3 + 2]
+    const third = restAreaNow[f] / 3
+    have[a] += third; have[b] += third; have[c] += third
+    // What the triangle covers of the sphere now, which is the room it holds.
+    const held = solidAngle(pos, a * 3, b * 3, c * 3) * r * r / 3
+    want[a] += held; want[b] += held; want[c] += held
+  }
+  for (let v = 0; v < vertexCount; v++) {
+    want[v] = mesh.vertexAlive[v] ? want[v] - have[v] : 0
+  }
+  // Smoothed over the mesh, because the shortfall is planetary and the force
+  // has to be too. Nothing here is a correction to an answer; it is a field the
+  // sweep then feels, once a step.
+  for (let round = 0; round < rounds; round++) {
+    for (let v = 0; v < vertexCount; v++) {
+      if (!mesh.vertexAlive[v]) { smoothed[v] = 0; continue }
+      let sum = want[v]
+      let n = 1
+      for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+        const w = adjacency.neighbours[k]
+        if (!mesh.vertexAlive[w]) continue
+        sum += want[w]
+        n++
+      }
+      smoothed[v] = sum / n
+    }
+    want.set(smoothed)
+  }
+}
+
+/**
+ * And pull the crust down that field, towards the room that has opened.
+ *
+ * One term per edge, so it is the gradient of the deficit read on the mesh
+ * itself: a point is drawn towards whichever neighbour has more room over it
+ * than crust. It goes into the same accumulator as everything else and is
+ * averaged with it, since unlike the pressure exchange it is not asked to
+ * carry area across a hemisphere on its own -- the smoothing above has already
+ * given it the range, and what is left here is local.
+ */
+function pullToDeficit(
+  pos: Float64Array,
+  mesh: DynamicMesh,
+  vertexCount: number,
+  adjacency: { offsets: Uint32Array; neighbours: Uint32Array },
+  deficit: Float64Array,
+  strength: number,
+  scale: number,
+  push: Float64Array,
+  pushes: Float64Array,
+) {
+  for (let v = 0; v < vertexCount; v++) {
+    if (!mesh.vertexAlive[v]) continue
+    const i = v * 3
+    let x = 0, y = 0, z = 0
+    for (let k = adjacency.offsets[v]; k < adjacency.offsets[v + 1]; k++) {
+      const w = adjacency.neighbours[k]
+      if (!mesh.vertexAlive[w]) continue
+      const j = w * 3
+      const by = (deficit[w] - deficit[v]) / scale
+      x += by * (pos[j] - pos[i])
+      y += by * (pos[j + 1] - pos[i + 1])
+      z += by * (pos[j + 2] - pos[i + 2])
+    }
+    push[i] += strength * x
+    push[i + 1] += strength * y
+    push[i + 2] += strength * z
+    pushes[v]++
+  }
+}
+
 function northward(pos: Float64Array, i: number, dx: number, dy: number, dz: number) {
   const l = length3(pos[i], pos[i + 1], pos[i + 2]) || 1
   const ux = pos[i] / l, uy = pos[i + 1] / l, uz = pos[i + 2] / l
