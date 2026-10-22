@@ -58,6 +58,7 @@
     touch-action: none; cursor: grab; user-select: none;
   }
   .stage:active { cursor: grabbing; }
+  .stage.over-piece { cursor: move; }
   .stage canvas, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .stage svg { pointer-events: none; overflow: visible; }
   .tip {
@@ -114,6 +115,16 @@
   .join .who { font-family: var(--display); font-weight: 600; letter-spacing: .02em; font-size: 14px; }
   .join .km { font: 12px var(--data); color: var(--muted); text-align: right; }
   .join .why { grid-column: 1 / -1; color: var(--muted); }
+  .join.moved .km { color: var(--ink); }
+  .edit { display: grid; gap: 10px; padding: 12px; background: var(--surface); border: 1px solid var(--rule); border-radius: 4px; }
+  .edit .name { font: 600 20px/1.1 var(--display); letter-spacing: .02em; }
+  .edit .name small { font: 500 13px var(--data); color: var(--muted); margin-left: 6px; letter-spacing: 0; }
+  .edit .coords { font: 13px var(--data); color: var(--muted); font-variant-numeric: tabular-nums; }
+  .edit .hint { font-size: 14px; color: var(--muted); margin: 0; }
+  .edit kbd { font: 12px var(--data); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; background: var(--ground); }
+  .status { font: 12px var(--data); color: var(--muted); }
+  .status.bad { color: var(--double); }
+  .pieces .edited::after { content: "•"; color: var(--accent); margin-left: 4px; font-weight: 700; }
   footer { color: var(--muted); font-size: 14px; max-width: 80ch; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
@@ -122,13 +133,13 @@
   <header>
     <div class="eyebrow">Expanding Earth · concept, ronde 1</div>
     <h1 id="headline">Conceptglobes</h1>
-    <p class="lede">De continenten op de kleinere aarde gelegd, op vijf momenten. Welke kust tegen welke ligt komt uit de literatuur; hoe ver ze uit elkaar liggen is de oceaanbodem die op dat moment al bestond. Daarna schuiven de stukken tot ze zo goed mogelijk passen. Sleep om te draaien; de strook onder de globe toont de ware groottes.</p>
+    <p class="lede">De continenten op de kleinere aarde gelegd, op vijf momenten. Welke kust tegen welke ligt komt uit de literatuur; hoe ver ze uit elkaar liggen is de oceaanbodem die op dat moment al bestond. Klik een stuk om het zelf te verplaatsen of te draaien; de strook onder de globe toont de ware groottes.</p>
   </header>
 
   <div class="main">
     <div class="stage-col">
-      <div class="stage" id="stage">
-        <canvas id="globe" aria-label="Globe van het gekozen moment"></canvas>
+      <div class="stage" id="stage" tabindex="0" aria-label="Globe van het gekozen moment. Klik een stuk om het te kiezen.">
+        <canvas id="globe"></canvas>
         <svg id="overlay" aria-hidden="true"></svg>
         <div class="tip" id="tip" hidden></div>
       </div>
@@ -137,6 +148,16 @@
 
     <aside>
       <section>
+        <h2>Bewerken</h2>
+        <div class="edit" id="edit"></div>
+        <div class="controls">
+          <button type="button" id="undo">Ongedaan maken</button>
+          <button type="button" id="reset-moment">Dit moment terug naar berekend</button>
+          <button type="button" id="copy">Kopieer wijzigingen</button>
+        </div>
+        <div class="status" id="status"></div>
+      </section>
+      <section>
         <h2>Dit moment</h2>
         <dl id="facts"></dl>
         <p class="note" id="note"></p>
@@ -144,8 +165,8 @@
       <section>
         <h2>Weergave</h2>
         <div class="seg" role="group" aria-label="Kleuren">
-          <button id="mode-photo" aria-pressed="true">Foto</button>
-          <button id="mode-pieces" aria-pressed="false">Stukken</button>
+          <button type="button" id="mode-photo" aria-pressed="true">Foto</button>
+          <button type="button" id="mode-pieces" aria-pressed="false">Stukken</button>
         </div>
         <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen</label>
         <div class="controls" id="views"></div>
@@ -153,6 +174,7 @@
           <div><span class="sw" style="background: var(--double)"></span>Dubbel: twee stukken over elkaar</div>
           <div><span class="sw" style="background: #17324a"></span>Oceaan, of nog open</div>
           <div><span class="sw" style="background: #9fb7b8"></span>Plat: continentale korst onder water</div>
+          <div><span class="sw" style="background: #ffd166"></span>Gekozen stuk</div>
         </div>
       </section>
       <section>
@@ -179,6 +201,7 @@ const MARBLE_JPG = "__MARBLE__";
   const C = CONCEPTS;
   const DEG = Math.PI / 180;
   const N = C.pieces.length;
+  const M = C.moments.length;
   const W = C.width, H = C.height;
 
   const COLOURS = [
@@ -204,15 +227,30 @@ const MARBLE_JPG = "__MARBLE__";
     const s = Math.sin(dist), n = Math.cos(bearing) * s, e = Math.sin(bearing) * s, u = Math.cos(dist);
     return [0, 1, 2].map((i) => f.up[i] * u + f.north[i] * n + f.east[i] * e);
   }
+  /** Turn v about a unit axis by an angle (Rodrigues). */
+  function turn(v, axis, angle) {
+    const c = Math.cos(angle), s = Math.sin(angle), k = cross(axis, v), d = dot(axis, v) * (1 - c);
+    return [0, 1, 2].map((i) => v[i] * c + k[i] * s + axis[i] * d);
+  }
+  const wrap180 = (a) => ((a + 540) % 360) - 180;
 
-  // Per moment, per piece: today's frame, the frame where it lies, its spin and reach.
-  const placed = C.moments.map((m) => C.pieces.map((p) => {
-    const at = m.place[p.id];
-    const home = frame(dir(p.lon, p.lat));
-    const there = frame(dir(at.lon, at.lat));
-    const reach = 2 * Math.asin(Math.min(1, m.k * Math.sin(p.reach / 2)));
-    return { home, there, spin: (at.spin || 0) * DEG, cosReach: Math.cos(reach) };
-  }));
+  // ---------- placements: computed, and the reader's own on top ----------
+  const edits = C.moments.map(() => ({}));
+  const placementOf = (mi, id) => edits[mi][id] || C.moments[mi].place[id];
+  const placed = C.moments.map(() => new Array(N));
+  function placeOne(mi, p) {
+    const piece = C.pieces[p];
+    const at = placementOf(mi, piece.id);
+    const reach = 2 * Math.asin(Math.min(1, C.moments[mi].k * Math.sin(piece.reach / 2)));
+    placed[mi][p] = {
+      home: frame(dir(piece.lon, piece.lat)),
+      there: frame(dir(at.lon, at.lat)),
+      spin: (at.spin || 0) * DEG,
+      cosReach: Math.cos(reach),
+    };
+  }
+  for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) placeOne(mi, p);
+
   function lookBack(d, q, k) {
     const u = dot(d, q.there.up), n = dot(d, q.there.north), e = dot(d, q.there.east);
     const dist = Math.acos(Math.max(-1, Math.min(1, u)));
@@ -224,15 +262,57 @@ const MARBLE_JPG = "__MARBLE__";
     const bearing = Math.atan2(dot(p, q.home.east), dot(p, q.home.north));
     return from(q.there, 2 * Math.asin(Math.min(1, k * Math.sin(dist / 2))), bearing + q.spin);
   }
+  let pieceCells = null;
+  /** Which pieces cover a point of the smaller sphere at a moment. */
+  function piecesAt(d, mi) {
+    const out = [];
+    const k = C.moments[mi].k;
+    placed[mi].forEach((q, p) => {
+      if (dot(d, q.there.up) < q.cosReach) return;
+      const [lon, lat] = lonLat(lookBack(d, q, k));
+      const cx = Math.min(W - 1, Math.floor((lon + 180) / 360 * W));
+      const cy = Math.min(H - 1, Math.floor((90 - lat) / 180 * H));
+      if (pieceCells[cy * W + cx] === p + 1) out.push(p);
+    });
+    return out;
+  }
+
+  // Covered once, twice or not at all, over points spread evenly on the sphere.
+  const SAMPLES = (() => {
+    const n = 24000, out = [];
+    for (let s = 0; s < n; s++) {
+      const y = 1 - 2 * (s + 0.5) / n, r = Math.sqrt(1 - y * y), a = s * Math.PI * (3 - Math.sqrt(5));
+      out.push([r * Math.cos(a), y, r * Math.sin(a)]);
+    }
+    return out;
+  })();
+  const stats = new Array(M);
+  function measure(mi) {
+    let open = 0, twice = 0;
+    for (const x of SAMPLES) {
+      const h = piecesAt(x, mi).length;
+      if (!h) open++;
+      if (h > 1) twice++;
+    }
+    const joinPiece = (id) => C.pieces.findIndex((p) => p.id === id);
+    const m = C.moments[mi];
+    const off = C.joins.map((j) => {
+      const a = forward(dir(j.a[0], j.a[1]), placed[mi][joinPiece(j.pieceA)], m.k);
+      const b = forward(dir(j.b[0], j.b[1]), placed[mi][joinPiece(j.pieceB)], m.k);
+      return Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * m.radiusKm - (j.gapKm[m.ma] ?? 0);
+    });
+    stats[mi] = { open: open / SAMPLES.length, twice: twice / SAMPLES.length, off };
+  }
 
   // ---------- state ----------
-  const state = { moment: C.moments.length - 1, lon: 20, lat: 0, mode: 0, joins: false };
+  const state = { moment: M - 1, lon: 20, lat: 0, mode: 0, joins: false, tool: 'move' };
   try {
     const saved = JSON.parse(localStorage.getItem('concept-globes') || 'null');
     if (saved) Object.assign(state, saved);
   } catch (e) { /* storage may be unavailable */ }
   const save = () => { try { localStorage.setItem('concept-globes', JSON.stringify(state)); } catch (e) {} };
-  state.moment = Math.min(state.moment, C.moments.length - 1);
+  state.moment = Math.min(state.moment, M - 1);
+  let selected = -1;
 
   // ---------- WebGL ----------
   const canvas = document.getElementById('globe');
@@ -242,7 +322,7 @@ const MARBLE_JPG = "__MARBLE__";
   const FRAG = `#version 300 es
   precision highp float; precision highp int; precision highp sampler2D;
   uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData;
-  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode;
+  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uSelected;
   uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[24];
   out vec4 outColour;
   const float PI = 3.141592653589793;
@@ -252,13 +332,14 @@ const MARBLE_JPG = "__MARBLE__";
     float v = acos(clamp(d.y, -1.0, 1.0)) / PI;
     return ivec2(clamp(int(floor(u * ${W}.0)), 0, ${W - 1}), clamp(int(floor(v * ${H}.0)), 0, ${H - 1}));
   }
+  int idAt(ivec2 c) { return int(texelFetch(uPieces, c, 0).r * 255.0 + 0.5); }
   void main() {
     vec2 xy = (gl_FragCoord.xy - uCentre) / uRadius;
     float rr = dot(xy, xy);
     if (rr > 1.0) discard;
     float z = sqrt(1.0 - rr);
     vec3 d = normalize(uView * vec3(xy, z));
-    int hits = 0; vec3 colour = vec3(0.09, 0.196, 0.29); bool edge = false;
+    int hits = 0; vec3 colour = vec3(0.09, 0.196, 0.29); bool edge = false; bool chosen = false;
     for (int p = 0; p < 32; p++) {
       if (p >= uCount) break;
       vec3 tu = fetch(p, 2).xyz;
@@ -287,14 +368,19 @@ const MARBLE_JPG = "__MARBLE__";
         c = uColours[p];
         if (!land) c = mix(c, vec3(0.92), 0.35);
       }
-      int l = int(texelFetch(uPieces, ivec2((cell.x + 1) % ${W}, cell.y), 0).r * 255.0 + 0.5);
-      int r = int(texelFetch(uPieces, ivec2((cell.x + ${W - 1}) % ${W}, cell.y), 0).r * 255.0 + 0.5);
-      int t = int(texelFetch(uPieces, ivec2(cell.x, max(cell.y - 1, 0)), 0).r * 255.0 + 0.5);
-      int b = int(texelFetch(uPieces, ivec2(cell.x, min(cell.y + 1, ${H - 1})), 0).r * 255.0 + 0.5);
-      if (l != id || r != id || t != id || b != id) edge = true;
+      bool rim = idAt(ivec2((cell.x + 1) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 1}) % ${W}, cell.y)) != id
+        || idAt(ivec2(cell.x, max(cell.y - 1, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 1, ${H - 1}))) != id;
+      if (p == uSelected) {
+        chosen = true;
+        bool wide = idAt(ivec2((cell.x + 2) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 2}) % ${W}, cell.y)) != id
+          || idAt(ivec2(cell.x, max(cell.y - 2, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 2, ${H - 1}))) != id;
+        if (rim || wide) { c = vec3(1.0, 0.82, 0.4); rim = false; }
+        else c = mix(c, vec3(1.0, 0.82, 0.4), 0.12);
+      }
+      if (rim) edge = true;
       colour = c;
     }
-    if (hits > 1) colour = vec3(0.84, 0.15, 0.24);
+    if (hits > 1) colour = chosen ? vec3(0.95, 0.3, 0.3) : vec3(0.84, 0.15, 0.24);
     else if (edge) colour *= 0.55;
     if (hits == 0) {
       float lon = atan(-d.z, d.x) / PI * 180.0, lat = asin(clamp(d.y, -1.0, 1.0)) / PI * 180.0;
@@ -302,8 +388,8 @@ const MARBLE_JPG = "__MARBLE__";
       if (gx > 14.75 || gy > 14.75) colour = mix(colour, vec3(0.3, 0.42, 0.52), 0.6);
     }
     float shade = 0.62 + 0.38 * z;
-    float rim = smoothstep(1.0, 0.985, sqrt(rr));
-    outColour = vec4(colour * shade, rim);
+    float alpha = smoothstep(1.0, 0.985, sqrt(rr));
+    outColour = vec4(colour * shade, alpha);
   }`;
   function shader(type, src) {
     const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
@@ -327,14 +413,16 @@ const MARBLE_JPG = "__MARBLE__";
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
   // Placement data: 8 texels per piece per moment.
-  const data = new Float32Array(8 * 4 * N * C.moments.length);
-  placed.forEach((qs, m) => qs.forEach((q, p) => {
-    const row = (m * N + p) * 32;
+  const data = new Float32Array(32 * N * M);
+  function packRow(mi, p) {
+    const q = placed[mi][p];
+    const row = (mi * N + p) * 32;
     const put = (c, v) => data.set([v[0], v[1], v[2], v[3] || 0], row + c * 4);
     put(0, q.there.east); put(1, q.there.north); put(2, q.there.up);
     put(3, q.home.east); put(4, q.home.north); put(5, q.home.up);
     put(6, [q.cosReach, q.spin, 0, 0]);
-  }));
+  }
+  for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) packRow(mi, p);
   function texture(unitIndex, setup) {
     const t = gl.createTexture();
     gl.activeTexture(gl.TEXTURE0 + unitIndex);
@@ -342,31 +430,37 @@ const MARBLE_JPG = "__MARBLE__";
     setup();
     return t;
   }
-  texture(2, () => {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 8, N * C.moments.length, 0, gl.RGBA, gl.FLOAT, data);
+  const dataTexture = texture(2, () => {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 8, N * M, 0, gl.RGBA, gl.FLOAT, data);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   });
+  /** A piece has moved: its frame, its texels, and nothing else. */
+  function replace(mi, p) {
+    placeOne(mi, p);
+    packRow(mi, p);
+    const row = mi * N + p;
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, 8, 1, gl.RGBA, gl.FLOAT, data.subarray(row * 32, row * 32 + 32));
+  }
   gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2);
   gl.uniform1i(U('uCount'), N);
   gl.uniform3fv(U('uColours'), new Float32Array(Array.from({ length: 24 }, (_, i) => COLOURS[i % COLOURS.length].map((c) => c / 255)).flat()));
 
   const load = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
-  let pieceCells = null;
 
-  function viewMatrix() {
-    const f = frame(dir(state.lon, state.lat));
-    return new Float32Array([...f.east, ...f.north, ...f.up]);
-  }
+  function viewFrame() { return frame(dir(state.lon, state.lat)); }
 
-  function draw(m, size, cx, cy) {
-    const scale = C.moments[m].radiusKm / C.r0Km;
-    gl.uniform1i(U('uMoment'), m);
-    gl.uniform1f(U('uK'), C.moments[m].k);
+  function draw(mi, globeRadius, cx, cy, chosen) {
+    const f = viewFrame();
+    gl.uniform1i(U('uMoment'), mi);
+    gl.uniform1f(U('uK'), C.moments[mi].k);
     gl.uniform1i(U('uMode'), state.mode);
-    gl.uniformMatrix3fv(U('uView'), false, viewMatrix());
+    gl.uniform1i(U('uSelected'), chosen);
+    gl.uniformMatrix3fv(U('uView'), false, new Float32Array([...f.east, ...f.north, ...f.up]));
     gl.uniform2f(U('uCentre'), cx, cy);
-    gl.uniform1f(U('uRadius'), size * scale);
+    gl.uniform1f(U('uRadius'), globeRadius);
     gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
   }
 
@@ -374,12 +468,13 @@ const MARBLE_JPG = "__MARBLE__";
   const stage = document.getElementById('stage');
   const overlay = document.getElementById('overlay');
   const strip = document.getElementById('strip');
+  const THUMB = 76;
   const thumbs = C.moments.map((m, i) => {
     const b = document.createElement('button');
     b.className = 'moment';
     b.type = 'button';
     const c = document.createElement('canvas');
-    const px = Math.round(76 * m.radiusKm / C.r0Km);
+    const px = Math.round(THUMB * m.radiusKm / C.r0Km);
     c.width = c.height = px * 2;
     c.style.width = c.style.height = px + 'px';
     b.append(c, document.createTextNode(m.ma + ' Ma'));
@@ -395,106 +490,296 @@ const MARBLE_JPG = "__MARBLE__";
     canvas.height = Math.round(r.height * dpr);
   }
 
+  let thumbsDirty = true;
   function render() {
     if (!pieceCells) return;
-    const big = canvas.width / 2 * 0.94 / (C.moments[state.moment].radiusKm / C.r0Km);
     gl.viewport(0, 0, canvas.width, canvas.height);
-    // The thumbnails first, drawn into a corner and copied out.
-    thumbs.forEach((t, i) => {
-      gl.clearColor(0, 0, 0, 0);
-      gl.clear(gl.COLOR_BUFFER_BIT);
-      const s = 76 * 2 / 2;
-      draw(i, s, s, s);
-      t.ctx.clearRect(0, 0, t.c.width, t.c.height);
-      const px = t.c.width;
-      t.ctx.drawImage(canvas, s - px / 2, canvas.height - s - px / 2, px, px, 0, 0, px, px);
-      t.b.setAttribute('aria-pressed', String(i === state.moment));
-    });
+    if (thumbsDirty) {
+      // Drawn into a corner of the big canvas and copied out, one context for all.
+      thumbs.forEach((t, i) => {
+        gl.clearColor(0, 0, 0, 0);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        const px = t.c.width;
+        const s = THUMB;
+        draw(i, px / 2, s, s, -1);
+        t.ctx.clearRect(0, 0, px, px);
+        t.ctx.drawImage(canvas, s - px / 2, canvas.height - s - px / 2, px, px, 0, 0, px, px);
+      });
+      thumbsDirty = false;
+    }
+    thumbs.forEach((t, i) => t.b.setAttribute('aria-pressed', String(i === state.moment)));
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    draw(state.moment, big, canvas.width / 2, canvas.height / 2);
-    drawOverlay(big);
-    describe();
+    draw(state.moment, canvas.width / 2 * 0.94, canvas.width / 2, canvas.height / 2, selected);
+    drawOverlay();
+    if (!gesture || gesture.kind === 'view') describe();
   }
 
-  // Today's Earth as a ring, and the joins as lines between their two margins.
-  function drawOverlay(big) {
+  // The joins as lines between their two margins.
+  function drawOverlay() {
+    if (!state.joins) { overlay.innerHTML = ''; return; }
     const r = stage.getBoundingClientRect();
-    const k = r.width / canvas.width;
-    const R = big * k;
+    const R = r.width / 2 * 0.94, cx = r.width / 2, cy = r.height / 2;
     const m = C.moments[state.moment];
-    const scale = m.radiusKm / C.r0Km;
-    const cx = r.width / 2, cy = r.height / 2;
+    const f = viewFrame();
+    const project = (d) => [cx + dot(d, f.east) * R, cy - dot(d, f.north) * R, dot(d, f.up)];
     let svg = '';
-    if (state.joins) {
-      const f = frame(dir(state.lon, state.lat));
-      const project = (d) => {
-        const z = dot(d, f.up);
-        return [cx + dot(d, f.east) * R * scale, cy - dot(d, f.north) * R * scale, z];
-      };
-      for (const j of C.joins) {
-        const pa = C.pieces.findIndex((p) => p.id === j.pieceA);
-        const pb = C.pieces.findIndex((p) => p.id === j.pieceB);
-        const a = forward(dir(j.a[0], j.a[1]), placed[state.moment][pa], m.k);
-        const b = forward(dir(j.b[0], j.b[1]), placed[state.moment][pb], m.k);
-        const A = project(a), B = project(b);
-        if (A[2] < 0 && B[2] < 0) continue;
-        const op = A[2] < 0 || B[2] < 0 ? 0.35 : 1;
-        svg += `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="#ffd166" stroke-width="1.6" opacity="${op}"></line>`;
-        svg += `<circle cx="${A[0]}" cy="${A[1]}" r="2.6" fill="#ffd166" opacity="${op}"></circle><circle cx="${B[0]}" cy="${B[1]}" r="2.6" fill="#ffd166" opacity="${op}"></circle>`;
-      }
+    for (const j of C.joins) {
+      const pa = C.pieces.findIndex((p) => p.id === j.pieceA);
+      const pb = C.pieces.findIndex((p) => p.id === j.pieceB);
+      const A = project(forward(dir(j.a[0], j.a[1]), placed[state.moment][pa], m.k));
+      const B = project(forward(dir(j.b[0], j.b[1]), placed[state.moment][pb], m.k));
+      if (A[2] < 0 && B[2] < 0) continue;
+      const op = A[2] < 0 || B[2] < 0 ? 0.35 : 1;
+      svg += `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="#ffd166" stroke-width="1.6" opacity="${op}"></line>`;
+      svg += `<circle cx="${A[0]}" cy="${A[1]}" r="2.6" fill="#ffd166" opacity="${op}"></circle><circle cx="${B[0]}" cy="${B[1]}" r="2.6" fill="#ffd166" opacity="${op}"></circle>`;
     }
     overlay.innerHTML = svg;
   }
 
   const fmt = (n, d = 0) => n.toLocaleString('nl-NL', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const nameOf = (id) => C.pieces.find((p) => p.id === id).name;
   function describe() {
-    const m = C.moments[state.moment];
+    const mi = state.moment;
+    const m = C.moments[mi];
+    const st = stats[mi];
+    const editedHere = Object.keys(edits[mi]).length;
     document.getElementById('headline').innerHTML =
       `${m.ma} Ma <span class="sub">· straal ${fmt(m.radiusKm)} km</span>`;
     const facts = [
       ['Straal', `${fmt(m.radiusKm)} km`],
       ['Van de straal nu', `${fmt(100 * m.radiusKm / C.r0Km)}%`],
       ['Oceaan volgens de leeftijdskaart', `${fmt(100 * m.oceanLeft, 1)}%`],
-      ['Open op deze globe', `${fmt(100 * m.stats.gap, 1)}%`],
-      ['Dubbel', `<span class="${m.stats.overlap > 0.02 ? 'bad' : ''}">${fmt(100 * m.stats.overlap, 1)}%</span>`],
+      ['Open op deze globe', `${fmt(100 * st.open, 1)}%`],
+      ['Dubbel', `<span class="${st.twice > 0.02 ? 'bad' : ''}">${fmt(100 * st.twice, 1)}%</span>`],
       ['Randen teruggekrompen', `${fmt(100 * (1 - m.shrink), 1)}%`],
+      ['Door jou verlegd', editedHere ? `${editedHere} ${editedHere === 1 ? 'stuk' : 'stukken'}` : 'niets'],
     ];
     document.getElementById('facts').innerHTML = facts.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
     document.getElementById('note').textContent = m.note || '';
-    const rows = C.joins
-      .map((j) => ({ j, gap: j.gapKm[m.ma] ?? 0, off: (m.joinOff || {})[C.joins.indexOf(j)] }))
-      .filter(() => state.moment > 0)
-      .sort((a, b) => Math.abs(b.off || 0) - Math.abs(a.off || 0));
-    const name = (id) => C.pieces.find((p) => p.id === id).name;
-    document.getElementById('joins').innerHTML = state.moment === 0
+    const rows = C.joins.map((j, i) => ({ j, gap: j.gapKm[m.ma] ?? 0, off: st.off[i] }))
+      .sort((a, b) => Math.abs(b.off) - Math.abs(a.off));
+    const touchesChosen = (j) => selected >= 0 && (j.pieceA === C.pieces[selected].id || j.pieceB === C.pieces[selected].id);
+    document.getElementById('joins').innerHTML = mi === 0
       ? '<div class="why">Vandaag: elke aansluiting staat op zijn huidige afstand.</div>'
-      : rows.map(({ j, gap, off }) => `<div class="join"><span class="who">${name(j.pieceA)} – ${name(j.pieceB)}</span>` +
-        `<span class="km">${gap < 1 ? 'tegen elkaar' : fmt(gap) + ' km oceaan'} · ${off == null || Math.abs(off) < 100 ? 'klopt' : off > 0 ? fmt(off) + ' km te ver' : fmt(-off) + ' km te dicht'}</span>` +
+      : rows.map(({ j, gap, off }) => `<div class="join${touchesChosen(j) ? ' moved' : ''}"><span class="who">${nameOf(j.pieceA)} – ${nameOf(j.pieceB)}</span>` +
+        `<span class="km">${gap < 1 ? 'tegen elkaar' : fmt(gap) + ' km oceaan'} · ${Math.abs(off) < 100 ? 'klopt' : off > 0 ? fmt(off) + ' km te ver' : fmt(-off) + ' km te dicht'}</span>` +
         `<span class="why">${j.why}</span></div>`).join('');
+    describeEdit();
+    document.querySelectorAll('#pieces button').forEach((b, p) => {
+      b.querySelector('.label').classList.toggle('edited', Boolean(edits[mi][C.pieces[p].id]));
+    });
+  }
+
+  function describeEdit() {
+    const box = document.getElementById('edit');
+    if (selected < 0) {
+      box.innerHTML = `<p class="hint">Klik een stuk op de globe of in de lijst om het te kiezen. Sleep het om het te verplaatsen; <kbd>Shift</kbd>-slepen draait het. Fijn werk: pijltjes verplaatsen, <kbd>[</kbd> <kbd>]</kbd> draaien, <kbd>Esc</kbd> laat los.</p>`;
+      return;
+    }
+    const id = C.pieces[selected].id;
+    const at = placementOf(state.moment, id);
+    const mine = Boolean(edits[state.moment][id]);
+    box.innerHTML = `<div class="name">${C.pieces[selected].name}<small>${mine ? 'door jou verlegd' : 'berekend'}</small></div>
+      <div class="coords">midden ${fmt(at.lat, 1)}°, ${fmt(at.lon, 1)}° · gedraaid ${fmt(at.spin || 0, 1)}°</div>
+      <div class="seg" role="group" aria-label="Slepen doet">
+        <button type="button" data-tool="move" aria-pressed="${state.tool === 'move'}">Verplaatsen</button>
+        <button type="button" data-tool="rotate" aria-pressed="${state.tool === 'rotate'}">Draaien</button>
+      </div>
+      <div class="controls">
+        <button type="button" data-spin="-5">↺ 5°</button>
+        <button type="button" data-spin="-1">↺ 1°</button>
+        <button type="button" data-spin="1">↻ 1°</button>
+        <button type="button" data-spin="5">↻ 5°</button>
+        <button type="button" data-reset>Terug naar berekend</button>
+      </div>`;
+    box.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => { state.tool = b.dataset.tool; save(); describeEdit(); }));
+    box.querySelectorAll('[data-spin]').forEach((b) => b.addEventListener('click', () => {
+      const before = placementOf(state.moment, id);
+      setPlacement(state.moment, id, { ...before, spin: wrap180((before.spin || 0) + Number(b.dataset.spin)) }, before);
+      commit();
+    }));
+    box.querySelector('[data-reset]').addEventListener('click', () => {
+      if (!edits[state.moment][id]) return;
+      undoStack.push({ mi: state.moment, id, before: edits[state.moment][id] });
+      delete edits[state.moment][id];
+      replace(state.moment, selected);
+      commit();
+    });
+  }
+
+  // ---------- editing ----------
+  const undoStack = [];
+  function setPlacement(mi, id, next, before) {
+    if (before !== undefined) undoStack.push({ mi, id, before: edits[mi][id] });
+    edits[mi][id] = { lat: +next.lat.toFixed(3), lon: +wrap180(next.lon).toFixed(3), spin: +wrap180(next.spin || 0).toFixed(2) };
+    replace(mi, C.pieces.findIndex((p) => p.id === id));
+  }
+  /** After a gesture: measure again, redraw everything, keep it. */
+  function commit() {
+    measure(state.moment);
+    thumbsDirty = true;
+    render();
+    persist(state.moment);
+  }
+
+  /** Where a piece's own north points, as a direction at its centre. */
+  function headingOf(at) {
+    const f = frame(dir(at.lon, at.lat));
+    const s = (at.spin || 0) * DEG;
+    return { up: f.up, h: [0, 1, 2].map((i) => f.north[i] * Math.cos(s) + f.east[i] * Math.sin(s)) };
+  }
+  function fromHeading(up, h) {
+    const f = frame(up);
+    const [lon, lat] = lonLat(up);
+    return { lat, lon, spin: Math.atan2(dot(h, f.east), dot(h, f.north)) / DEG };
   }
 
   // ---------- interaction ----------
-  let dragging = null;
+  function pointOn(e, clamp) {
+    const r = stage.getBoundingClientRect();
+    const R = r.width / 2 * 0.94;
+    let x = (e.clientX - r.left - r.width / 2) / R;
+    let y = -(e.clientY - r.top - r.height / 2) / R;
+    let rr = x * x + y * y;
+    if (rr > 1) {
+      if (!clamp) return null;
+      const l = Math.sqrt(rr) / 0.999;
+      x /= l; y /= l; rr = x * x + y * y;
+    }
+    const z = Math.sqrt(1 - rr);
+    const f = viewFrame();
+    return [0, 1, 2].map((i) => f.east[i] * x + f.north[i] * y + f.up[i] * z);
+  }
+  function screenOf(d) {
+    const r = stage.getBoundingClientRect();
+    const R = r.width / 2 * 0.94;
+    const f = viewFrame();
+    return [r.left + r.width / 2 + dot(d, f.east) * R, r.top + r.height / 2 - dot(d, f.north) * R];
+  }
+
+  let gesture = null;
   stage.addEventListener('pointerdown', (e) => {
-    dragging = { x: e.clientX, y: e.clientY, lon: state.lon, lat: state.lat };
+    if (!pieceCells) return;
+    const d = pointOn(e, false);
+    const under = d ? piecesAt(d, state.moment) : [];
+    const onChosen = selected >= 0 && under.includes(selected);
+    gesture = { x: e.clientX, y: e.clientY, moved: false, under };
+    if (onChosen) {
+      const id = C.pieces[selected].id;
+      const before = placementOf(state.moment, id);
+      gesture.kind = e.shiftKey || e.altKey || state.tool === 'rotate' ? 'rotate' : 'move';
+      gesture.id = id;
+      gesture.before = before;
+      gesture.start = d;
+      gesture.heading = headingOf(before);
+      gesture.centre = screenOf(dir(before.lon, before.lat));
+    } else {
+      gesture.kind = 'view';
+      gesture.lon = state.lon;
+      gesture.lat = state.lat;
+    }
     stage.setPointerCapture(e.pointerId);
   });
   stage.addEventListener('pointermove', (e) => {
-    if (dragging) {
+    if (!gesture) { hover(e); return; }
+    if (Math.hypot(e.clientX - gesture.x, e.clientY - gesture.y) > 3) gesture.moved = true;
+    if (!gesture.moved) return;
+    document.getElementById('tip').hidden = true;
+    if (gesture.kind === 'view') {
       const r = stage.getBoundingClientRect();
       const per = 180 / (Math.PI * r.width / 2 * 0.94);
-      state.lon = dragging.lon - (e.clientX - dragging.x) * per;
-      state.lat = Math.max(-89.5, Math.min(89.5, dragging.lat + (e.clientY - dragging.y) * per));
-      requestRender();
+      state.lon = gesture.lon - (e.clientX - gesture.x) * per;
+      state.lat = Math.max(-89.5, Math.min(89.5, gesture.lat + (e.clientY - gesture.y) * per));
+    } else if (gesture.kind === 'move') {
+      const d = pointOn(e, true);
+      const axisRaw = cross(gesture.start, d);
+      const sin = Math.hypot(axisRaw[0], axisRaw[1], axisRaw[2]);
+      if (sin < 1e-9) return;
+      const axis = axisRaw.map((v) => v / sin);
+      const angle = Math.atan2(sin, dot(gesture.start, d));
+      const up = turn(gesture.heading.up, axis, angle);
+      const h = turn(gesture.heading.h, axis, angle);
+      edits[state.moment][gesture.id] = fromHeading(up, h);
+      replace(state.moment, selected);
+    } else {
+      const [cx, cy] = gesture.centre;
+      const a0 = Math.atan2(gesture.y - cy, gesture.x - cx);
+      const a1 = Math.atan2(e.clientY - cy, e.clientX - cx);
+      edits[state.moment][gesture.id] = { ...gesture.before, spin: wrap180((gesture.before.spin || 0) + (a1 - a0) / DEG) };
+      replace(state.moment, selected);
+    }
+    requestRender();
+  });
+  function end() {
+    if (!gesture) return;
+    const g = gesture;
+    gesture = null;
+    if (!g.moved) {
+      // A click: choose the piece on top, or let go on open water.
+      selected = g.under.length ? g.under[g.under.length - 1] : -1;
+      render();
       return;
     }
-    hover(e);
-  });
-  const end = () => { if (dragging) { dragging = null; save(); } };
+    if (g.kind === 'view') { save(); return; }
+    const now = edits[state.moment][g.id];
+    edits[state.moment][g.id] = g.before === C.moments[state.moment].place[g.id] ? undefined : g.before;
+    if (edits[state.moment][g.id] === undefined) delete edits[state.moment][g.id];
+    setPlacement(state.moment, g.id, now, g.before);
+    commit();
+  }
   stage.addEventListener('pointerup', end);
   stage.addEventListener('pointercancel', end);
   stage.addEventListener('pointerleave', () => { document.getElementById('tip').hidden = true; });
+
+  stage.addEventListener('keydown', (e) => {
+    if (selected < 0) return;
+    const id = C.pieces[selected].id;
+    const before = placementOf(state.moment, id);
+    const big = e.shiftKey;
+    const moves = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+    if (moves[e.key]) {
+      const [de, dn] = moves[e.key];
+      const step = (big ? 2 : 0.5) * DEG;
+      const { up, h } = headingOf(before);
+      const f = frame(up);
+      const axis = unit(cross(up, [0, 1, 2].map((i) => f.east[i] * de + f.north[i] * dn)));
+      setPlacement(state.moment, id, fromHeading(turn(up, axis, step), turn(h, axis, step)), before);
+    } else if (e.key === '[' || e.key === ']') {
+      setPlacement(state.moment, id, { ...before, spin: (before.spin || 0) + (e.key === ']' ? 1 : -1) * (big ? 5 : 1) }, before);
+    } else if (e.key === 'Escape') {
+      selected = -1; render(); return;
+    } else return;
+    e.preventDefault();
+    commit();
+  });
+  document.addEventListener('keydown', (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+  });
+  function undo() {
+    const last = undoStack.pop();
+    if (!last) return;
+    if (last.before) edits[last.mi][last.id] = last.before;
+    else delete edits[last.mi][last.id];
+    replace(last.mi, C.pieces.findIndex((p) => p.id === last.id));
+    state.moment = last.mi;
+    commit();
+  }
+  document.getElementById('undo').addEventListener('click', undo);
+  document.getElementById('reset-moment').addEventListener('click', () => {
+    const mi = state.moment;
+    for (const id of Object.keys(edits[mi])) {
+      undoStack.push({ mi, id, before: edits[mi][id] });
+      delete edits[mi][id];
+      replace(mi, C.pieces.findIndex((p) => p.id === id));
+    }
+    commit();
+  });
+  document.getElementById('copy').addEventListener('click', async () => {
+    const text = JSON.stringify(Object.fromEntries(C.moments.map((m, mi) => [m.ma, edits[mi]]).filter(([, e]) => Object.keys(e).length)), null, 1);
+    try { await navigator.clipboard.writeText(text); say('Gekopieerd.'); }
+    catch (e) { say('Kopiëren mag hier niet; de wijzigingen staan wel opgeslagen.'); }
+  });
 
   let pending = false;
   function requestRender() {
@@ -505,32 +790,92 @@ const MARBLE_JPG = "__MARBLE__";
 
   function hover(e) {
     const tip = document.getElementById('tip');
-    const r = stage.getBoundingClientRect();
-    const m = C.moments[state.moment];
-    const R = r.width / 2 * 0.94;
-    const x = (e.clientX - r.left - r.width / 2) / R;
-    const y = -(e.clientY - r.top - r.height / 2) / R;
-    if (x * x + y * y > 1) { tip.hidden = true; return; }
-    const z = Math.sqrt(1 - x * x - y * y);
-    const f = frame(dir(state.lon, state.lat));
-    const d = [0, 1, 2].map((i) => f.east[i] * x + f.north[i] * y + f.up[i] * z);
-    const names = [];
-    placed[state.moment].forEach((q, p) => {
-      if (dot(d, q.there.up) < q.cosReach) return;
-      const [lon, lat] = lonLat(lookBack(d, q, m.k));
-      const cx = Math.min(W - 1, Math.floor((lon + 180) / 360 * W));
-      const cy = Math.min(H - 1, Math.floor((90 - lat) / 180 * H));
-      if (pieceCells[cy * W + cx] === p + 1) names.push({ p, lon, lat });
-    });
+    const d = pointOn(e, false);
+    if (!d || !pieceCells) { tip.hidden = true; stage.classList.remove('over-piece'); return; }
+    const mi = state.moment;
+    const under = piecesAt(d, mi);
+    stage.classList.toggle('over-piece', selected >= 0 && under.includes(selected));
     const [lon, lat] = lonLat(d);
-    tip.innerHTML = (names.length
-      ? names.map((n) => `<b>${C.pieces[n.p].name}</b> <span class="num">vandaag ${fmt(n.lat, 1)}°, ${fmt(n.lon, 1)}°</span>`).join('<br>')
+    tip.innerHTML = (under.length
+      ? under.map((p) => {
+        const [blon, blat] = lonLat(lookBack(d, placed[mi][p], C.moments[mi].k));
+        return `<b>${C.pieces[p].name}</b> <span class="num">vandaag ${fmt(blat, 1)}°, ${fmt(blon, 1)}°</span>`;
+      }).join('<br>')
       : '<b>Oceaan</b>') + `<br><span class="num">hier ${fmt(lat, 1)}°, ${fmt(lon, 1)}°</span>`;
+    const r = stage.getBoundingClientRect();
     tip.style.left = (e.clientX - r.left) + 'px';
     tip.style.top = (e.clientY - r.top) + 'px';
     tip.hidden = false;
   }
 
+  // ---------- keeping the edits ----------
+  // Each moment's edits are one document, placements/m<ma>, so whoever reads
+  // them back -- Claude included -- gets exactly what was laid.
+  let db = null;
+  const saveTimers = {};
+  /** Moments with a write not yet confirmed: a snapshot must not undo them. */
+  const unsaved = new Set();
+  const statusEl = document.getElementById('status');
+  function say(text, bad) { statusEl.textContent = text; statusEl.classList.toggle('bad', Boolean(bad)); }
+  function persist(mi) {
+    try { localStorage.setItem('concept-edits', JSON.stringify(edits)); } catch (e) {}
+    if (!db) { say('Bewaard in deze browser.'); return; }
+    clearTimeout(saveTimers[mi]);
+    unsaved.add(mi);
+    say('Opslaan…');
+    saveTimers[mi] = setTimeout(async () => {
+      try {
+        await db.doc('placements/m' + C.moments[mi].ma).set({ ma: C.moments[mi].ma, pieces: edits[mi], savedAt: new Date().toISOString() });
+        say('Opgeslagen.');
+      } catch (e) {
+        say('Niet opgeslagen: ' + (e && e.message ? e.message : 'onbekende fout') + '. Gebruik Kopieer wijzigingen.', true);
+      } finally {
+        unsaved.delete(mi);
+      }
+    }, 500);
+  }
+  function adopt(mi, pieces) {
+    edits[mi] = {};
+    for (const [id, at] of Object.entries(pieces || {})) {
+      if (C.pieces.some((p) => p.id === id) && at && Number.isFinite(at.lat) && Number.isFinite(at.lon)) {
+        edits[mi][id] = { lat: at.lat, lon: at.lon, spin: Number.isFinite(at.spin) ? at.spin : 0 };
+      }
+    }
+    for (let p = 0; p < N; p++) replace(mi, p);
+    measure(mi);
+  }
+  try {
+    const local = JSON.parse(localStorage.getItem('concept-edits') || 'null');
+    if (Array.isArray(local)) local.forEach((pieces, mi) => { if (mi < M) adopt(mi, pieces); });
+  } catch (e) {}
+  async function connect() {
+    if (!window.claude || !window.claude.use) { say('Bewaard in deze browser.'); return; }
+    const store = await window.claude.use('db');
+    if (!store) { say('Bewaard in deze browser; kopieer je wijzigingen om ze door te geven.'); return; }
+    db = store;
+    let first = true;
+    db.collection('placements').onSnapshot((snap) => {
+      if (gesture) return;
+      const stored = new Set();
+      for (const doc of snap.docs) {
+        const body = doc.data();
+        const mi = C.moments.findIndex((m) => 'm' + m.ma === doc.id);
+        if (mi < 0 || !body) continue;
+        stored.add(mi);
+        if (!unsaved.has(mi)) adopt(mi, body.pieces);
+      }
+      // Edits made in this browser before the store was there go up once.
+      if (first) {
+        first = false;
+        edits.forEach((e, mi) => { if (!stored.has(mi) && Object.keys(e).length) persist(mi); });
+      }
+      thumbsDirty = true;
+      render();
+      if (!unsaved.size) say('Opgeslagen bij de pagina; Claude kan je wijzigingen lezen.');
+    }, (e) => say('Opslag niet bereikbaar: ' + (e && e.message ? e.message : '') , true));
+  }
+
+  // ---------- controls ----------
   const VIEWS = [['Afrika', 20, 0], ['Azië', 100, 25], ['Stille Oceaan', -170, 0], ["Amerika's", -80, 10], ['Zuidpool', 0, -89.5], ['Noordpool', 0, 89.5]];
   const views = document.getElementById('views');
   for (const [label, lon, lat] of VIEWS) {
@@ -544,6 +889,7 @@ const MARBLE_JPG = "__MARBLE__";
   modes.forEach((b, i) => b.addEventListener('click', () => {
     state.mode = i;
     modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === i)));
+    thumbsDirty = true;
     render(); save();
   }));
   modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === state.mode)));
@@ -556,11 +902,13 @@ const MARBLE_JPG = "__MARBLE__";
     const b = document.createElement('button');
     b.type = 'button';
     const c = COLOURS[i % COLOURS.length];
-    b.innerHTML = `<span class="sw" style="background: rgb(${c.join(',')})"></span><span>${p.name}</span>`;
+    b.innerHTML = `<span class="sw" style="background: rgb(${c.join(',')})"></span><span class="label">${p.name}</span>`;
     b.addEventListener('click', () => {
-      const at = C.moments[state.moment].place[p.id];
+      selected = i;
+      const at = placementOf(state.moment, p.id);
       state.lon = at.lon; state.lat = Math.max(-89.5, Math.min(89.5, at.lat));
       render(); save();
+      stage.focus({ preventScroll: true });
     });
     list.append(b);
   });
@@ -568,7 +916,7 @@ const MARBLE_JPG = "__MARBLE__";
   document.getElementById('footer').textContent =
     'Elk stuk houdt zijn oppervlak; op een kleinere bol kan het zijn vorm niet houden, dus de randen van de grote stukken zijn wat samengedrukt langs de rand en uitgerekt naar buiten. ' +
     'Alle stukken krimpen per moment even veel: wat het model zegt dat de uitgerekte randen toen nog niet waren. ' +
-    'Afrika ligt vast; de rest schuift om de aansluitingen zo dicht mogelijk te benaderen zonder over elkaar te liggen. Waar dat niet lukt, staat het rood, en in de lijst staat welke aansluiting het verst af zit.';
+    'De berekende ligging: Afrika vast, de rest geschoven om de aansluitingen zo dicht mogelijk te benaderen zonder over elkaar te liggen. Wat je zelf verlegt, gaat daar overheen.';
 
   Promise.all([load(MARBLE_JPG), load(PIECES_PNG)]).then(([marble, pieces]) => {
     texture(0, () => {
@@ -589,9 +937,11 @@ const MARBLE_JPG = "__MARBLE__";
     const px = x2.getImageData(0, 0, W, H).data;
     pieceCells = new Uint8Array(W * H);
     for (let i = 0; i < W * H; i++) pieceCells[i] = px[i * 4];
+    for (let mi = 0; mi < M; mi++) measure(mi);
     resize();
     render();
+    connect();
   });
-  new ResizeObserver(() => { resize(); requestRender(); }).observe(stage);
+  new ResizeObserver(() => { resize(); thumbsDirty = true; requestRender(); }).observe(stage);
 })();
 </script>
