@@ -1,0 +1,597 @@
+<title>Conceptglobes</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=Source+Serif+4:opsz,wght@8..60,400;8..60,600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  /* Layout: a chart-room table. The globe of the moment large on the left, a
+     strip of the five moments at their true sizes underneath, and the reading
+     of the moment on the right. */
+  :root {
+    --ground: #edf0ec;
+    --surface: #f8faf7;
+    --ink: #1d282c;
+    --muted: #5b686b;
+    --rule: #cfd6d2;
+    --accent: #1c6e7a;
+    --double: #d7263d;
+    --display: "Barlow Condensed", "Arial Narrow", system-ui, sans-serif;
+    --body: "Source Serif 4", Georgia, "Times New Roman", serif;
+    --data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #0f161a; --surface: #152027; --ink: #e2e9e7; --muted: #95a3a5;
+      --rule: #2a3a41; --accent: #62b6c1; --double: #ff5468;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #0f161a; --surface: #152027; --ink: #e2e9e7; --muted: #95a3a5;
+    --rule: #2a3a41; --accent: #62b6c1; --double: #ff5468;
+    color-scheme: dark;
+  }
+  html, body { background: var(--ground); color: var(--ink); }
+  body {
+    font: 16px/1.5 var(--body);
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 20px 40px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; display: grid; gap: 20px; }
+  header { display: grid; gap: 4px; }
+  .eyebrow {
+    font: 600 13px/1 var(--display); letter-spacing: .12em; text-transform: uppercase;
+    color: var(--accent);
+  }
+  h1 {
+    font: 600 clamp(28px, 4.2vw, 44px)/1.05 var(--display); letter-spacing: .01em;
+    margin: 0; text-wrap: balance;
+  }
+  h1 .sub { color: var(--muted); font-weight: 500; }
+  .lede { margin: 6px 0 0; max-width: 68ch; color: var(--muted); }
+  .main { display: grid; grid-template-columns: minmax(0, 1fr) 340px; gap: 24px; align-items: start; }
+  @media (max-width: 860px) { .main { grid-template-columns: minmax(0, 1fr); } }
+  .stage-col { display: grid; gap: 14px; min-width: 0; }
+  .stage {
+    position: relative; width: 100%; max-width: 640px; aspect-ratio: 1; margin: 0 auto;
+    touch-action: none; cursor: grab; user-select: none;
+  }
+  .stage:active { cursor: grabbing; }
+  .stage canvas, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .stage svg { pointer-events: none; overflow: visible; }
+  .tip {
+    position: absolute; pointer-events: none; background: var(--surface); color: var(--ink);
+    border: 1px solid var(--rule); padding: 6px 9px; font: 13px/1.35 var(--body);
+    white-space: nowrap; transform: translate(12px, 12px); box-shadow: 0 4px 14px rgb(0 0 0 / .12);
+  }
+  .tip b { font-family: var(--display); font-weight: 600; letter-spacing: .02em; font-size: 15px; }
+  .tip .num { font: 12px var(--data); color: var(--muted); }
+  .strip { display: flex; gap: 6px; justify-content: center; align-items: flex-end; flex-wrap: wrap; }
+  .moment {
+    display: grid; justify-items: center; gap: 4px; padding: 8px 10px 6px; background: none;
+    border: 1px solid transparent; border-radius: 4px; color: var(--muted); cursor: pointer;
+    font: 500 14px var(--data);
+  }
+  .moment:hover { border-color: var(--rule); }
+  .moment[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); }
+  .moment:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .moment canvas { display: block; }
+  aside { display: grid; gap: 18px; min-width: 0; }
+  section { display: grid; gap: 8px; }
+  h2 {
+    font: 600 14px/1.2 var(--display); letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); margin: 0; padding-bottom: 6px; border-bottom: 1px solid var(--rule);
+  }
+  dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; }
+  dt { color: var(--muted); }
+  dd { margin: 0; font: 15px var(--data); font-variant-numeric: tabular-nums; text-align: right; }
+  dd .bad { color: var(--double); }
+  .note { margin: 0; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px; }
+  .controls button, .seg button {
+    font: 500 14px var(--display); letter-spacing: .04em; padding: 5px 10px; cursor: pointer;
+    background: var(--surface); color: var(--ink); border: 1px solid var(--rule); border-radius: 3px;
+  }
+  .controls button:hover, .seg button:hover { border-color: var(--accent); }
+  .seg { display: inline-flex; }
+  .seg button { border-radius: 0; }
+  .seg button:first-child { border-radius: 3px 0 0 3px; }
+  .seg button:last-child { border-radius: 0 3px 3px 0; margin-left: -1px; }
+  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+  label.check { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+  .legend { display: grid; gap: 6px; font-size: 14px; }
+  .legend span.sw { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 8px; border-radius: 2px; }
+  .pieces { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2px 10px; font-size: 14px; }
+  .pieces button {
+    display: flex; align-items: center; gap: 8px; background: none; border: 0; padding: 3px 0;
+    color: var(--ink); font: inherit; cursor: pointer; text-align: left; min-width: 0;
+  }
+  .pieces button:hover { color: var(--accent); }
+  .pieces .sw { flex: none; width: 12px; height: 12px; border-radius: 2px; }
+  .joins { max-height: 260px; overflow: auto; font-size: 13px; display: grid; gap: 6px; padding-right: 4px; }
+  .join { display: grid; grid-template-columns: 1fr auto; gap: 0 10px; }
+  .join .who { font-family: var(--display); font-weight: 600; letter-spacing: .02em; font-size: 14px; }
+  .join .km { font: 12px var(--data); color: var(--muted); text-align: right; }
+  .join .why { grid-column: 1 / -1; color: var(--muted); }
+  footer { color: var(--muted); font-size: 14px; max-width: 80ch; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">Expanding Earth · concept, ronde 1</div>
+    <h1 id="headline">Conceptglobes</h1>
+    <p class="lede">De continenten op de kleinere aarde gelegd, op vijf momenten. Welke kust tegen welke ligt komt uit de literatuur; hoe ver ze uit elkaar liggen is de oceaanbodem die op dat moment al bestond. Daarna schuiven de stukken tot ze zo goed mogelijk passen. Sleep om te draaien; de strook onder de globe toont de ware groottes.</p>
+  </header>
+
+  <div class="main">
+    <div class="stage-col">
+      <div class="stage" id="stage">
+        <canvas id="globe" aria-label="Globe van het gekozen moment"></canvas>
+        <svg id="overlay" aria-hidden="true"></svg>
+        <div class="tip" id="tip" hidden></div>
+      </div>
+      <div class="strip" id="strip" role="group" aria-label="Moment"></div>
+    </div>
+
+    <aside>
+      <section>
+        <h2>Dit moment</h2>
+        <dl id="facts"></dl>
+        <p class="note" id="note"></p>
+      </section>
+      <section>
+        <h2>Weergave</h2>
+        <div class="seg" role="group" aria-label="Kleuren">
+          <button id="mode-photo" aria-pressed="true">Foto</button>
+          <button id="mode-pieces" aria-pressed="false">Stukken</button>
+        </div>
+        <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen</label>
+        <div class="controls" id="views"></div>
+        <div class="legend">
+          <div><span class="sw" style="background: var(--double)"></span>Dubbel: twee stukken over elkaar</div>
+          <div><span class="sw" style="background: #17324a"></span>Oceaan, of nog open</div>
+          <div><span class="sw" style="background: #9fb7b8"></span>Plat: continentale korst onder water</div>
+        </div>
+      </section>
+      <section>
+        <h2>Stukken</h2>
+        <div class="pieces" id="pieces"></div>
+      </section>
+      <section>
+        <h2>Aansluitingen op dit moment</h2>
+        <div class="joins" id="joins"></div>
+      </section>
+    </aside>
+  </div>
+
+  <footer id="footer"></footer>
+</div>
+
+<script>
+const CONCEPTS = /*CONCEPTS*/null;
+const PIECES_PNG = "__PIECES__";
+const MARBLE_JPG = "__MARBLE__";
+</script>
+<script>
+(() => {
+  const C = CONCEPTS;
+  const DEG = Math.PI / 180;
+  const N = C.pieces.length;
+  const W = C.width, H = C.height;
+
+  const COLOURS = [
+    [214,160,92],[196,110,84],[222,196,120],[175,140,190],[120,170,160],[230,140,120],
+    [150,190,110],[110,150,200],[200,170,210],[160,200,220],[170,160,150],[140,130,190],
+    [210,130,160],[190,150,100],[130,180,130],[120,160,180],[200,190,160],[180,120,130],
+    [150,170,120],[210,180,110],[160,160,200],[205,150,130],[140,190,170],
+  ];
+
+  // ---------- geometry, the same as tools/build-concepts.ts ----------
+  const dir = (lon, lat) => { const a = lon * DEG, b = lat * DEG, c = Math.cos(b); return [c * Math.cos(a), Math.sin(b), -c * Math.sin(a)]; };
+  const lonLat = (d) => [Math.atan2(-d[2], d[0]) / DEG, Math.asin(Math.max(-1, Math.min(1, d[1]))) / DEG];
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const unit = (a) => { const l = Math.hypot(a[0], a[1], a[2]); return [a[0] / l, a[1] / l, a[2] / l]; };
+  function frame(up) {
+    let e = cross([0, 1, 0], up);
+    if (Math.hypot(e[0], e[1], e[2]) < 1e-9) e = [0, 0, -1];
+    e = unit(e);
+    return { east: e, north: cross(up, e), up };
+  }
+  function from(f, dist, bearing) {
+    const s = Math.sin(dist), n = Math.cos(bearing) * s, e = Math.sin(bearing) * s, u = Math.cos(dist);
+    return [0, 1, 2].map((i) => f.up[i] * u + f.north[i] * n + f.east[i] * e);
+  }
+
+  // Per moment, per piece: today's frame, the frame where it lies, its spin and reach.
+  const placed = C.moments.map((m) => C.pieces.map((p) => {
+    const at = m.place[p.id];
+    const home = frame(dir(p.lon, p.lat));
+    const there = frame(dir(at.lon, at.lat));
+    const reach = 2 * Math.asin(Math.min(1, m.k * Math.sin(p.reach / 2)));
+    return { home, there, spin: (at.spin || 0) * DEG, cosReach: Math.cos(reach) };
+  }));
+  function lookBack(d, q, k) {
+    const u = dot(d, q.there.up), n = dot(d, q.there.north), e = dot(d, q.there.east);
+    const dist = Math.acos(Math.max(-1, Math.min(1, u)));
+    const bearing = Math.atan2(e, n) - q.spin;
+    return from(q.home, 2 * Math.asin(Math.min(1, Math.sin(dist / 2) / k)), bearing);
+  }
+  function forward(p, q, k) {
+    const dist = Math.acos(Math.max(-1, Math.min(1, dot(p, q.home.up))));
+    const bearing = Math.atan2(dot(p, q.home.east), dot(p, q.home.north));
+    return from(q.there, 2 * Math.asin(Math.min(1, k * Math.sin(dist / 2))), bearing + q.spin);
+  }
+
+  // ---------- state ----------
+  const state = { moment: C.moments.length - 1, lon: 20, lat: 0, mode: 0, joins: false };
+  try {
+    const saved = JSON.parse(localStorage.getItem('concept-globes') || 'null');
+    if (saved) Object.assign(state, saved);
+  } catch (e) { /* storage may be unavailable */ }
+  const save = () => { try { localStorage.setItem('concept-globes', JSON.stringify(state)); } catch (e) {} };
+  state.moment = Math.min(state.moment, C.moments.length - 1);
+
+  // ---------- WebGL ----------
+  const canvas = document.getElementById('globe');
+  const gl = canvas.getContext('webgl2', { preserveDrawingBuffer: true, premultipliedAlpha: false, alpha: true });
+  const VERT = `#version 300 es
+  in vec2 aPos; void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
+  const FRAG = `#version 300 es
+  precision highp float; precision highp int; precision highp sampler2D;
+  uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData;
+  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode;
+  uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[24];
+  out vec4 outColour;
+  const float PI = 3.141592653589793;
+  vec4 fetch(int p, int c) { return texelFetch(uData, ivec2(c, uMoment * uCount + p), 0); }
+  ivec2 cellOf(vec3 d) {
+    float u = atan(-d.z, d.x) / (2.0 * PI) + 0.5;
+    float v = acos(clamp(d.y, -1.0, 1.0)) / PI;
+    return ivec2(clamp(int(floor(u * ${W}.0)), 0, ${W - 1}), clamp(int(floor(v * ${H}.0)), 0, ${H - 1}));
+  }
+  void main() {
+    vec2 xy = (gl_FragCoord.xy - uCentre) / uRadius;
+    float rr = dot(xy, xy);
+    if (rr > 1.0) discard;
+    float z = sqrt(1.0 - rr);
+    vec3 d = normalize(uView * vec3(xy, z));
+    int hits = 0; vec3 colour = vec3(0.09, 0.196, 0.29); bool edge = false;
+    for (int p = 0; p < 32; p++) {
+      if (p >= uCount) break;
+      vec3 tu = fetch(p, 2).xyz;
+      vec4 extra = fetch(p, 6);
+      float cu = dot(d, tu);
+      if (cu < extra.x) continue;
+      vec3 te = fetch(p, 0).xyz, tn = fetch(p, 1).xyz;
+      vec3 he = fetch(p, 3).xyz, hn = fetch(p, 4).xyz, hu = fetch(p, 5).xyz;
+      float dist = acos(clamp(cu, -1.0, 1.0));
+      float bearing = atan(dot(d, te), dot(d, tn)) - extra.y;
+      float back = 2.0 * asin(min(1.0, sin(dist * 0.5) / uK));
+      float s = sin(back);
+      vec3 q = hu * cos(back) + (hn * cos(bearing) + he * sin(bearing)) * s;
+      ivec2 cell = cellOf(q);
+      vec4 tex = texelFetch(uPieces, cell, 0);
+      int id = int(tex.r * 255.0 + 0.5);
+      if (id != p + 1) continue;
+      hits++;
+      bool land = tex.g > 0.5;
+      vec3 c;
+      if (uMode == 0) {
+        vec2 uv = (vec2(cell) + 0.5) / vec2(${W}.0, ${H}.0);
+        c = texture(uMarble, uv).rgb;
+        if (!land) c = mix(c, vec3(0.62, 0.72, 0.72), 0.55);
+      } else {
+        c = uColours[p];
+        if (!land) c = mix(c, vec3(0.92), 0.35);
+      }
+      int l = int(texelFetch(uPieces, ivec2((cell.x + 1) % ${W}, cell.y), 0).r * 255.0 + 0.5);
+      int r = int(texelFetch(uPieces, ivec2((cell.x + ${W - 1}) % ${W}, cell.y), 0).r * 255.0 + 0.5);
+      int t = int(texelFetch(uPieces, ivec2(cell.x, max(cell.y - 1, 0)), 0).r * 255.0 + 0.5);
+      int b = int(texelFetch(uPieces, ivec2(cell.x, min(cell.y + 1, ${H - 1})), 0).r * 255.0 + 0.5);
+      if (l != id || r != id || t != id || b != id) edge = true;
+      colour = c;
+    }
+    if (hits > 1) colour = vec3(0.84, 0.15, 0.24);
+    else if (edge) colour *= 0.55;
+    if (hits == 0) {
+      float lon = atan(-d.z, d.x) / PI * 180.0, lat = asin(clamp(d.y, -1.0, 1.0)) / PI * 180.0;
+      float gx = abs(mod(lon + 180.0, 30.0) - 15.0), gy = abs(mod(lat + 90.0, 30.0) - 15.0);
+      if (gx > 14.75 || gy > 14.75) colour = mix(colour, vec3(0.3, 0.42, 0.52), 0.6);
+    }
+    float shade = 0.62 + 0.38 * z;
+    float rim = smoothstep(1.0, 0.985, sqrt(rr));
+    outColour = vec4(colour * shade, rim);
+  }`;
+  function shader(type, src) {
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, shader(gl.VERTEX_SHADER, VERT));
+  gl.attachShader(prog, shader(gl.FRAGMENT_SHADER, FRAG));
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
+  const buf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, buf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1, -1, 1, -1, -1, 1, 1, 1]), gl.STATIC_DRAW);
+  const aPos = gl.getAttribLocation(prog, 'aPos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+  const U = (n) => gl.getUniformLocation(prog, n);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+
+  // Placement data: 8 texels per piece per moment.
+  const data = new Float32Array(8 * 4 * N * C.moments.length);
+  placed.forEach((qs, m) => qs.forEach((q, p) => {
+    const row = (m * N + p) * 32;
+    const put = (c, v) => data.set([v[0], v[1], v[2], v[3] || 0], row + c * 4);
+    put(0, q.there.east); put(1, q.there.north); put(2, q.there.up);
+    put(3, q.home.east); put(4, q.home.north); put(5, q.home.up);
+    put(6, [q.cosReach, q.spin, 0, 0]);
+  }));
+  function texture(unitIndex, setup) {
+    const t = gl.createTexture();
+    gl.activeTexture(gl.TEXTURE0 + unitIndex);
+    gl.bindTexture(gl.TEXTURE_2D, t);
+    setup();
+    return t;
+  }
+  texture(2, () => {
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 8, N * C.moments.length, 0, gl.RGBA, gl.FLOAT, data);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  });
+  gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2);
+  gl.uniform1i(U('uCount'), N);
+  gl.uniform3fv(U('uColours'), new Float32Array(Array.from({ length: 24 }, (_, i) => COLOURS[i % COLOURS.length].map((c) => c / 255)).flat()));
+
+  const load = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
+  let pieceCells = null;
+
+  function viewMatrix() {
+    const f = frame(dir(state.lon, state.lat));
+    return new Float32Array([...f.east, ...f.north, ...f.up]);
+  }
+
+  function draw(m, size, cx, cy) {
+    const scale = C.moments[m].radiusKm / C.r0Km;
+    gl.uniform1i(U('uMoment'), m);
+    gl.uniform1f(U('uK'), C.moments[m].k);
+    gl.uniform1i(U('uMode'), state.mode);
+    gl.uniformMatrix3fv(U('uView'), false, viewMatrix());
+    gl.uniform2f(U('uCentre'), cx, cy);
+    gl.uniform1f(U('uRadius'), size * scale);
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+
+  // ---------- layout ----------
+  const stage = document.getElementById('stage');
+  const overlay = document.getElementById('overlay');
+  const strip = document.getElementById('strip');
+  const thumbs = C.moments.map((m, i) => {
+    const b = document.createElement('button');
+    b.className = 'moment';
+    b.type = 'button';
+    const c = document.createElement('canvas');
+    const px = Math.round(76 * m.radiusKm / C.r0Km);
+    c.width = c.height = px * 2;
+    c.style.width = c.style.height = px + 'px';
+    b.append(c, document.createTextNode(m.ma + ' Ma'));
+    b.addEventListener('click', () => { state.moment = i; render(); save(); });
+    strip.append(b);
+    return { b, c, ctx: c.getContext('2d') };
+  });
+
+  function resize() {
+    const r = stage.getBoundingClientRect();
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    canvas.width = Math.round(r.width * dpr);
+    canvas.height = Math.round(r.height * dpr);
+  }
+
+  function render() {
+    if (!pieceCells) return;
+    const big = canvas.width / 2 * 0.94 / (C.moments[state.moment].radiusKm / C.r0Km);
+    gl.viewport(0, 0, canvas.width, canvas.height);
+    // The thumbnails first, drawn into a corner and copied out.
+    thumbs.forEach((t, i) => {
+      gl.clearColor(0, 0, 0, 0);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      const s = 76 * 2 / 2;
+      draw(i, s, s, s);
+      t.ctx.clearRect(0, 0, t.c.width, t.c.height);
+      const px = t.c.width;
+      t.ctx.drawImage(canvas, s - px / 2, canvas.height - s - px / 2, px, px, 0, 0, px, px);
+      t.b.setAttribute('aria-pressed', String(i === state.moment));
+    });
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    draw(state.moment, big, canvas.width / 2, canvas.height / 2);
+    drawOverlay(big);
+    describe();
+  }
+
+  // Today's Earth as a ring, and the joins as lines between their two margins.
+  function drawOverlay(big) {
+    const r = stage.getBoundingClientRect();
+    const k = r.width / canvas.width;
+    const R = big * k;
+    const m = C.moments[state.moment];
+    const scale = m.radiusKm / C.r0Km;
+    const cx = r.width / 2, cy = r.height / 2;
+    let svg = '';
+    if (state.joins) {
+      const f = frame(dir(state.lon, state.lat));
+      const project = (d) => {
+        const z = dot(d, f.up);
+        return [cx + dot(d, f.east) * R * scale, cy - dot(d, f.north) * R * scale, z];
+      };
+      for (const j of C.joins) {
+        const pa = C.pieces.findIndex((p) => p.id === j.pieceA);
+        const pb = C.pieces.findIndex((p) => p.id === j.pieceB);
+        const a = forward(dir(j.a[0], j.a[1]), placed[state.moment][pa], m.k);
+        const b = forward(dir(j.b[0], j.b[1]), placed[state.moment][pb], m.k);
+        const A = project(a), B = project(b);
+        if (A[2] < 0 && B[2] < 0) continue;
+        const op = A[2] < 0 || B[2] < 0 ? 0.35 : 1;
+        svg += `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="#ffd166" stroke-width="1.6" opacity="${op}"></line>`;
+        svg += `<circle cx="${A[0]}" cy="${A[1]}" r="2.6" fill="#ffd166" opacity="${op}"></circle><circle cx="${B[0]}" cy="${B[1]}" r="2.6" fill="#ffd166" opacity="${op}"></circle>`;
+      }
+    }
+    overlay.innerHTML = svg;
+  }
+
+  const fmt = (n, d = 0) => n.toLocaleString('nl-NL', { minimumFractionDigits: d, maximumFractionDigits: d });
+  function describe() {
+    const m = C.moments[state.moment];
+    document.getElementById('headline').innerHTML =
+      `${m.ma} Ma <span class="sub">· straal ${fmt(m.radiusKm)} km</span>`;
+    const facts = [
+      ['Straal', `${fmt(m.radiusKm)} km`],
+      ['Van de straal nu', `${fmt(100 * m.radiusKm / C.r0Km)}%`],
+      ['Oceaan volgens de leeftijdskaart', `${fmt(100 * m.oceanLeft, 1)}%`],
+      ['Open op deze globe', `${fmt(100 * m.stats.gap, 1)}%`],
+      ['Dubbel', `<span class="${m.stats.overlap > 0.02 ? 'bad' : ''}">${fmt(100 * m.stats.overlap, 1)}%</span>`],
+      ['Randen teruggekrompen', `${fmt(100 * (1 - m.shrink), 1)}%`],
+    ];
+    document.getElementById('facts').innerHTML = facts.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
+    document.getElementById('note').textContent = m.note || '';
+    const rows = C.joins
+      .map((j) => ({ j, gap: j.gapKm[m.ma] ?? 0, off: (m.joinOff || {})[C.joins.indexOf(j)] }))
+      .filter(() => state.moment > 0)
+      .sort((a, b) => Math.abs(b.off || 0) - Math.abs(a.off || 0));
+    const name = (id) => C.pieces.find((p) => p.id === id).name;
+    document.getElementById('joins').innerHTML = state.moment === 0
+      ? '<div class="why">Vandaag: elke aansluiting staat op zijn huidige afstand.</div>'
+      : rows.map(({ j, gap, off }) => `<div class="join"><span class="who">${name(j.pieceA)} – ${name(j.pieceB)}</span>` +
+        `<span class="km">${gap < 1 ? 'tegen elkaar' : fmt(gap) + ' km oceaan'} · ${off == null || Math.abs(off) < 100 ? 'klopt' : off > 0 ? fmt(off) + ' km te ver' : fmt(-off) + ' km te dicht'}</span>` +
+        `<span class="why">${j.why}</span></div>`).join('');
+  }
+
+  // ---------- interaction ----------
+  let dragging = null;
+  stage.addEventListener('pointerdown', (e) => {
+    dragging = { x: e.clientX, y: e.clientY, lon: state.lon, lat: state.lat };
+    stage.setPointerCapture(e.pointerId);
+  });
+  stage.addEventListener('pointermove', (e) => {
+    if (dragging) {
+      const r = stage.getBoundingClientRect();
+      const per = 180 / (Math.PI * r.width / 2 * 0.94);
+      state.lon = dragging.lon - (e.clientX - dragging.x) * per;
+      state.lat = Math.max(-89.5, Math.min(89.5, dragging.lat + (e.clientY - dragging.y) * per));
+      requestRender();
+      return;
+    }
+    hover(e);
+  });
+  const end = () => { if (dragging) { dragging = null; save(); } };
+  stage.addEventListener('pointerup', end);
+  stage.addEventListener('pointercancel', end);
+  stage.addEventListener('pointerleave', () => { document.getElementById('tip').hidden = true; });
+
+  let pending = false;
+  function requestRender() {
+    if (pending) return;
+    pending = true;
+    requestAnimationFrame(() => { pending = false; render(); });
+  }
+
+  function hover(e) {
+    const tip = document.getElementById('tip');
+    const r = stage.getBoundingClientRect();
+    const m = C.moments[state.moment];
+    const R = r.width / 2 * 0.94;
+    const x = (e.clientX - r.left - r.width / 2) / R;
+    const y = -(e.clientY - r.top - r.height / 2) / R;
+    if (x * x + y * y > 1) { tip.hidden = true; return; }
+    const z = Math.sqrt(1 - x * x - y * y);
+    const f = frame(dir(state.lon, state.lat));
+    const d = [0, 1, 2].map((i) => f.east[i] * x + f.north[i] * y + f.up[i] * z);
+    const names = [];
+    placed[state.moment].forEach((q, p) => {
+      if (dot(d, q.there.up) < q.cosReach) return;
+      const [lon, lat] = lonLat(lookBack(d, q, m.k));
+      const cx = Math.min(W - 1, Math.floor((lon + 180) / 360 * W));
+      const cy = Math.min(H - 1, Math.floor((90 - lat) / 180 * H));
+      if (pieceCells[cy * W + cx] === p + 1) names.push({ p, lon, lat });
+    });
+    const [lon, lat] = lonLat(d);
+    tip.innerHTML = (names.length
+      ? names.map((n) => `<b>${C.pieces[n.p].name}</b> <span class="num">vandaag ${fmt(n.lat, 1)}°, ${fmt(n.lon, 1)}°</span>`).join('<br>')
+      : '<b>Oceaan</b>') + `<br><span class="num">hier ${fmt(lat, 1)}°, ${fmt(lon, 1)}°</span>`;
+    tip.style.left = (e.clientX - r.left) + 'px';
+    tip.style.top = (e.clientY - r.top) + 'px';
+    tip.hidden = false;
+  }
+
+  const VIEWS = [['Afrika', 20, 0], ['Azië', 100, 25], ['Stille Oceaan', -170, 0], ["Amerika's", -80, 10], ['Zuidpool', 0, -89.5], ['Noordpool', 0, 89.5]];
+  const views = document.getElementById('views');
+  for (const [label, lon, lat] of VIEWS) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.addEventListener('click', () => { state.lon = lon; state.lat = lat; render(); save(); });
+    views.append(b);
+  }
+  const modes = [document.getElementById('mode-photo'), document.getElementById('mode-pieces')];
+  modes.forEach((b, i) => b.addEventListener('click', () => {
+    state.mode = i;
+    modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === i)));
+    render(); save();
+  }));
+  modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === state.mode)));
+  const joinsBox = document.getElementById('show-joins');
+  joinsBox.checked = state.joins;
+  joinsBox.addEventListener('change', () => { state.joins = joinsBox.checked; render(); save(); });
+
+  const list = document.getElementById('pieces');
+  C.pieces.forEach((p, i) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    const c = COLOURS[i % COLOURS.length];
+    b.innerHTML = `<span class="sw" style="background: rgb(${c.join(',')})"></span><span>${p.name}</span>`;
+    b.addEventListener('click', () => {
+      const at = C.moments[state.moment].place[p.id];
+      state.lon = at.lon; state.lat = Math.max(-89.5, Math.min(89.5, at.lat));
+      render(); save();
+    });
+    list.append(b);
+  });
+
+  document.getElementById('footer').textContent =
+    'Elk stuk houdt zijn oppervlak; op een kleinere bol kan het zijn vorm niet houden, dus de randen van de grote stukken zijn wat samengedrukt langs de rand en uitgerekt naar buiten. ' +
+    'Alle stukken krimpen per moment even veel: wat het model zegt dat de uitgerekte randen toen nog niet waren. ' +
+    'Afrika ligt vast; de rest schuift om de aansluitingen zo dicht mogelijk te benaderen zonder over elkaar te liggen. Waar dat niet lukt, staat het rood, en in de lijst staat welke aansluiting het verst af zit.';
+
+  Promise.all([load(MARBLE_JPG), load(PIECES_PNG)]).then(([marble, pieces]) => {
+    texture(0, () => {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, marble);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    });
+    texture(1, () => {
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pieces);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    });
+    const c2 = document.createElement('canvas');
+    c2.width = W; c2.height = H;
+    const x2 = c2.getContext('2d', { willReadFrequently: true });
+    x2.drawImage(pieces, 0, 0);
+    const px = x2.getImageData(0, 0, W, H).data;
+    pieceCells = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) pieceCells[i] = px[i * 4];
+    resize();
+    render();
+  });
+  new ResizeObserver(() => { resize(); requestRender(); }).observe(stage);
+})();
+</script>
