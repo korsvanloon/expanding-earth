@@ -123,6 +123,9 @@
   .edit .name small { font: 500 13px var(--data); color: var(--muted); margin-left: 6px; letter-spacing: 0; }
   .edit .coords { font: 13px var(--data); color: var(--muted); font-variant-numeric: tabular-nums; }
   .edit .hint { font-size: 14px; color: var(--muted); margin: 0; }
+  .keys { font-size: 14px; color: var(--muted); }
+  label.check kbd, .keys kbd, .controls kbd, .seg kbd { font: 11px var(--data); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; color: var(--muted); background: var(--ground); }
+  .seg button[aria-pressed="true"] kbd, .controls button[aria-pressed="true"] kbd { color: var(--surface); background: transparent; border-color: currentColor; }
   .edit kbd { font: 12px var(--data); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; background: var(--ground); }
   .status { font: 12px var(--data); color: var(--muted); }
   .status.bad { color: var(--double); }
@@ -167,11 +170,14 @@
       <section>
         <h2>Weergave</h2>
         <div class="seg" role="group" aria-label="Kleuren">
-          <button type="button" id="mode-photo" aria-pressed="true">Foto</button>
-          <button type="button" id="mode-pieces" aria-pressed="false">Stukken</button>
+          <button type="button" id="mode-photo" aria-pressed="true" title="K wisselt">Foto</button>
+          <button type="button" id="mode-pieces" aria-pressed="false" title="K wisselt">Stukken</button>
         </div>
-        <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen</label>
-        <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen</label>
+        <span class="keys">Kleuren wisselen: <kbd>K</kbd></span>
+        <label class="check"><input type="checkbox" id="show-overlap" checked> Overlap arceren <kbd>O</kbd></label>
+        <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen <kbd>A</kbd></label>
+        <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen <kbd>B</kbd></label>
+        <span class="keys">Moment kiezen: <kbd>1</kbd> tot <kbd>5</kbd></span>
         <div class="controls" id="views"></div>
         <div class="legend">
           <div><span class="sw" style="background: repeating-linear-gradient(-45deg, var(--double) 0 3px, transparent 3px 7px)"></span>Dubbel: twee stukken over elkaar, het hoogste land erdoorheen</div>
@@ -313,7 +319,7 @@ const MARBLE_JPG = "__MARBLE__";
   }
 
   // ---------- state ----------
-  const state = { moment: M - 1, lon: 20, lat: 0, mode: 0, joins: false, motion: false, tool: 'move' };
+  const state = { moment: M - 1, lon: 20, lat: 0, mode: 0, joins: false, motion: false, overlap: true, tool: 'move' };
   try {
     const saved = JSON.parse(localStorage.getItem('concept-globes') || 'null');
     if (saved) Object.assign(state, saved);
@@ -333,7 +339,7 @@ const MARBLE_JPG = "__MARBLE__";
   const FRAG = `#version 300 es
   precision highp float; precision highp int; precision highp sampler2D;
   uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData;
-  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen;
+  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap;
   uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[64];
   out vec4 outColour;
   const float PI = 3.141592653589793;
@@ -393,7 +399,7 @@ const MARBLE_JPG = "__MARBLE__";
       }
       if (tex.b > topHeight) { topHeight = tex.b; colour = c; topRim = rim; }
     }
-    if (hits > 1) {
+    if (hits > 1 && uShowOverlap == 1) {
       // Thick diagonal stripes with clear ground between them, so what lies
       // underneath can be read and the overlap still be told; a faint wash
       // keeps the patch reading as one.
@@ -489,6 +495,7 @@ const MARBLE_JPG = "__MARBLE__";
     gl.uniform1f(U('uK'), C.moments[mi].k);
     gl.uniform1i(U('uMode'), state.mode);
     gl.uniform1i(U('uShowChosen'), showChosen ? 1 : 0);
+    gl.uniform1i(U('uShowOverlap'), state.overlap ? 1 : 0);
     gl.uniformMatrix3fv(U('uView'), false, new Float32Array([...f.east, ...f.north, ...f.up]));
     gl.uniform2f(U('uCentre'), cx, cy);
     gl.uniform1f(U('uRadius'), globeRadius);
@@ -626,7 +633,7 @@ const MARBLE_JPG = "__MARBLE__";
 
   function describeEdit() {
     const box = document.getElementById('edit');
-    const manyButton = `<button type="button" data-many aria-pressed="${many}">Meerdere kiezen</button>`;
+    const manyButton = `<button type="button" data-many aria-pressed="${many}">Meerdere kiezen <kbd>M</kbd></button>`;
     if (!chosen.size) {
       box.innerHTML = `<p class="hint">Klik een stuk op de globe of in de lijst om het te kiezen; <kbd>Ctrl</kbd>-klik voegt er een toe of haalt het eruit. Sleep om te verplaatsen; <kbd>Shift</kbd>-slepen draait. Fijn werk: pijltjes verplaatsen, <kbd>[</kbd> <kbd>]</kbd> draaien, <kbd>Esc</kbd> laat los.</p>
         <div class="controls">${manyButton}</div>`;
@@ -649,7 +656,7 @@ const MARBLE_JPG = "__MARBLE__";
     box.innerHTML = `${head}
       <div class="seg" role="group" aria-label="Slepen doet">
         <button type="button" data-tool="move" aria-pressed="${state.tool === 'move'}">Verplaatsen</button>
-        <button type="button" data-tool="rotate" aria-pressed="${state.tool === 'rotate'}">Draaien</button>
+        <button type="button" data-tool="rotate" aria-pressed="${state.tool === 'rotate'}">Draaien <kbd>D</kbd></button>
       </div>
       <div class="controls">
         <button type="button" data-spin="-5">↺ 5°</button>
@@ -851,7 +858,19 @@ const MARBLE_JPG = "__MARBLE__";
     commit();
   });
   document.addEventListener('keydown', (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); }
+    if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // One key for every switch on the page.
+    const key = e.key.toLowerCase();
+    if (key === 'o') { overlapBox.click(); }
+    else if (key === 'a') { joinsBox.click(); }
+    else if (key === 'b') { motionBox.click(); }
+    else if (key === 'k') { modes[state.mode === 0 ? 1 : 0].click(); }
+    else if (key === 'm') { many = !many; describeEdit(); }
+    else if (key === 'd') { state.tool = state.tool === 'rotate' ? 'move' : 'rotate'; save(); describeEdit(); }
+    else if (key >= '1' && key <= String(M)) { state.moment = Number(key) - 1; render(); save(); }
+    else return;
+    e.preventDefault();
   });
   function undo() {
     const last = undoStack.pop();
@@ -995,6 +1014,9 @@ const MARBLE_JPG = "__MARBLE__";
     render(); save();
   }));
   modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === state.mode)));
+  const overlapBox = document.getElementById('show-overlap');
+  overlapBox.checked = state.overlap;
+  overlapBox.addEventListener('change', () => { state.overlap = overlapBox.checked; thumbsDirty = true; render(); save(); });
   const motionBox = document.getElementById('show-motion');
   motionBox.checked = state.motion;
   motionBox.addEventListener('change', () => { state.motion = motionBox.checked; render(); save(); });
