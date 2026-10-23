@@ -123,6 +123,8 @@ async function main() {
     }
   }
 
+  tidyPieces(piece)
+
   const rowWeight = (y: number) => age.rowWeight(y)
   let sphere = 0
   for (let y = 0; y < H; y++) sphere += rowWeight(y) * W
@@ -284,6 +286,97 @@ async function main() {
     writeFileSync(resolve(OUT, 'index.html'), page)
   }
   console.log(`[concepts] wrote ${OUT}`)
+}
+
+/**
+ * A piece is one body of crust, not whatever its outline happened to hold.
+ *
+ * An outline claims every continental cell inside it that no earlier outline
+ * took, so the last piece of a cut -- the shield, Europe, Indochina -- also
+ * picks up every scrap the smaller outlines just missed: a rim of Greenland,
+ * the edge of Cyprus, a few cells of the Caribbean. Those are the cut being
+ * sloppy, not geology.
+ *
+ * So each piece keeps its largest connected body and any other body at least a
+ * quarter its size (an island chain is several bodies of a size); every other
+ * scrap goes to whichever kept body is nearest across the grid, its own piece's
+ * included, so a small island next to the rest of its arc stays with it.
+ */
+function tidyPieces(piece: Uint8Array) {
+  const component = new Int32Array(W * H).fill(-1)
+  const bodies: { piece: number; cells: number[] }[] = []
+  const around = (i: number) => {
+    const x = i % W
+    const y = (i / W) | 0
+    const out: number[] = []
+    for (let dy = -1; dy <= 1; dy++) {
+      const ny = y + dy
+      if (ny < 0 || ny >= H) continue
+      for (let dx = -1; dx <= 1; dx++) if (dx || dy) out.push(ny * W + ((x + dx + W) % W))
+    }
+    return out
+  }
+  for (let start = 0; start < W * H; start++) {
+    if (!piece[start] || component[start] >= 0) continue
+    const id = bodies.length
+    const cells = [start]
+    component[start] = id
+    for (let k = 0; k < cells.length; k++) {
+      for (const j of around(cells[k])) {
+        if (piece[j] === piece[start] && component[j] < 0) {
+          component[j] = id
+          cells.push(j)
+        }
+      }
+    }
+    bodies.push({ piece: piece[start], cells })
+  }
+  const largest = new Map<number, number>()
+  for (const b of bodies) largest.set(b.piece, Math.max(largest.get(b.piece) ?? 0, b.cells.length))
+  const kept = bodies.map((b) => b.cells.length * 4 >= largest.get(b.piece)!)
+
+  // Nearest kept body for every cell of the grid, by a breadth-first flood.
+  const nearest = new Uint8Array(W * H)
+  const queue: number[] = []
+  bodies.forEach((b, id) => {
+    if (!kept[id]) return
+    for (const c of b.cells) {
+      nearest[c] = b.piece
+      queue.push(c)
+    }
+  })
+  for (let k = 0; k < queue.length; k++) {
+    for (const j of around(queue[k])) {
+      if (!nearest[j]) {
+        nearest[j] = nearest[queue[k]]
+        queue.push(j)
+      }
+    }
+  }
+  let moved = 0
+  const moves = new Map<string, number>()
+  bodies.forEach((b, id) => {
+    if (kept[id]) return
+    const votes = new Map<number, number>()
+    for (const c of b.cells) {
+      // The scrap's own cells are not seeds; ask the cells just outside it.
+      for (const j of around(c)) {
+        if (component[j] === id) continue
+        const label = nearest[j]
+        if (label) votes.set(label, (votes.get(label) ?? 0) + 1)
+      }
+    }
+    const best = [...votes].sort((x, y) => y[1] - x[1])[0]
+    if (!best || best[0] === b.piece) return
+    for (const c of b.cells) piece[c] = best[0]
+    moved += b.cells.length
+    const key = `${CONCEPT_PIECES[b.piece - 1].id}>${CONCEPT_PIECES[best[0] - 1].id}`
+    moves.set(key, (moves.get(key) ?? 0) + b.cells.length)
+  })
+  console.log(
+    `[concepts] ${moved} cells in scraps handed to the piece they lie against: ` +
+      [...moves].sort((x, y) => y[1] - x[1]).slice(0, 14).map(([k, n]) => `${k} ${n}`).join(', '),
+  )
 }
 
 function reportLeftovers(
