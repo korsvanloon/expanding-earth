@@ -59,6 +59,8 @@
   }
   .stage:active { cursor: grabbing; }
   .stage.over-piece { cursor: move; }
+  .stage:focus { outline: none; }
+  .stage:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
   .stage canvas, .stage svg { position: absolute; inset: 0; width: 100%; height: 100%; }
   .stage svg { pointer-events: none; overflow: visible; }
   .tip {
@@ -99,7 +101,7 @@
   .seg button { border-radius: 0; }
   .seg button:first-child { border-radius: 3px 0 0 3px; }
   .seg button:last-child { border-radius: 0 3px 3px 0; margin-left: -1px; }
-  .seg button[aria-pressed="true"] { background: var(--accent); color: var(--surface); border-color: var(--accent); }
+  .seg button[aria-pressed="true"], .controls button[aria-pressed="true"] { background: var(--accent); color: var(--surface); border-color: var(--accent); }
   label.check { display: flex; gap: 8px; align-items: center; cursor: pointer; }
   .legend { display: grid; gap: 6px; font-size: 14px; }
   .legend span.sw { display: inline-block; width: 14px; height: 14px; vertical-align: -2px; margin-right: 8px; border-radius: 2px; }
@@ -318,7 +320,10 @@ const MARBLE_JPG = "__MARBLE__";
   } catch (e) { /* storage may be unavailable */ }
   const save = () => { try { localStorage.setItem('concept-globes', JSON.stringify(state)); } catch (e) {} };
   state.moment = Math.min(state.moment, M - 1);
-  let selected = -1;
+  /** The pieces picked up, by index; moved and turned together as one. */
+  const chosen = new Set();
+  /** On a touch screen there is no Ctrl: this makes every tap add or remove. */
+  let many = false;
 
   // ---------- WebGL ----------
   const canvas = document.getElementById('globe');
@@ -328,7 +333,7 @@ const MARBLE_JPG = "__MARBLE__";
   const FRAG = `#version 300 es
   precision highp float; precision highp int; precision highp sampler2D;
   uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData;
-  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uSelected;
+  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen;
   uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[64];
   out vec4 outColour;
   const float PI = 3.141592653589793;
@@ -377,7 +382,7 @@ const MARBLE_JPG = "__MARBLE__";
       }
       bool rim = idAt(ivec2((cell.x + 1) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 1}) % ${W}, cell.y)) != id
         || idAt(ivec2(cell.x, max(cell.y - 1, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 1, ${H - 1}))) != id;
-      if (p == uSelected) {
+      if (uShowChosen == 1 && extra.w > 0.5) {
         chosen = true;
         bool wide = idAt(ivec2((cell.x + 2) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 2}) % ${W}, cell.y)) != id
           || idAt(ivec2(cell.x, max(cell.y - 2, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 2, ${H - 1}))) != id;
@@ -428,7 +433,7 @@ const MARBLE_JPG = "__MARBLE__";
     const put = (c, v) => data.set([v[0], v[1], v[2], v[3] || 0], row + c * 4);
     put(0, q.there.east); put(1, q.there.north); put(2, q.there.up);
     put(3, q.home.east); put(4, q.home.north); put(5, q.home.up);
-    put(6, [q.cosReach, q.spin, C.pieces[p].fold ? 1 : 0, 0]);
+    put(6, [q.cosReach, q.spin, C.pieces[p].fold ? 1 : 0, chosen.has(p) ? 1 : 0]);
   }
   for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) packRow(mi, p);
   function texture(unitIndex, setup) {
@@ -452,6 +457,13 @@ const MARBLE_JPG = "__MARBLE__";
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, 8, 1, gl.RGBA, gl.FLOAT, data.subarray(row * 32, row * 32 + 32));
   }
+  /** The chosen pieces changed: mark them in every moment's texels. */
+  function markChosen() {
+    for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) data[(mi * N + p) * 32 + 27] = chosen.has(p) ? 1 : 0;
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 8, N * M, gl.RGBA, gl.FLOAT, data);
+  }
   gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2);
   gl.uniform1i(U('uCount'), N);
   gl.uniform3fv(U('uColours'), new Float32Array(Array.from({ length: 64 }, (_, i) => COLOURS[i % COLOURS.length].map((c) => c / 255)).flat()));
@@ -460,12 +472,12 @@ const MARBLE_JPG = "__MARBLE__";
 
   function viewFrame() { return frame(dir(state.lon, state.lat)); }
 
-  function draw(mi, globeRadius, cx, cy, chosen) {
+  function draw(mi, globeRadius, cx, cy, showChosen) {
     const f = viewFrame();
     gl.uniform1i(U('uMoment'), mi);
     gl.uniform1f(U('uK'), C.moments[mi].k);
     gl.uniform1i(U('uMode'), state.mode);
-    gl.uniform1i(U('uSelected'), chosen);
+    gl.uniform1i(U('uShowChosen'), showChosen ? 1 : 0);
     gl.uniformMatrix3fv(U('uView'), false, new Float32Array([...f.east, ...f.north, ...f.up]));
     gl.uniform2f(U('uCentre'), cx, cy);
     gl.uniform1f(U('uRadius'), globeRadius);
@@ -509,7 +521,7 @@ const MARBLE_JPG = "__MARBLE__";
         gl.clear(gl.COLOR_BUFFER_BIT);
         const px = t.c.width;
         const s = THUMB;
-        draw(i, px / 2, s, s, -1);
+        draw(i, px / 2, s, s, false);
         t.ctx.clearRect(0, 0, px, px);
         t.ctx.drawImage(canvas, s - px / 2, canvas.height - s - px / 2, px, px, 0, 0, px, px);
       });
@@ -518,7 +530,7 @@ const MARBLE_JPG = "__MARBLE__";
     thumbs.forEach((t, i) => t.b.setAttribute('aria-pressed', String(i === state.moment)));
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    draw(state.moment, canvas.width / 2 * 0.94, canvas.width / 2, canvas.height / 2, selected);
+    draw(state.moment, canvas.width / 2 * 0.94, canvas.width / 2, canvas.height / 2, true);
     drawOverlay();
     if (!gesture || gesture.kind === 'view') describe();
   }
@@ -587,7 +599,8 @@ const MARBLE_JPG = "__MARBLE__";
       (grown ? ` Eerste opzet, doorgetrokken uit jouw ${laid} Ma: elke stap van een stuk tussen die twee loopt door, en alleen wat over elkaar ligt is wat uit elkaar geduwd. Nog met de hand af te maken.` : '');
     const rows = C.joins.map((j, i) => ({ j, gap: j.gapKm[m.ma] ?? 0, off: st.off[i] }))
       .sort((a, b) => Math.abs(b.off) - Math.abs(a.off));
-    const touchesChosen = (j) => selected >= 0 && (j.pieceA === C.pieces[selected].id || j.pieceB === C.pieces[selected].id);
+    const chosenIds = new Set([...chosen].map((p) => C.pieces[p].id));
+    const touchesChosen = (j) => chosenIds.has(j.pieceA) || chosenIds.has(j.pieceB);
     document.getElementById('joins').innerHTML = mi === 0
       ? '<div class="why">Vandaag: elke aansluiting staat op zijn huidige afstand.</div>'
       : rows.map(({ j, gap, off }) => `<div class="join${touchesChosen(j) ? ' moved' : ''}"><span class="who">${nameOf(j.pieceA)} – ${nameOf(j.pieceB)}</span>` +
@@ -601,15 +614,27 @@ const MARBLE_JPG = "__MARBLE__";
 
   function describeEdit() {
     const box = document.getElementById('edit');
-    if (selected < 0) {
-      box.innerHTML = `<p class="hint">Klik een stuk op de globe of in de lijst om het te kiezen. Sleep het om het te verplaatsen; <kbd>Shift</kbd>-slepen draait het. Fijn werk: pijltjes verplaatsen, <kbd>[</kbd> <kbd>]</kbd> draaien, <kbd>Esc</kbd> laat los.</p>`;
+    const manyButton = `<button type="button" data-many aria-pressed="${many}">Meerdere kiezen</button>`;
+    if (!chosen.size) {
+      box.innerHTML = `<p class="hint">Klik een stuk op de globe of in de lijst om het te kiezen; <kbd>Ctrl</kbd>-klik voegt er een toe of haalt het eruit. Sleep om te verplaatsen; <kbd>Shift</kbd>-slepen draait. Fijn werk: pijltjes verplaatsen, <kbd>[</kbd> <kbd>]</kbd> draaien, <kbd>Esc</kbd> laat los.</p>
+        <div class="controls">${manyButton}</div>`;
+      box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
       return;
     }
-    const id = C.pieces[selected].id;
-    const at = placementOf(state.moment, id);
-    const mine = Boolean(edits[state.moment][id]);
-    box.innerHTML = `<div class="name">${C.pieces[selected].name}<small>${mine ? 'door jou verlegd' : 'berekend'}</small></div>
-      <div class="coords">midden ${fmt(at.lat, 1)}°, ${fmt(at.lon, 1)}° · gedraaid ${fmt(at.spin || 0, 1)}°</div>
+    const ids = [...chosen].map((p) => C.pieces[p].id);
+    const mine = ids.filter((id) => edits[state.moment][id]).length;
+    let head;
+    if (chosen.size === 1) {
+      const p = [...chosen][0];
+      const at = placementOf(state.moment, ids[0]);
+      head = `<div class="name">${C.pieces[p].name}<small>${mine ? 'door jou verlegd' : 'berekend'}</small></div>
+        <div class="coords">midden ${fmt(at.lat, 1)}°, ${fmt(at.lon, 1)}° · gedraaid ${fmt(at.spin || 0, 1)}°</div>`;
+    } else {
+      head = `<div class="name">${chosen.size} stukken<small>${mine} door jou verlegd</small></div>
+        <div class="coords">${[...chosen].map((p) => C.pieces[p].name).join(', ')}</div>
+        <p class="hint">Ze bewegen samen en draaien om hun gezamenlijke midden.</p>`;
+    }
+    box.innerHTML = `${head}
       <div class="seg" role="group" aria-label="Slepen doet">
         <button type="button" data-tool="move" aria-pressed="${state.tool === 'move'}">Verplaatsen</button>
         <button type="button" data-tool="rotate" aria-pressed="${state.tool === 'rotate'}">Draaien</button>
@@ -619,29 +644,40 @@ const MARBLE_JPG = "__MARBLE__";
         <button type="button" data-spin="-1">↺ 1°</button>
         <button type="button" data-spin="1">↻ 1°</button>
         <button type="button" data-spin="5">↻ 5°</button>
+      </div>
+      <div class="controls">
+        ${manyButton}
         <button type="button" data-reset>Terug naar berekend</button>
+        <button type="button" data-drop>Loslaten</button>
       </div>`;
     box.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => { state.tool = b.dataset.tool; save(); describeEdit(); }));
+    box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
     box.querySelectorAll('[data-spin]').forEach((b) => b.addEventListener('click', () => {
-      const before = placementOf(state.moment, id);
-      setPlacement(state.moment, id, { ...before, spin: wrap180((before.spin || 0) + Number(b.dataset.spin)) }, before);
+      spinGroup(Number(b.dataset.spin));
       commit();
     }));
     box.querySelector('[data-reset]').addEventListener('click', () => {
-      if (!edits[state.moment][id]) return;
-      undoStack.push({ mi: state.moment, id, before: edits[state.moment][id] });
-      delete edits[state.moment][id];
-      replace(state.moment, selected);
+      const mi = state.moment;
+      const theirs = ids.filter((id) => edits[mi][id]);
+      if (!theirs.length) return;
+      pushUndo(mi, theirs);
+      for (const id of theirs) { delete edits[mi][id]; replace(mi, indexOf(id)); }
       commit();
     });
+    box.querySelector('[data-drop]').addEventListener('click', () => { choose([]); render(); });
   }
 
   // ---------- editing ----------
+  const indexOf = (id) => C.pieces.findIndex((p) => p.id === id);
+  function choose(list) { chosen.clear(); for (const p of list) chosen.add(p); markChosen(); }
+  function toggle(p) { if (chosen.has(p)) chosen.delete(p); else chosen.add(p); markChosen(); }
+
+  /** One entry per gesture, however many pieces it moved. */
   const undoStack = [];
-  function setPlacement(mi, id, next, before) {
-    if (before !== undefined) undoStack.push({ mi, id, before: edits[mi][id] });
+  function pushUndo(mi, ids) { undoStack.push({ mi, items: ids.map((id) => ({ id, before: edits[mi][id] })) }); }
+  function put(mi, id, next) {
     edits[mi][id] = { lat: +next.lat.toFixed(3), lon: +wrap180(next.lon).toFixed(3), spin: +wrap180(next.spin || 0).toFixed(2) };
-    replace(mi, C.pieces.findIndex((p) => p.id === id));
+    replace(mi, indexOf(id));
   }
   /** After a gesture: measure again, redraw everything, keep it. */
   function commit() {
@@ -661,6 +697,28 @@ const MARBLE_JPG = "__MARBLE__";
     const f = frame(up);
     const [lon, lat] = lonLat(up);
     return { lat, lon, spin: Math.atan2(dot(h, f.east), dot(h, f.north)) / DEG };
+  }
+
+  /** The chosen pieces as they lie now, ready to be turned together. */
+  function group() {
+    const mi = state.moment;
+    const items = [...chosen].map((p) => {
+      const id = C.pieces[p].id;
+      return { id, before: edits[mi][id], ...headingOf(placementOf(mi, id)), share: C.pieces[p].share };
+    });
+    const sum = [0, 0, 0];
+    for (const it of items) for (let i = 0; i < 3; i++) sum[i] += it.up[i] * it.share;
+    return { items, centre: unit(sum) };
+  }
+  /** Turn every piece of a group about one axis through the centre of the Earth. */
+  function turnGroup(g, axis, angle) {
+    for (const it of g.items) put(state.moment, it.id, fromHeading(turn(it.up, axis, angle), turn(it.h, axis, angle)));
+  }
+  /** Turn the chosen pieces about their common centre, degrees clockwise from outside. */
+  function spinGroup(degrees) {
+    const g = group();
+    pushUndo(state.moment, g.items.map((it) => it.id));
+    turnGroup(g, g.centre, -degrees * DEG);
   }
 
   // ---------- interaction ----------
@@ -691,17 +749,14 @@ const MARBLE_JPG = "__MARBLE__";
     if (!pieceCells) return;
     const d = pointOn(e, false);
     const under = d ? piecesAt(d, state.moment) : [];
-    const onChosen = selected >= 0 && under.includes(selected);
-    gesture = { x: e.clientX, y: e.clientY, moved: false, under };
-    if (onChosen) {
-      const id = C.pieces[selected].id;
-      const before = placementOf(state.moment, id);
+    const additive = e.ctrlKey || e.metaKey || many;
+    gesture = { x: e.clientX, y: e.clientY, moved: false, under, additive: additive || e.shiftKey };
+    if (under.some((p) => chosen.has(p)) && !additive) {
+      const g = group();
       gesture.kind = e.shiftKey || e.altKey || state.tool === 'rotate' ? 'rotate' : 'move';
-      gesture.id = id;
-      gesture.before = before;
+      gesture.group = g;
       gesture.start = d;
-      gesture.heading = headingOf(before);
-      gesture.centre = screenOf(dir(before.lon, before.lat));
+      gesture.centre = screenOf(g.centre);
     } else {
       gesture.kind = 'view';
       gesture.lon = state.lon;
@@ -720,22 +775,18 @@ const MARBLE_JPG = "__MARBLE__";
       state.lon = gesture.lon - (e.clientX - gesture.x) * per;
       state.lat = Math.max(-89.5, Math.min(89.5, gesture.lat + (e.clientY - gesture.y) * per));
     } else if (gesture.kind === 'move') {
+      // The whole group turned about the axis that carries the grabbed point
+      // to the pointer, so it slides over the sphere as one.
       const d = pointOn(e, true);
       const axisRaw = cross(gesture.start, d);
       const sin = Math.hypot(axisRaw[0], axisRaw[1], axisRaw[2]);
       if (sin < 1e-9) return;
-      const axis = axisRaw.map((v) => v / sin);
-      const angle = Math.atan2(sin, dot(gesture.start, d));
-      const up = turn(gesture.heading.up, axis, angle);
-      const h = turn(gesture.heading.h, axis, angle);
-      edits[state.moment][gesture.id] = fromHeading(up, h);
-      replace(state.moment, selected);
+      turnGroup(gesture.group, axisRaw.map((v) => v / sin), Math.atan2(sin, dot(gesture.start, d)));
     } else {
       const [cx, cy] = gesture.centre;
       const a0 = Math.atan2(gesture.y - cy, gesture.x - cx);
       const a1 = Math.atan2(e.clientY - cy, e.clientX - cx);
-      edits[state.moment][gesture.id] = { ...gesture.before, spin: wrap180((gesture.before.spin || 0) + (a1 - a0) / DEG) };
-      replace(state.moment, selected);
+      turnGroup(gesture.group, gesture.group.centre, -(a1 - a0));
     }
     requestRender();
   });
@@ -744,16 +795,16 @@ const MARBLE_JPG = "__MARBLE__";
     const g = gesture;
     gesture = null;
     if (!g.moved) {
-      // A click: choose the piece on top, or let go on open water.
-      selected = g.under.length ? g.under[g.under.length - 1] : -1;
+      // A click: the piece on top, alone, or added to or taken from the group.
+      const top = g.under.length ? g.under[g.under.length - 1] : -1;
+      if (g.additive) { if (top >= 0) toggle(top); }
+      else choose(top >= 0 ? [top] : []);
       render();
       return;
     }
     if (g.kind === 'view') { save(); return; }
-    const now = edits[state.moment][g.id];
-    edits[state.moment][g.id] = g.before === C.moments[state.moment].place[g.id] ? undefined : g.before;
-    if (edits[state.moment][g.id] === undefined) delete edits[state.moment][g.id];
-    setPlacement(state.moment, g.id, now, g.before);
+    // Undo goes back to where the group was picked up.
+    undoStack.push({ mi: state.moment, items: g.group.items.map((it) => ({ id: it.id, before: it.before })) });
     commit();
   }
   stage.addEventListener('pointerup', end);
@@ -761,22 +812,18 @@ const MARBLE_JPG = "__MARBLE__";
   stage.addEventListener('pointerleave', () => { document.getElementById('tip').hidden = true; });
 
   stage.addEventListener('keydown', (e) => {
-    if (selected < 0) return;
-    const id = C.pieces[selected].id;
-    const before = placementOf(state.moment, id);
+    if (e.key === 'Escape') { choose([]); render(); return; }
+    if (!chosen.size) return;
     const big = e.shiftKey;
     const moves = { ArrowUp: [0, 1], ArrowDown: [0, -1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
     if (moves[e.key]) {
       const [de, dn] = moves[e.key];
-      const step = (big ? 2 : 0.5) * DEG;
-      const { up, h } = headingOf(before);
-      const f = frame(up);
-      const axis = unit(cross(up, [0, 1, 2].map((i) => f.east[i] * de + f.north[i] * dn)));
-      setPlacement(state.moment, id, fromHeading(turn(up, axis, step), turn(h, axis, step)), before);
+      const g = group();
+      const f = frame(g.centre);
+      pushUndo(state.moment, g.items.map((it) => it.id));
+      turnGroup(g, unit(cross(g.centre, [0, 1, 2].map((i) => f.east[i] * de + f.north[i] * dn))), (big ? 2 : 0.5) * DEG);
     } else if (e.key === '[' || e.key === ']') {
-      setPlacement(state.moment, id, { ...before, spin: (before.spin || 0) + (e.key === ']' ? 1 : -1) * (big ? 5 : 1) }, before);
-    } else if (e.key === 'Escape') {
-      selected = -1; render(); return;
+      spinGroup((e.key === ']' ? 1 : -1) * (big ? 5 : 1));
     } else return;
     e.preventDefault();
     commit();
@@ -787,20 +834,21 @@ const MARBLE_JPG = "__MARBLE__";
   function undo() {
     const last = undoStack.pop();
     if (!last) return;
-    if (last.before) edits[last.mi][last.id] = last.before;
-    else delete edits[last.mi][last.id];
-    replace(last.mi, C.pieces.findIndex((p) => p.id === last.id));
+    for (const { id, before } of last.items) {
+      if (before) edits[last.mi][id] = before;
+      else delete edits[last.mi][id];
+      replace(last.mi, indexOf(id));
+    }
     state.moment = last.mi;
     commit();
   }
   document.getElementById('undo').addEventListener('click', undo);
   document.getElementById('reset-moment').addEventListener('click', () => {
     const mi = state.moment;
-    for (const id of Object.keys(edits[mi])) {
-      undoStack.push({ mi, id, before: edits[mi][id] });
-      delete edits[mi][id];
-      replace(mi, C.pieces.findIndex((p) => p.id === id));
-    }
+    const ids = Object.keys(edits[mi]);
+    if (!ids.length) return;
+    pushUndo(mi, ids);
+    for (const id of ids) { delete edits[mi][id]; replace(mi, indexOf(id)); }
     commit();
   });
   document.getElementById('copy').addEventListener('click', async () => {
@@ -822,7 +870,7 @@ const MARBLE_JPG = "__MARBLE__";
     if (!d || !pieceCells) { tip.hidden = true; stage.classList.remove('over-piece'); return; }
     const mi = state.moment;
     const under = piecesAt(d, mi);
-    stage.classList.toggle('over-piece', selected >= 0 && under.includes(selected));
+    stage.classList.toggle('over-piece', under.some((p) => chosen.has(p)));
     const [lon, lat] = lonLat(d);
     tip.innerHTML = (under.length
       ? under.map((p) => {
@@ -934,11 +982,16 @@ const MARBLE_JPG = "__MARBLE__";
     b.type = 'button';
     const c = COLOURS[i % COLOURS.length];
     b.innerHTML = `<span class="sw" style="background: rgb(${c.join(',')})"></span><span class="label">${p.name}</span>`;
-    b.addEventListener('click', () => {
-      selected = i;
-      const at = placementOf(state.moment, p.id);
-      state.lon = at.lon; state.lat = Math.max(-89.5, Math.min(89.5, at.lat));
-      render(); save();
+    b.addEventListener('click', (e) => {
+      if (e.ctrlKey || e.metaKey || e.shiftKey || many) {
+        toggle(i);
+      } else {
+        choose([i]);
+        const at = placementOf(state.moment, p.id);
+        state.lon = at.lon; state.lat = Math.max(-89.5, Math.min(89.5, at.lat));
+        save();
+      }
+      render();
       stage.focus({ preventScroll: true });
     });
     list.append(b);
