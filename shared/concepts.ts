@@ -35,12 +35,19 @@ export interface ConceptPiece {
   id: string
   name: string
   /**
-   * A chain of small blocks between two pieces that close on each other -- an
-   * island arc, or the Caribbean folding up like a rope ladder. Where such a
-   * piece lies over another, that is crust being stacked, not an error, and it
-   * is counted and drawn apart from the rest.
+   * Luxaflex: a chain of small slats between two pieces that close on each
+   * other -- an island arc, the Caribbean folding up like a rope ladder, the
+   * ridges of Lord Howe, a line of seamounts. Where such a piece lies over
+   * another, that is crust being stacked, not an error, and it is counted and
+   * drawn apart from the rest. It takes no sea floor.
    */
   fold?: boolean
+  /**
+   * Cut into slats along its own shallow bodies: every group of continental
+   * cells within `join` cells of each other becomes a piece, and groups
+   * smaller than `least` cells go to the nearest one.
+   */
+  slats?: { join: number; least: number }
   /**
    * A piece of sea floor with no continent of its own -- the Pacific plate.
    * Its outline claims the sea floor inside it as well, and it grows over the
@@ -53,6 +60,16 @@ export interface ConceptPiece {
    * continent. For splitting a plate the flood made whole.
    */
   from?: string
+  /**
+   * With `from`: instead of an outline, grow from this point, [lon, lat], over
+   * the piece's crust older than `olderThan` Ma. The boundary is an isochron.
+   */
+  seed?: [number, number]
+  olderThan?: number
+  /** With `from`: only the cells standing at least this high (height-map grey), seamounts. */
+  above?: number
+  /** Where the piece's centre is, [lon, lat], when it should not be its centroid. */
+  centre?: [number, number]
   /** Outline that claims the continental cells inside it, [lon, lat] in degrees. */
   outline: [number, number][]
 }
@@ -153,6 +170,8 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
   {
     id: 'lordhowe',
     name: 'Lord Howe–Nieuw-Caledonië',
+    fold: true,
+    slats: { join: 3, least: 40 },
     outline: [[155.5, -17], [168.5, -17], [170.5, -23], [173.5, -29], [172, -33.5], [170, -36],
       [165, -38.5], [160, -38], [155.5, -35]],
   },
@@ -459,27 +478,30 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
       [235, 0], [235, -20], [225, -40], [200, -50], [185, -45], [183, -30], [185, -20], [175, -12],
       [165, -8], [158, -2], [150, 5], [148, 15], [147, 25]],
   },
-  // The Pacific plate cut into four once it has grown to its ridges: the
-  // Jurassic core in the north-west, the north-east towards the Aleutians and
-  // the Gulf of Alaska, and the south-west with Ontong Java and Manihiki; the
-  // rest, round Hawaii and out to the East Pacific Rise, keeps the name.
+  // The western Pacific as an island of old sea floor: grown from the oldest
+  // crust in the region over all of the plate older than 120 Ma (about M0,
+  // where the long Cretaceous quiet zone begins), so that its edge is an
+  // isochron. At 180 Ma it is a small island; it grows from there.
   {
-    id: 'pacificnw',
-    name: 'Noordwest-Pacific',
+    id: 'pacificwest',
+    name: 'West-Pacific',
     from: 'pacific',
-    outline: [[120, 10], [175, 10], [175, 62], [120, 62]],
+    seed: [156.8, 16.1],
+    olderThan: 120,
+    centre: [156.8, 16.1],
+    outline: [],
   },
+  // The seamount chains and plateaus of the south-west Pacific: the sea floor
+  // that stands well above the abyssal plain round it (grey 124, against
+  // 92-104 for the plain), cut out of the plate and into strands.
   {
-    id: 'pacificne',
-    name: 'Noordoost-Pacific',
+    id: 'swseamounts',
+    name: 'Zeebergen Zuidwest-Pacific',
     from: 'pacific',
-    outline: [[175, 25], [260, 25], [260, 62], [175, 62]],
-  },
-  {
-    id: 'pacificsw',
-    name: 'Zuidwest-Pacific',
-    from: 'pacific',
-    outline: [[130, 0], [210, 0], [210, -75], [130, -75]],
+    above: 124,
+    fold: true,
+    slats: { join: 2, least: 40 },
+    outline: [[160, -5], [215, -5], [215, -52], [192, -52], [189, -24], [187, -14], [172, -12], [160, -12]],
   },
   // The sea floor China took because the arcs in front of it take none: the
   // Philippine Sea, and the Sea of Japan behind the Japanese arc.

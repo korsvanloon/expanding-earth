@@ -17,7 +17,7 @@ import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { PNG } from 'pngjs'
 import jpeg from 'jpeg-js'
-import { CONCEPT_JOINS, CONCEPT_MOMENTS, CONCEPT_PIECES, type Placement } from '../shared/concepts.js'
+import { CONCEPT_JOINS, CONCEPT_MOMENTS, CONCEPT_PIECES, type ConceptPiece, type Placement } from '../shared/concepts.js'
 import { R0_KM } from '../shared/model.js'
 import { loadAgeGrid } from './lib/agegrid.js'
 import { areaQuantile, downsample, downsampleField, loadRaster, type Raster } from './lib/raster.js'
@@ -27,6 +27,9 @@ const OUT = resolve(ROOT, process.env.CONCEPT_OUT ?? '.stage/concepts')
 const TEXTURES = resolve(ROOT, 'public/textures')
 
 /** The grid the model classifies its crust on (CONFIG in build-data.ts). */
+/** The pieces as cut: the ones written down, and the slats some are split into. */
+const DEFS: ConceptPiece[] = CONCEPT_PIECES.map((p) => ({ ...p }))
+
 const W = 2048
 const H = 1024
 const CONTINENTAL_FRACTION = 0.41
@@ -114,9 +117,9 @@ async function main() {
     for (let x = 0; x < W; x++) {
       const i = y * W + x
       if (!continental[i]) continue
-      for (let p = 0; p < CONCEPT_PIECES.length; p++) {
-        if (CONCEPT_PIECES[p].from) continue
-        if (insideOutline(cellLon(x), cellLat(y), CONCEPT_PIECES[p].outline)) {
+      for (let p = 0; p < DEFS.length; p++) {
+        if (DEFS[p].from) continue
+        if (insideOutline(cellLon(x), cellLat(y), DEFS[p].outline)) {
           piece[i] = p + 1
           break
         }
@@ -129,8 +132,8 @@ async function main() {
     for (let x = 0; x < W; x++) {
       const i = y * W + x
       if (piece[i]) continue
-      for (let p = 0; p < CONCEPT_PIECES.length; p++) {
-        if (CONCEPT_PIECES[p].ocean && insideOutline(cellLon(x), cellLat(y), CONCEPT_PIECES[p].outline)) {
+      for (let p = 0; p < DEFS.length; p++) {
+        if (DEFS[p].ocean && insideOutline(cellLon(x), cellLat(y), DEFS[p].outline)) {
           piece[i] = p + 1
           break
         }
@@ -138,6 +141,7 @@ async function main() {
     }
   }
   tidyPieces(piece)
+  splitSlats(piece, (i) => continental[i] === 1, (d) => !DEFS[d].from)
 
   const rowWeight = (y: number) => age.rowWeight(y)
   let sphere = 0
@@ -153,15 +157,44 @@ async function main() {
   floodOcean(piece, continental, oceanAge)
   // Plates the flood made whole, cut where an outline says so; such a piece
   // has no continent of its own, so its body is all of it.
-  CONCEPT_PIECES.forEach((cut, c) => {
+  DEFS.forEach((cut, c) => {
     if (!cut.from) return
-    const parent = CONCEPT_PIECES.findIndex((p) => p.id === cut.from) + 1
-    const anyCell = CONCEPT_PIECES[parent - 1].ocean
+    const parent = DEFS.findIndex((p) => p.id === cut.from) + 1
+    const anyCell = DEFS[parent - 1].ocean
     let n = 0
+    if (cut.seed) {
+      // Grown from a point over the parent's crust old enough, continent
+      // counting as the oldest of all.
+      const old = (i: number) => piece[i] === parent && (oceanAge[i] < 0 || oceanAge[i] >= (cut.olderThan ?? 0))
+      const sx = Math.min(W - 1, Math.floor(((cut.seed[0] + 180) / 360) * W))
+      const sy = Math.min(H - 1, Math.floor(((90 - cut.seed[1]) / 180) * H))
+      const queue = old(sy * W + sx) ? [sy * W + sx] : []
+      if (!queue.length) throw new Error(`${cut.id}: the seed does not lie on ${cut.from} crust old enough`)
+      piece[queue[0]] = c + 1
+      for (let k = 0; k < queue.length; k++) {
+        const i = queue[k]
+        body[i] = c + 1
+        n++
+        const x = i % W
+        const y = (i / W) | 0
+        const around = [y * W + ((x + 1) % W), y * W + ((x + W - 1) % W)]
+        if (y > 0) around.push(i - W)
+        if (y < H - 1) around.push(i + W)
+        for (const j of around) {
+          if (old(j)) {
+            piece[j] = c + 1
+            queue.push(j)
+          }
+        }
+      }
+      console.log(`[concepts] ${cut.id}: ${n} cells of ${cut.from} older than ${cut.olderThan} Ma, grown from ${cut.seed}`)
+      return
+    }
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const i = y * W + x
         if (piece[i] !== parent || (!anyCell && continental[i])) continue
+        if (cut.above !== undefined && height.data[i] < cut.above) continue
         if (!insideOutline(cellLon(x), cellLat(y), cut.outline)) continue
         piece[i] = c + 1
         body[i] = c + 1
@@ -170,13 +203,15 @@ async function main() {
     }
     console.log(`[concepts] ${cut.id}: ${n} cells cut out of ${cut.from}`)
   })
+  // Pieces cut out of a plate that are slats themselves, the seamounts.
+  splitSlats(piece, () => true, (d) => Boolean(DEFS[d].from), body)
   cellAge = new Uint8Array(W * H)
   for (let i = 0; i < W * H; i++) {
     cellAge[i] = oceanAge[i] < 0 ? 255 : Math.max(1, Math.min(254, Math.ceil(oceanAge[i])))
   }
 
   // Each piece's area and centre, and how far out its furthest cell lies.
-  const pieces = CONCEPT_PIECES.map((p, index) => {
+  const pieces = DEFS.map((p, index) => {
     let area = 0
     const sum: V3 = [0, 0, 0]
     for (let y = 0; y < H; y++) {
@@ -192,7 +227,7 @@ async function main() {
         sum[2] += d[2] * w
       }
     }
-    const centre = unit(sum)
+    const centre = p.centre ? direction(p.centre[0], p.centre[1]) : unit(sum)
     let reach = 0
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
@@ -431,13 +466,81 @@ function tidyPieces(piece: Uint8Array) {
     if (!best || best[0] === b.piece) return
     for (const c of b.cells) piece[c] = best[0]
     moved += b.cells.length
-    const key = `${CONCEPT_PIECES[b.piece - 1].id}>${CONCEPT_PIECES[best[0] - 1].id}`
+    const key = `${DEFS[b.piece - 1].id}>${DEFS[best[0] - 1].id}`
     moves.set(key, (moves.get(key) ?? 0) + b.cells.length)
   })
   console.log(
     `[concepts] ${moved} cells in scraps handed to the piece they lie against: ` +
       [...moves].sort((x, y) => y[1] - x[1]).slice(0, 14).map(([k, n]) => `${k} ${n}`).join(', '),
   )
+}
+
+/**
+ * Pieces marked `slats` cut along their own shallow bodies, Lord Howe's ridges
+ * or a line of seamounts: bodies within `join` cells of each other make one
+ * slat, slats smaller than `least` cells go to the nearest bigger one. The
+ * largest keeps the piece's id; the others are new pieces, luxaflex all.
+ */
+function splitSlats(
+  piece: Uint8Array, counts: (i: number) => boolean, which: (d: number) => boolean, body?: Uint8Array,
+) {
+  const count = DEFS.length
+  for (let d = 0; d < count; d++) {
+    const def = DEFS[d]
+    if (!def.slats || !which(d)) continue
+    const cells: number[] = []
+    for (let i = 0; i < W * H; i++) if (piece[i] === d + 1 && counts(i)) cells.push(i)
+    const index = new Map(cells.map((c, k) => [c, k]))
+    const root = cells.map((_, k) => k)
+    const find = (k: number): number => (root[k] === k ? k : (root[k] = find(root[k])))
+    const j = def.slats.join
+    cells.forEach((c, k) => {
+      const x = c % W
+      const y = (c / W) | 0
+      for (let dy = -j; dy <= j; dy++) {
+        const ny = y + dy
+        if (ny < 0 || ny >= H) continue
+        for (let dx = -j; dx <= j; dx++) {
+          const other = index.get(ny * W + ((x + dx + W) % W))
+          if (other !== undefined) root[find(other)] = find(k)
+        }
+      }
+    })
+    const groups = new Map<number, number[]>()
+    cells.forEach((c, k) => {
+      const r = find(k)
+      if (!groups.has(r)) groups.set(r, [])
+      groups.get(r)!.push(c)
+    })
+    const sorted = [...groups.values()].sort((a, b) => b.length - a.length)
+    const big = sorted.filter((g, k) => k === 0 || g.length >= def.slats!.least)
+    const middle = (g: number[]) => unit(g.reduce<V3>((s2, c) => {
+      const d2 = direction(cellLon(c % W), cellLat((c / W) | 0))
+      return [s2[0] + d2[0], s2[1] + d2[1], s2[2] + d2[2]]
+    }, [0, 0, 0]))
+    const centres = big.map(middle)
+    for (const g of sorted) {
+      if (big.includes(g)) continue
+      const m = middle(g)
+      let best = 0
+      centres.forEach((c, k) => { if (dot(c, m) > dot(centres[best], m)) best = k })
+      big[best].push(...g)
+    }
+    const name = def.name
+    big.forEach((g, k) => {
+      let id = d + 1
+      if (k > 0) {
+        DEFS.push({ id: `${def.id}${k + 1}`, name: `${name} ${k + 1}`, fold: true, outline: [] })
+        id = DEFS.length
+      }
+      for (const c of g) {
+        piece[c] = id
+        if (body) body[c] = id
+      }
+    })
+    if (big.length > 1) def.name = `${name} 1`
+    console.log(`[concepts] ${def.id}: ${big.length} slats of ${big.map((g) => g.length).join(', ')} cells`)
+  }
 }
 
 function reportLeftovers(
@@ -954,7 +1057,7 @@ function settle(
       if (hits.length < 2) continue
       for (let i = 0; i < hits.length; i++) {
         for (let i2 = i + 1; i2 < hits.length; i2++) {
-          const key = hits[i] * 64 + hits[i2]
+          const key = hits[i] * 256 + hits[i2]
           let e = patches.get(key)
           if (!e) patches.set(key, (e = { p: hits[i], r: hits[i2], xs: [] }))
           e.xs.push(x)
@@ -1174,7 +1277,7 @@ function floodOcean(piece: Uint8Array, continental: Uint8Array, oceanAge: Float3
     if (y < H - 1) out.push(i + W)
     return out
   }
-  const grows = (p: number) => p > 0 && !CONCEPT_PIECES[p - 1].fold
+  const grows = (p: number) => p > 0 && !DEFS[p - 1].fold
   for (let i = 0; i < W * H; i++) {
     if (!grows(piece[i])) continue
     for (const j of around(i)) if (!piece[j]) buckets[keyOf(j)].push(j)

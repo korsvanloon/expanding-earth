@@ -181,7 +181,7 @@
         <div class="controls" id="views"></div>
         <div class="legend">
           <div><span class="sw" style="background: repeating-linear-gradient(-45deg, var(--double) 0 3px, transparent 3px 7px)"></span>Dubbel: twee stukken over elkaar, het hoogste land erdoorheen</div>
-          <div><span class="sw" style="background: repeating-linear-gradient(-45deg, #946fd6 0 3px, transparent 3px 7px)"></span>Ingevouwen: een eilandboog of de Caribische touwladder over iets anders</div>
+          <div><span class="sw" style="background: repeating-linear-gradient(-45deg, #946fd6 0 3px, transparent 3px 7px)"></span>Luxaflex: lamellen die over elkaar schuiven (eilandbogen, de Caribische ladder, Lord Howe, zeebergketens)</div>
           <div><span class="sw" style="background: #0b0d0f; outline: 1px solid var(--rule)"></span>Geen korst: daar was op dit moment nog niets</div>
           <div><span class="sw" style="background: #ffd166"></span>Gekozen stuk, aansluitingen</div>
           <div><span class="sw" style="background: #7fe0d2"></span>Beweging: van het vorige moment naar dit</div>
@@ -343,7 +343,7 @@ const MARBLE_JPG = "__MARBLE__";
   uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData;
   uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap;
   uniform float uMa; uniform float uSeaLevel;
-  uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[64];
+  uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[128];
   out vec4 outColour;
   const float PI = 3.141592653589793;
   vec4 fetch(int p, int c) { return texelFetch(uData, ivec2(c, uMoment * uCount + p), 0); }
@@ -366,7 +366,7 @@ const MARBLE_JPG = "__MARBLE__";
     // shelf and mountains over lowland, and the overlap is a wash over it.
     int hits = 0; vec3 colour = vec3(0.045, 0.05, 0.06); bool folds = false;
     float topHeight = -1.0; bool topRim = false; bool chosenRim = false;
-    for (int p = 0; p < 64; p++) {
+    for (int p = 0; p < 128; p++) {
       if (p >= uCount) break;
       vec3 tu = fetch(p, 2).xyz;
       vec4 extra = fetch(p, 6);
@@ -491,7 +491,7 @@ const MARBLE_JPG = "__MARBLE__";
   }
   gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2);
   gl.uniform1i(U('uCount'), N);
-  gl.uniform3fv(U('uColours'), new Float32Array(Array.from({ length: 64 }, (_, i) => COLOURS[i % COLOURS.length].map((c) => c / 255)).flat()));
+  gl.uniform3fv(U('uColours'), new Float32Array(Array.from({ length: 128 }, (_, i) => COLOURS[i % COLOURS.length].map((c) => c / 255)).flat()));
 
   const load = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
 
@@ -613,7 +613,7 @@ const MARBLE_JPG = "__MARBLE__";
       ['Van de straal nu', `${fmt(100 * m.radiusKm / C.r0Km)}%`],
       ['Open (hoort 0 te zijn)', `<span class="${st.open > 0.02 ? 'bad' : ''}">${fmt(100 * st.open, 1)}%</span>`],
       ['Dubbel', `<span class="${st.twice > 0.02 ? 'bad' : ''}">${fmt(100 * st.twice, 1)}%</span>`],
-      ['Ingevouwen', `${fmt(100 * st.folded, 1)}%`],
+      ['Luxaflex opgevouwen', `${fmt(100 * st.folded, 1)}%`],
       ['Randen teruggekrompen', `${fmt(100 * (1 - m.shrink), 1)}%`],
       ['Door jou verlegd', editedHere ? `${editedHere} ${editedHere === 1 ? 'stuk' : 'stukken'}` : 'niets'],
     ];
