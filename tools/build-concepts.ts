@@ -132,13 +132,25 @@ async function main() {
   // What no outline claimed, as connected patches, so it can be named or let go.
   reportLeftovers(continental, piece, rowWeight, sphere)
 
+  // Sea floor by the model's nearest-age rule, and every cell of it given to
+  // the piece on its side of the ridge.
+  const oceanAge = nearestAgeOcean(age, height, shelfBreak)
+  const body = piece.slice()
+  floodOcean(piece, continental, oceanAge)
+  cellAge = new Uint8Array(W * H)
+  for (let i = 0; i < W * H; i++) {
+    cellAge[i] = oceanAge[i] < 0 ? 255 : Math.max(1, Math.min(254, Math.ceil(oceanAge[i])))
+  }
+
   // Each piece's area and centre, and how far out its furthest cell lies.
   const pieces = CONCEPT_PIECES.map((p, index) => {
     let area = 0
     const sum: V3 = [0, 0, 0]
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
-        if (piece[y * W + x] !== index + 1) continue
+        // The centre is the continent's as it was cut, before sea floor and
+        // loose scraps were given out: placements laid before stay valid.
+        if (body[y * W + x] !== index + 1) continue
         const w = rowWeight(y)
         const d = direction(cellLon(x), cellLat(y))
         area += w
@@ -177,8 +189,6 @@ async function main() {
     )
   }
 
-  // Sea floor still there at each moment, by the model's nearest-age rule.
-  const oceanAge = nearestAgeOcean(age, height, shelfBreak)
   const radius = radiusCurve()
   const moments = CONCEPT_MOMENTS.map((m) => {
     let ocean = 0
@@ -192,9 +202,11 @@ async function main() {
     const oceanShare = ocean / sphere
     const radiusKm = radius(m.ma)
     const sphereShare = (radiusKm / R0_KM) ** 2
-    // What the margins gave back by now: the continental area the radius
-    // leaves room for, against the continental area today.
-    const shrink = m.ma === 0 ? 1 : Math.min(1, (sphereShare - oceanShare) / continentShare)
+    // Everything that exists then -- continent and the sea floor already made
+    // -- shrunk alike so that it covers the smaller sphere exactly: what the
+    // radius curve leaves room for, against that crust at today's size. The
+    // shortfall is what the stretched margins gave back.
+    const shrink = m.ma === 0 ? 1 : Math.min(1, sphereShare / (continentShare + oceanShare))
     return {
       ma: m.ma,
       note: m.note,
@@ -262,7 +274,7 @@ async function main() {
   writeFileSync(
     resolve(OUT, 'concepts.json'),
     JSON.stringify({
-      r0Km: R0_KM, width: W, height: H, pieces, moments,
+      r0Km: R0_KM, width: W, height: H, seaLevel, pieces, moments,
       joins: joins.map((j) => ({ a: j.a, b: j.b, why: j.why, pieceA: pieces[j.pieceA].id, pieceB: pieces[j.pieceB].id, gapKm: j.gapKm, pacific: j.pacific })),
       baseMa: base?.ma ?? null,
       growMode: GROW,
@@ -272,17 +284,20 @@ async function main() {
   const png = new PNG({ width: W, height: H })
   for (let i = 0; i < W * H; i++) {
     png.data[i * 4] = piece[i]
-    png.data[i * 4 + 1] = land[i] ? 255 : 0
-    // How high the crust stands, so that where two pieces lie over each other
-    // the viewer can show the higher; in steps of four, which the eye cannot
-    // tell apart and the PNG compresses far better.
-    png.data[i * 4 + 2] = piece[i] ? height.data[i] & 0xfc : 0
+    // How old the crust is, in whole Ma, 255 for continent: a cell is part of
+    // its piece at every moment younger than that.
+    png.data[i * 4 + 1] = cellAge[i]
+    // How high it stands, so that where two pieces lie over each other the
+    // viewer can show the higher; in steps of four, which the eye cannot tell
+    // apart and the PNG compresses far better.
+    png.data[i * 4 + 2] = height.data[i] & 0xfc
     png.data[i * 4 + 3] = 255
   }
   writeFileSync(resolve(OUT, 'pieces.png'), PNG.sync.write(png))
+  // The photograph at twice the piece grid: it is only looked at.
   writeFileSync(
     resolve(OUT, 'marble.jpg'),
-    jpeg.encode({ width: W, height: H, data: Buffer.from(marble) }, 82).data,
+    jpeg.encode({ width: 2 * W, height: 2 * H, data: Buffer.from(loadMarble(2 * W, 2 * H)) }, 84).data,
   )
   if (base) {
     writeFileSync(resolve(OUT, 'aligned.json'), JSON.stringify(
@@ -493,16 +508,16 @@ function radiusCurve(): (ma: number) => number {
   return (ma) => curve[Math.min(curve.length - 1, Math.round(ma / meta.radiusStepMa))]
 }
 
-function loadMarble(): Uint8Array {
+function loadMarble(width = W, height = H): Uint8Array {
   const src = jpeg.decode(readFileSync(resolve(TEXTURES, 'blue-marble-map.jpg')), {
     useTArray: true,
     maxMemoryUsageInMB: 1024,
   })
-  const out = new Uint8Array(W * H * 4)
-  const sx = src.width / W
-  const sy = src.height / H
-  for (let y = 0; y < H; y++) {
-    for (let x = 0; x < W; x++) {
+  const out = new Uint8Array(width * height * 4)
+  const sx = src.width / width
+  const sy = src.height / height
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
       const r = [0, 0, 0]
       let n = 0
       for (let j = Math.floor(y * sy); j < Math.floor((y + 1) * sy); j++) {
@@ -514,7 +529,7 @@ function loadMarble(): Uint8Array {
           n++
         }
       }
-      const o = (y * W + x) * 4
+      const o = (y * width + x) * 4
       out[o] = r[0] / n
       out[o + 1] = r[1] / n
       out[o + 2] = r[2] / n
@@ -792,7 +807,9 @@ function snapJoins(piece: Uint8Array): Join[] {
       for (let dx = -60; dx <= 60; dx++) {
         const x = (((x0 + dx) % W) + W) % W
         const id = piece[y * W + x]
-        if (!id || id - 1 === not) continue
+        // A join is between two margins, so it lands on continent, not on the
+        // sea floor the pieces now carry.
+        if (!id || id - 1 === not || cellAge[y * W + x] !== 255) continue
         const d = direction(cellLon(x), cellLat(y))
         const c = dot(d, target)
         if (c > best) {
@@ -900,7 +917,7 @@ function settle(
     const patches = new Map<number, { p: number; r: number; xs: V3[] }>()
     for (const x of samples) {
       // Crust stacking in an arc or the Caribbean ladder is allowed to.
-      const hits = piecesAt(x, q, m.k, piece).filter((h) => !pieces[h].fold)
+      const hits = piecesAt(x, q, m.k, piece, m.ma).filter((h) => !pieces[h].fold)
       if (hits.length < 2) continue
       for (let i = 0; i < hits.length; i++) {
         for (let i2 = i + 1; i2 < hits.length; i2++) {
@@ -1065,7 +1082,7 @@ function drawSheet(
           const cx = Math.min(W - 1, Math.floor(((blon + 180) / 360) * W))
           const cy = Math.min(H - 1, Math.floor(((90 - blat) / 180) * H))
           const c = cy * W + cx
-          if (piece[c] !== p + 1) continue
+          if (piece[c] !== p + 1 || cellAge[c] <= m.ma) continue
           hits++
           if (pieces[p].fold) folded = true
           colour = land[c]
@@ -1084,16 +1101,82 @@ function drawSheet(
 }
 
 /** Which pieces cover a point of the smaller sphere. */
-function piecesAt(d: V3, q: ReturnType<typeof placed>, k: number, piece: Uint8Array): number[] {
+function piecesAt(d: V3, q: ReturnType<typeof placed>, k: number, piece: Uint8Array, ma: number): number[] {
   const out: number[] = []
   for (let p = 0; p < q.length; p++) {
     if (dot(d, q[p].there.up) < q[p].cosReach) continue
     const [blon, blat] = lonLat(lookBack(d, q[p], k))
     const cx = Math.min(W - 1, Math.floor(((blon + 180) / 360) * W))
     const cy = Math.min(H - 1, Math.floor(((90 - blat) / 180) * H))
-    if (piece[cy * W + cx] === p + 1) out.push(p)
+    const c = cy * W + cx
+    if (piece[c] === p + 1 && cellAge[c] > ma) out.push(p)
   }
   return out
+}
+
+/** How old each cell's crust is, whole Ma, 255 for continent; set once the pieces are cut. */
+let cellAge = new Uint8Array(0)
+
+/**
+ * Every cell of sea floor given to a piece: the one on its side of the ridge.
+ *
+ * Each continent grows out over the sea floor beside it, oldest crust first,
+ * so two continents growing towards each other meet where the floor is
+ * youngest -- at the ridge that made it. A priority flood on age does exactly
+ * that, with buckets of one million years. Island arcs and the Caribbean
+ * ladder take no sea floor: they fold, and a whole ocean riding on one of
+ * them would count every overlap of that ocean as folding. Continental scraps
+ * no outline took go to whichever piece reaches them, as the oldest crust of
+ * all. Anything the flood cannot reach past an arc goes to the nearest piece.
+ */
+function floodOcean(piece: Uint8Array, continental: Uint8Array, oceanAge: Float32Array) {
+  const TOP = 400
+  const keyOf = (i: number) => (oceanAge[i] < 0 ? TOP : Math.max(0, Math.min(TOP - 1, Math.floor(oceanAge[i]))))
+  const buckets: number[][] = Array.from({ length: TOP + 1 }, () => [])
+  const around = (i: number) => {
+    const x = i % W
+    const y = (i / W) | 0
+    const out = [y * W + ((x + 1) % W), y * W + ((x + W - 1) % W)]
+    if (y > 0) out.push(i - W)
+    if (y < H - 1) out.push(i + W)
+    return out
+  }
+  const grows = (p: number) => p > 0 && !CONCEPT_PIECES[p - 1].fold
+  for (let i = 0; i < W * H; i++) {
+    if (!grows(piece[i])) continue
+    for (const j of around(i)) if (!piece[j]) buckets[keyOf(j)].push(j)
+  }
+  let given = 0
+  for (let key = TOP; key >= 0; key--) {
+    const bucket = buckets[key]
+    for (let k = 0; k < bucket.length; k++) {
+      const i = bucket[k]
+      if (piece[i]) continue
+      let label = 0
+      for (const j of around(i)) if (grows(piece[j])) { label = piece[j]; break }
+      if (!label) continue
+      piece[i] = label
+      given++
+      // A cell older than the one it was reached from is taken now: the
+      // flood cannot go back up.
+      for (const j of around(i)) if (!piece[j]) buckets[Math.min(key, keyOf(j))].push(j)
+    }
+  }
+  // What lies behind an arc, out of reach: the nearest piece of any kind.
+  const queue: number[] = []
+  for (let i = 0; i < W * H; i++) if (piece[i]) queue.push(i)
+  let behind = 0
+  for (let k = 0; k < queue.length; k++) {
+    for (const j of around(queue[k])) {
+      if (piece[j]) continue
+      piece[j] = piece[queue[k]]
+      behind++
+      queue.push(j)
+    }
+  }
+  let ocean = 0
+  for (let i = 0; i < W * H; i++) if (!continental[i]) ocean++
+  console.log(`[concepts] sea floor and loose continent given out: ${given} cells by the flood, ${behind} behind arcs, of ${ocean} cells of ocean`)
 }
 
 /**
@@ -1111,7 +1194,7 @@ function measure(m: MomentInfo, pieces: PieceInfo[], piece: Uint8Array) {
     const y = 1 - (2 * (s + 0.5)) / N
     const r = Math.sqrt(1 - y * y)
     const a = s * Math.PI * (3 - Math.sqrt(5))
-    const hits = piecesAt([r * Math.cos(a), y, r * Math.sin(a)], q, m.k, piece)
+    const hits = piecesAt([r * Math.cos(a), y, r * Math.sin(a)], q, m.k, piece, m.ma)
     if (!hits.length) gap++
     if (hits.length > 1 && hits.some((h) => pieces[h].fold)) folded++
     else if (hits.length > 1) {

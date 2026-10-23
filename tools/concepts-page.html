@@ -182,8 +182,7 @@
         <div class="legend">
           <div><span class="sw" style="background: repeating-linear-gradient(-45deg, var(--double) 0 3px, transparent 3px 7px)"></span>Dubbel: twee stukken over elkaar, het hoogste land erdoorheen</div>
           <div><span class="sw" style="background: repeating-linear-gradient(-45deg, #946fd6 0 3px, transparent 3px 7px)"></span>Ingevouwen: een eilandboog of de Caribische touwladder over iets anders</div>
-          <div><span class="sw" style="background: #17324a"></span>Oceaan, of nog open</div>
-          <div><span class="sw" style="background: #9fb7b8"></span>Plat: continentale korst onder water</div>
+          <div><span class="sw" style="background: #0b0d0f; outline: 1px solid var(--rule)"></span>Geen korst: daar was op dit moment nog niets</div>
           <div><span class="sw" style="background: #ffd166"></span>Gekozen stuk, aansluitingen</div>
           <div><span class="sw" style="background: #7fe0d2"></span>Beweging: van het vorige moment naar dit</div>
         </div>
@@ -276,6 +275,8 @@ const MARBLE_JPG = "__MARBLE__";
     return from(q.there, 2 * Math.asin(Math.min(1, k * Math.sin(dist / 2))), bearing + q.spin);
   }
   let pieceCells = null;
+  /** Age of each cell's crust in whole Ma, 255 for continent. */
+  let cellAge = null;
   /** Which pieces cover a point of the smaller sphere at a moment. */
   function piecesAt(d, mi) {
     const out = [];
@@ -285,7 +286,8 @@ const MARBLE_JPG = "__MARBLE__";
       const [lon, lat] = lonLat(lookBack(d, q, k));
       const cx = Math.min(W - 1, Math.floor((lon + 180) / 360 * W));
       const cy = Math.min(H - 1, Math.floor((90 - lat) / 180 * H));
-      if (pieceCells[cy * W + cx] === p + 1) out.push(p);
+      const c = cy * W + cx;
+      if (pieceCells[c] === p + 1 && cellAge[c] > C.moments[mi].ma) out.push(p);
     });
     return out;
   }
@@ -340,6 +342,7 @@ const MARBLE_JPG = "__MARBLE__";
   precision highp float; precision highp int; precision highp sampler2D;
   uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData;
   uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap;
+  uniform float uMa; uniform float uSeaLevel;
   uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[64];
   out vec4 outColour;
   const float PI = 3.141592653589793;
@@ -349,7 +352,10 @@ const MARBLE_JPG = "__MARBLE__";
     float v = acos(clamp(d.y, -1.0, 1.0)) / PI;
     return ivec2(clamp(int(floor(u * ${W}.0)), 0, ${W - 1}), clamp(int(floor(v * ${H}.0)), 0, ${H - 1}));
   }
-  int idAt(ivec2 c) { return int(texelFetch(uPieces, c, 0).r * 255.0 + 0.5); }
+  // A cell is part of its piece at a moment only if its crust is older: the
+  // green channel is its age in whole Ma, 255 for continent.
+  bool existsAt(vec4 t) { return t.g * 255.0 > uMa + 0.5; }
+  int idAt(ivec2 c) { vec4 t = texelFetch(uPieces, c, 0); return existsAt(t) ? int(t.r * 255.0 + 0.5) : 0; }
   void main() {
     vec2 xy = (gl_FragCoord.xy - uCentre) / uRadius;
     float rr = dot(xy, xy);
@@ -358,7 +364,7 @@ const MARBLE_JPG = "__MARBLE__";
     vec3 d = normalize(uView * vec3(xy, z));
     // Where pieces lie over each other the highest crust shows, land over
     // shelf and mountains over lowland, and the overlap is a wash over it.
-    int hits = 0; vec3 colour = vec3(0.09, 0.196, 0.29); bool folds = false;
+    int hits = 0; vec3 colour = vec3(0.045, 0.05, 0.06); bool folds = false;
     float topHeight = -1.0; bool topRim = false; bool chosenRim = false;
     for (int p = 0; p < 64; p++) {
       if (p >= uCount) break;
@@ -376,18 +382,20 @@ const MARBLE_JPG = "__MARBLE__";
       ivec2 cell = cellOf(q);
       vec4 tex = texelFetch(uPieces, cell, 0);
       int id = int(tex.r * 255.0 + 0.5);
-      if (id != p + 1) continue;
+      if (id != p + 1 || !existsAt(tex)) continue;
       hits++;
       if (extra.z > 0.5) folds = true;
-      bool land = tex.g > 0.5;
+      bool land = tex.b >= uSeaLevel;
+      bool continent = tex.g > 0.999;
       vec3 c;
       if (uMode == 0) {
-        vec2 uv = (vec2(cell) + 0.5) / vec2(${W}.0, ${H}.0);
+        // The photograph everywhere, sea floor included, read where the point
+        // really lies rather than at the centre of its cell.
+        vec2 uv = vec2(atan(-q.z, q.x) / (2.0 * PI) + 0.5, acos(clamp(q.y, -1.0, 1.0)) / PI);
         c = texture(uMarble, uv).rgb;
-        if (!land) c = mix(c, vec3(0.62, 0.72, 0.72), 0.55);
       } else {
         c = uColours[p];
-        if (!land) c = mix(c, vec3(0.92), 0.35);
+        if (!land) c = continent ? mix(c, vec3(0.92), 0.35) : mix(c, vec3(0.16, 0.2, 0.28), 0.55);
       }
       bool rim = idAt(ivec2((cell.x + 1) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 1}) % ${W}, cell.y)) != id
         || idAt(ivec2(cell.x, max(cell.y - 1, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 1, ${H - 1}))) != id;
@@ -415,7 +423,7 @@ const MARBLE_JPG = "__MARBLE__";
     if (hits == 0) {
       float lon = atan(-d.z, d.x) / PI * 180.0, lat = asin(clamp(d.y, -1.0, 1.0)) / PI * 180.0;
       float gx = abs(mod(lon + 180.0, 30.0) - 15.0), gy = abs(mod(lat + 90.0, 30.0) - 15.0);
-      if (gx > 14.75 || gy > 14.75) colour = mix(colour, vec3(0.3, 0.42, 0.52), 0.6);
+      if (gx > 14.75 || gy > 14.75) colour = vec3(0.2, 0.22, 0.25);
     }
     float shade = 0.62 + 0.38 * z;
     float alpha = smoothstep(1.0, 0.985, sqrt(rr));
@@ -496,6 +504,8 @@ const MARBLE_JPG = "__MARBLE__";
     gl.uniform1i(U('uMode'), state.mode);
     gl.uniform1i(U('uShowChosen'), showChosen ? 1 : 0);
     gl.uniform1i(U('uShowOverlap'), state.overlap ? 1 : 0);
+    gl.uniform1f(U('uMa'), C.moments[mi].ma);
+    gl.uniform1f(U('uSeaLevel'), (C.seaLevel & 0xfc) / 255);
     gl.uniformMatrix3fv(U('uView'), false, new Float32Array([...f.east, ...f.north, ...f.up]));
     gl.uniform2f(U('uCentre'), cx, cy);
     gl.uniform1f(U('uRadius'), globeRadius);
@@ -601,8 +611,7 @@ const MARBLE_JPG = "__MARBLE__";
     const facts = [
       ['Straal', `${fmt(m.radiusKm)} km`],
       ['Van de straal nu', `${fmt(100 * m.radiusKm / C.r0Km)}%`],
-      ['Oceaan volgens de leeftijdskaart', `${fmt(100 * m.oceanLeft, 1)}%`],
-      ['Open op deze globe', `${fmt(100 * st.open, 1)}%`],
+      ['Open (hoort 0 te zijn)', `<span class="${st.open > 0.02 ? 'bad' : ''}">${fmt(100 * st.open, 1)}%</span>`],
       ['Dubbel', `<span class="${st.twice > 0.02 ? 'bad' : ''}">${fmt(100 * st.twice, 1)}%</span>`],
       ['Ingevouwen', `${fmt(100 * st.folded, 1)}%`],
       ['Randen teruggekrompen', `${fmt(100 * (1 - m.shrink), 1)}%`],
@@ -918,7 +927,9 @@ const MARBLE_JPG = "__MARBLE__";
     tip.innerHTML = (stack.length
       ? stack.map((p) => {
         const [blon, blat] = lonLat(lookBack(d, placed[mi][p], C.moments[mi].k));
-        return `${chosen.has(p) ? '● ' : ''}<b>${C.pieces[p].name}</b> <span class="num">vandaag ${fmt(blat, 1)}°, ${fmt(blon, 1)}°</span>`;
+        const c = Math.min(H - 1, Math.floor((90 - blat) / 180 * H)) * W + Math.min(W - 1, Math.floor((blon + 180) / 360 * W));
+        const floor = cellAge[c] < 255 ? ` · oceaanbodem van ${cellAge[c]} Ma` : '';
+        return `${chosen.has(p) ? '● ' : ''}<b>${C.pieces[p].name}</b> <span class="num">vandaag ${fmt(blat, 1)}°, ${fmt(blon, 1)}°${floor}</span>`;
       }).join('<br>')
       : '<b>Oceaan</b>') +
       (stack.length > 1 ? '<br><span class="num">klik nog eens voor het stuk eronder</span>' : '') +
@@ -1046,8 +1057,9 @@ const MARBLE_JPG = "__MARBLE__";
   });
 
   document.getElementById('footer').textContent =
+    'Elk stuk is een plaat: een continent met de oceaanbodem aan zijn kant van de rug. Op elk moment bestaat alleen de bodem die toen al gemaakt was; de rest is weggeknipt, en wat er is hoort de bol precies te vullen. ' +
     'Elk stuk houdt zijn oppervlak; op een kleinere bol kan het zijn vorm niet houden, dus de randen van de grote stukken zijn wat samengedrukt langs de rand en uitgerekt naar buiten. ' +
-    'Alle stukken krimpen per moment even veel: wat het model zegt dat de uitgerekte randen toen nog niet waren. ' +
+    'Alle stukken krimpen per moment even veel, zodat wat er toen bestond de bol precies bedekt: wat het model zegt dat de uitgerekte randen toen nog niet waren. ' +
     'De berekende ligging: Afrika vast, de rest geschoven om de aansluitingen zo dicht mogelijk te benaderen zonder over elkaar te liggen. Wat je zelf verlegt, gaat daar overheen.';
 
   Promise.all([load(MARBLE_JPG), load(PIECES_PNG)]).then(([marble, pieces]) => {
@@ -1068,7 +1080,8 @@ const MARBLE_JPG = "__MARBLE__";
     x2.drawImage(pieces, 0, 0);
     const px = x2.getImageData(0, 0, W, H).data;
     pieceCells = new Uint8Array(W * H);
-    for (let i = 0; i < W * H; i++) pieceCells[i] = px[i * 4];
+    cellAge = new Uint8Array(W * H);
+    for (let i = 0; i < W * H; i++) { pieceCells[i] = px[i * 4]; cellAge[i] = px[i * 4 + 1]; }
     for (let mi = 0; mi < M; mi++) measure(mi);
     resize();
     render();
