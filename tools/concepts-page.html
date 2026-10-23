@@ -745,6 +745,8 @@ const MARBLE_JPG = "__MARBLE__";
   }
 
   let gesture = null;
+  /** Where the last click landed and how far down the stack it went. */
+  let lastClick = null;
   stage.addEventListener('pointerdown', (e) => {
     if (!pieceCells) return;
     const d = pointOn(e, false);
@@ -796,9 +798,17 @@ const MARBLE_JPG = "__MARBLE__";
     gesture = null;
     if (!g.moved) {
       // A click: the piece on top, alone, or added to or taken from the group.
-      const top = g.under.length ? g.under[g.under.length - 1] : -1;
-      if (g.additive) { if (top >= 0) toggle(top); }
-      else choose(top >= 0 ? [top] : []);
+      // Clicked again on the same spot it goes one piece down the stack, and
+      // round again from the top.
+      const stack = g.under.slice().reverse();
+      const key = stack.join(',');
+      const again = lastClick && lastClick.key === key && lastClick.moment === state.moment &&
+        Math.hypot(g.x - lastClick.x, g.y - lastClick.y) < 8;
+      const step = again ? lastClick.step + 1 : 0;
+      lastClick = { x: g.x, y: g.y, key, step, moment: state.moment };
+      const pick = stack.length ? stack[step % stack.length] : -1;
+      if (g.additive) { if (pick >= 0) toggle(pick); }
+      else choose(pick >= 0 ? [pick] : []);
       render();
       return;
     }
@@ -872,12 +882,16 @@ const MARBLE_JPG = "__MARBLE__";
     const under = piecesAt(d, mi);
     stage.classList.toggle('over-piece', under.some((p) => chosen.has(p)));
     const [lon, lat] = lonLat(d);
-    tip.innerHTML = (under.length
-      ? under.map((p) => {
+    // Top of the stack first, the way repeated clicks go down it.
+    const stack = under.slice().reverse();
+    tip.innerHTML = (stack.length
+      ? stack.map((p) => {
         const [blon, blat] = lonLat(lookBack(d, placed[mi][p], C.moments[mi].k));
-        return `<b>${C.pieces[p].name}</b> <span class="num">vandaag ${fmt(blat, 1)}°, ${fmt(blon, 1)}°</span>`;
+        return `${chosen.has(p) ? '● ' : ''}<b>${C.pieces[p].name}</b> <span class="num">vandaag ${fmt(blat, 1)}°, ${fmt(blon, 1)}°</span>`;
       }).join('<br>')
-      : '<b>Oceaan</b>') + `<br><span class="num">hier ${fmt(lat, 1)}°, ${fmt(lon, 1)}°</span>`;
+      : '<b>Oceaan</b>') +
+      (stack.length > 1 ? '<br><span class="num">klik nog eens voor het stuk eronder</span>' : '') +
+      `<br><span class="num">hier ${fmt(lat, 1)}°, ${fmt(lon, 1)}°</span>`;
     const r = stage.getBoundingClientRect();
     tip.style.left = (e.clientX - r.left) + 'px';
     tip.style.top = (e.clientY - r.top) + 'px';
