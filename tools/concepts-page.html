@@ -174,8 +174,8 @@
         <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen</label>
         <div class="controls" id="views"></div>
         <div class="legend">
-          <div><span class="sw" style="background: var(--double); opacity: .6"></span>Dubbel: twee stukken over elkaar, het hoogste land erdoorheen</div>
-          <div><span class="sw" style="background: #946fd6; opacity: .6"></span>Ingevouwen: een eilandboog of de Caribische touwladder over iets anders</div>
+          <div><span class="sw" style="background: repeating-linear-gradient(-45deg, var(--double) 0 3px, transparent 3px 7px)"></span>Dubbel: twee stukken over elkaar, het hoogste land erdoorheen</div>
+          <div><span class="sw" style="background: repeating-linear-gradient(-45deg, #946fd6 0 3px, transparent 3px 7px)"></span>Ingevouwen: een eilandboog of de Caribische touwladder over iets anders</div>
           <div><span class="sw" style="background: #17324a"></span>Oceaan, of nog open</div>
           <div><span class="sw" style="background: #9fb7b8"></span>Plat: continentale korst onder water</div>
           <div><span class="sw" style="background: #ffd166"></span>Gekozen stuk, aansluitingen</div>
@@ -393,7 +393,17 @@ const MARBLE_JPG = "__MARBLE__";
       }
       if (tex.b > topHeight) { topHeight = tex.b; colour = c; topRim = rim; }
     }
-    if (hits > 1) colour = mix(colour, folds ? vec3(0.55, 0.38, 0.9) : vec3(0.9, 0.1, 0.18), 0.42);
+    if (hits > 1) {
+      // Thick diagonal stripes with clear ground between them, so what lies
+      // underneath can be read and the overlap still be told; a faint wash
+      // keeps the patch reading as one.
+      vec3 tint = folds ? vec3(0.55, 0.38, 0.9) : vec3(0.9, 0.1, 0.18);
+      float period = clamp(uRadius / 28.0, 6.0, 26.0);
+      float t = mod(gl_FragCoord.x + gl_FragCoord.y, period);
+      float w = period * 0.4;
+      float stripe = smoothstep(0.0, 1.0, t) * (1.0 - smoothstep(w - 1.0, w, t));
+      colour = mix(colour, tint, 0.08 + 0.72 * stripe);
+    }
     else if (topRim) colour *= 0.55;
     if (chosenRim) colour = vec3(1.0, 0.82, 0.4);
     if (hits == 0) {
