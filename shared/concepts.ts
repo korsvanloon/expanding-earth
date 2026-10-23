@@ -41,6 +41,12 @@ export interface ConceptPiece {
    * is counted and drawn apart from the rest.
    */
   fold?: boolean
+  /**
+   * A piece of sea floor with no continent of its own -- the Pacific plate.
+   * Its outline claims the sea floor inside it as well, and it grows over the
+   * rest of its plate the way a continent grows over the floor beside it.
+   */
+  ocean?: boolean
   /** Outline that claims the continental cells inside it, [lon, lat] in degrees. */
   outline: [number, number][]
 }
@@ -178,6 +184,11 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
       [142.5, 34], [140, 30], [131, 25], [123, 23.5]],
   },
   {
+    id: 'janmayen',
+    name: 'Jan Mayen',
+    outline: [[-12, 68], [-5, 68], [-5, 72.5], [-12, 72.5]],
+  },
+  {
     id: 'greenland',
     name: 'Groenland',
     outline: [[-73, 76], [-72.5, 78.3], [-68, 80], [-63, 81.5], [-58, 82.3], [-50, 84],
@@ -264,6 +275,15 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
       [66, 76], [61, 69], [59.7, 60], [59.7, 51], [55, 50.5], [52, 47.6], [50, 46.5], [49, 44],
       [47, 41], [40, 36], [30, 33], [20, 33], [10, 36], [-10, 36], [-12, 43], [-12, 48],
       [-17, 51], [-20, 55]],
+  },
+  {
+    // East of a line from the Laptev Sea to the Sea of Okhotsk, roughly the
+    // Verkhoyansk belt: Kolyma, Chukotka, Kamchatka, Sakhalin.
+    id: 'nesiberia',
+    name: 'Noordoost-Siberië',
+    outline: [[127, 90], [127, 78], [128, 73], [129, 67], [135, 62], [138, 57], [140, 52], [141, 46],
+      [146, 42.5], [150, 43.5], [157, 47.5], [163, 51], [172, 58], [178, 61.5], [180, 63], [190, 66],
+      [190, 90]],
   },
   {
     id: 'siberia',
@@ -422,6 +442,16 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
     id: 'dronningmaud',
     name: 'Oost-Antarctica: Dronning Maud',
     outline: [[-35, -55], [70, -55], [70, -90], [-35, -90]],
+  },
+  {
+    // The Pacific plate's interior, clear of the trenches and the marginal
+    // basins; the rest of the plate, out to its ridges, it takes by growing.
+    id: 'pacific',
+    name: 'Pacifische plaat',
+    ocean: true,
+    outline: [[150, 35], [155, 45], [165, 50], [180, 50], [200, 48], [215, 45], [220, 30], [225, 15],
+      [235, 0], [235, -20], [225, -40], [200, -50], [185, -45], [183, -30], [185, -20], [175, -12],
+      [165, -8], [158, -2], [150, 5], [148, 15], [147, 25]],
   },
   {
     id: 'wilkes',

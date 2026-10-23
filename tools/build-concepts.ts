@@ -123,6 +123,19 @@ async function main() {
     }
   }
 
+  // A piece of sea floor claims what its outline holds that no continent took.
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const i = y * W + x
+      if (piece[i]) continue
+      for (let p = 0; p < CONCEPT_PIECES.length; p++) {
+        if (CONCEPT_PIECES[p].ocean && insideOutline(cellLon(x), cellLat(y), CONCEPT_PIECES[p].outline)) {
+          piece[i] = p + 1
+          break
+        }
+      }
+    }
+  }
   tidyPieces(piece)
 
   const rowWeight = (y: number) => age.rowWeight(y)
