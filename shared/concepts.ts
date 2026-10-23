@@ -47,6 +47,12 @@ export interface ConceptPiece {
    * rest of its plate the way a continent grows over the floor beside it.
    */
   ocean?: boolean
+  /**
+   * Cut out of another piece once the sea floor has been given out: whatever
+   * of that piece lies inside the outline -- only its sea floor, if it is a
+   * continent. For splitting a plate the flood made whole.
+   */
+  from?: string
   /** Outline that claims the continental cells inside it, [lon, lat] in degrees. */
   outline: [number, number][]
 }
@@ -452,6 +458,42 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
     outline: [[150, 35], [155, 45], [165, 50], [180, 50], [200, 48], [215, 45], [220, 30], [225, 15],
       [235, 0], [235, -20], [225, -40], [200, -50], [185, -45], [183, -30], [185, -20], [175, -12],
       [165, -8], [158, -2], [150, 5], [148, 15], [147, 25]],
+  },
+  // The Pacific plate cut into four once it has grown to its ridges: the
+  // Jurassic core in the north-west, the north-east towards the Aleutians and
+  // the Gulf of Alaska, and the south-west with Ontong Java and Manihiki; the
+  // rest, round Hawaii and out to the East Pacific Rise, keeps the name.
+  {
+    id: 'pacificnw',
+    name: 'Noordwest-Pacific',
+    from: 'pacific',
+    outline: [[120, 10], [175, 10], [175, 62], [120, 62]],
+  },
+  {
+    id: 'pacificne',
+    name: 'Noordoost-Pacific',
+    from: 'pacific',
+    outline: [[175, 25], [260, 25], [260, 62], [175, 62]],
+  },
+  {
+    id: 'pacificsw',
+    name: 'Zuidwest-Pacific',
+    from: 'pacific',
+    outline: [[130, 0], [210, 0], [210, -75], [130, -75]],
+  },
+  // The sea floor China took because the arcs in front of it take none: the
+  // Philippine Sea, and the Sea of Japan behind the Japanese arc.
+  {
+    id: 'philippinesea',
+    name: 'Filipijnse Zee',
+    from: 'china',
+    outline: [[115, 5], [150, 5], [150, 33.5], [115, 33.5]],
+  },
+  {
+    id: 'japansea',
+    name: 'Japanse Zee',
+    from: 'china',
+    outline: [[125, 33.5], [145, 33.5], [145, 52], [125, 52]],
   },
   {
     id: 'wilkes',

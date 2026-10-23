@@ -115,6 +115,7 @@ async function main() {
       const i = y * W + x
       if (!continental[i]) continue
       for (let p = 0; p < CONCEPT_PIECES.length; p++) {
+        if (CONCEPT_PIECES[p].from) continue
         if (insideOutline(cellLon(x), cellLat(y), CONCEPT_PIECES[p].outline)) {
           piece[i] = p + 1
           break
@@ -150,6 +151,25 @@ async function main() {
   const oceanAge = nearestAgeOcean(age, height, shelfBreak)
   const body = piece.slice()
   floodOcean(piece, continental, oceanAge)
+  // Plates the flood made whole, cut where an outline says so; such a piece
+  // has no continent of its own, so its body is all of it.
+  CONCEPT_PIECES.forEach((cut, c) => {
+    if (!cut.from) return
+    const parent = CONCEPT_PIECES.findIndex((p) => p.id === cut.from) + 1
+    const anyCell = CONCEPT_PIECES[parent - 1].ocean
+    let n = 0
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        const i = y * W + x
+        if (piece[i] !== parent || (!anyCell && continental[i])) continue
+        if (!insideOutline(cellLon(x), cellLat(y), cut.outline)) continue
+        piece[i] = c + 1
+        body[i] = c + 1
+        n++
+      }
+    }
+    console.log(`[concepts] ${cut.id}: ${n} cells cut out of ${cut.from}`)
+  })
   cellAge = new Uint8Array(W * H)
   for (let i = 0; i < W * H; i++) {
     cellAge[i] = oceanAge[i] < 0 ? 255 : Math.max(1, Math.min(254, Math.ceil(oceanAge[i])))
