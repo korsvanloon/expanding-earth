@@ -23,7 +23,7 @@ import { loadAgeGrid } from './lib/agegrid.js'
 import { areaQuantile, downsample, downsampleField, loadRaster, type Raster } from './lib/raster.js'
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..')
-const OUT = resolve(ROOT, '.stage/concepts')
+const OUT = resolve(ROOT, process.env.CONCEPT_OUT ?? '.stage/concepts')
 const TEXTURES = resolve(ROOT, 'public/textures')
 
 /** The grid the model classifies its crust on (CONFIG in build-data.ts). */
@@ -210,11 +210,26 @@ async function main() {
   // Where each join's two points land on the continental crust.
   const joins = snapJoins(piece)
   // Each moment starts from the one before it, so the layout grows out of
-  // today's rather than being found afresh each time.
+  // today's rather than being found afresh each time -- until the moment a
+  // reader laid by hand, if one is given. That layout is taken as it is, and
+  // every older moment grows out of it instead: each piece carried further
+  // along the turn the reader gave it, then settled against the joins.
+  const base = readBase()
   let previous: Record<string, Placement> | null = null
   for (const m of moments) {
+    for (const j of joins) j.gapKm[m.ma] = oldFloorBetween(j.pointA, j.pointB, m.ma, oceanAge)
     if (previous) m.place = Object.fromEntries(pieces.map((p) => [p.id, { ...previous![p.id] }]))
-    if (m.ma > 0) settle(m, pieces, piece, joins, oceanAge)
+    if (base?.layouts[m.ma]) {
+      // Laid by hand, and turned as a whole into the frame of the moment before.
+      m.place = aligned(pieces, base.layouts, moments.find((x) => x.ma === 0)!.place)[m.ma]
+    } else if (base && m.ma > base.ma) {
+      // Grown out of the last two hand-laid moments: their last step carried
+      // on, then only what lies on top of something else nudged apart.
+      m.place = extrapolate(pieces, base.layouts, moments.find((x) => x.ma === 0)!.place, m.ma, radius)
+      settle(m, pieces, piece, [], oceanAge, undefined, 150)
+    } else if (m.ma > 0) {
+      settle(m, pieces, piece, joins, oceanAge)
+    }
     previous = m.place
   }
 
@@ -237,7 +252,9 @@ async function main() {
     resolve(OUT, 'concepts.json'),
     JSON.stringify({
       r0Km: R0_KM, width: W, height: H, pieces, moments,
-      joins: joins.map((j) => ({ a: j.a, b: j.b, why: j.why, pieceA: pieces[j.pieceA].id, pieceB: pieces[j.pieceB].id, gapKm: j.gapKm })),
+      joins: joins.map((j) => ({ a: j.a, b: j.b, why: j.why, pieceA: pieces[j.pieceA].id, pieceB: pieces[j.pieceB].id, gapKm: j.gapKm, pacific: j.pacific })),
+      baseMa: base?.ma ?? null,
+      byHand: base ? Object.keys(base.layouts).map(Number) : [],
     }, null, 1),
   )
   const png = new PNG({ width: W, height: H })
@@ -252,6 +269,10 @@ async function main() {
     resolve(OUT, 'marble.jpg'),
     jpeg.encode({ width: W, height: H, data: Buffer.from(marble) }, 82).data,
   )
+  if (base) {
+    writeFileSync(resolve(OUT, 'aligned.json'), JSON.stringify(
+      Object.fromEntries(Object.keys(base.layouts).map((ma) => [ma, moments.find((m) => m.ma === Number(ma))!.place])), null, 1))
+  }
   const template = resolve(ROOT, 'tools/concepts-page.html')
   if (existsSync(template)) {
     const dataUri = (file: string, type: string) =>
@@ -397,7 +418,7 @@ function loadMarble(): Uint8Array {
   return out
 }
 
-interface PieceInfo { id: string; lon: number; lat: number; reach: number }
+interface PieceInfo { id: string; lon: number; lat: number; reach: number; share: number }
 interface MomentInfo { ma: number; k: number; place: Record<string, Placement> }
 
 /**
@@ -427,6 +448,164 @@ function lookBack(d: V3, q: ReturnType<typeof placed>[number], k: number): V3 {
   return from(q.home, back, bearing)
 }
 
+/**
+ * Layouts laid by hand in the viewer, whole -- every piece, the ones the
+ * reader left alone included -- named by CONCEPT_BASE:
+ * `{ moments: { "45": { id: { lat, lon, spin } }, ... } }`. Those moments are
+ * taken as they are, and every older one grows out of the oldest of them.
+ */
+function readBase(): { ma: number; layouts: Record<number, Record<string, Placement>> } | null {
+  const file = process.env.CONCEPT_BASE
+  if (!file) return null
+  const body = JSON.parse(readFileSync(resolve(ROOT, file), 'utf8')) as {
+    moments: Record<string, Record<string, Placement>>
+  }
+  const layouts = Object.fromEntries(Object.entries(body.moments).map(([ma, l]) => [Number(ma), l]))
+  const ma = Math.max(...Object.keys(layouts).map(Number))
+  console.log(`[concepts] ${Object.keys(layouts).join(' and ')} Ma laid by hand; growing every moment after ${ma} Ma out of it`)
+  return { ma, layouts }
+}
+
+type M3 = number[][]
+const mul = (a: M3, b: M3): M3 => [0, 1, 2].map((r) => [0, 1, 2].map((c) => a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c]))
+const transpose = (a: M3): M3 => [0, 1, 2].map((r) => [0, 1, 2].map((c) => a[c][r]))
+const apply3 = (a: M3, v: V3): V3 => [0, 1, 2].map((r) => a[r][0] * v[0] + a[r][1] * v[1] + a[r][2] * v[2]) as V3
+
+/** A piece's pose as a turn of the whole sphere: today's frame onto the placed one. */
+function pose(p: PieceInfo, at: Placement): M3 {
+  const home = frame(direction(p.lon, p.lat))
+  const there = frame(direction(at.lon, at.lat))
+  const s = (at.spin ?? 0) * DEG
+  const heading: V3 = [0, 1, 2].map((i) => there.north[i] * Math.cos(s) + there.east[i] * Math.sin(s)) as V3
+  const to = [cross(heading, there.up), heading, there.up]
+  const fromF = [home.east, home.north, home.up]
+  return [0, 1, 2].map((r) => [0, 1, 2].map((c) => to[0][r] * fromF[0][c] + to[1][r] * fromF[1][c] + to[2][r] * fromF[2][c]))
+}
+
+function placementOf(p: PieceInfo, q: M3): Placement {
+  const home = frame(direction(p.lon, p.lat))
+  const up = apply3(q, home.up)
+  const north = apply3(q, home.north)
+  const f = frame(up)
+  const [lon, lat] = lonLat(up)
+  return { lat, lon, spin: Math.atan2(dot(north, f.east), dot(north, f.north)) / DEG }
+}
+
+function axisAngle(q: M3): { axis: V3; angle: number } {
+  const angle = Math.acos(Math.max(-1, Math.min(1, (q[0][0] + q[1][1] + q[2][2] - 1) / 2)))
+  if (angle < 1e-9) return { axis: [0, 0, 1], angle: 0 }
+  return { axis: unit([q[2][1] - q[1][2], q[0][2] - q[2][0], q[1][0] - q[0][1]]), angle }
+}
+
+function turnMatrix(axis: V3, angle: number): M3 {
+  return transpose([rotate([1, 0, 0], axis, angle), rotate([0, 1, 0], axis, angle), rotate([0, 0, 1], axis, angle)])
+}
+
+/**
+ * The one turn of the whole sphere that moves `from` onto `to` as little as
+ * possible, every piece's centre and heading weighted by its area (Horn's
+ * quaternion method). Laying a moment by hand fixes where the pieces lie
+ * against each other, not where the whole lies on the globe, so two moments
+ * laid by hand can sit a few degrees apart as a whole; this takes that out,
+ * the way plate tectonics takes out net rotation.
+ */
+function netTurn(pieces: PieceInfo[], from: M3[], to: M3[]): M3 {
+  const S = [[0, 0, 0], [0, 0, 0], [0, 0, 0]]
+  pieces.forEach((p, i) => {
+    const home = frame(direction(p.lon, p.lat))
+    for (const v of [home.up, home.north]) {
+      const a = apply3(from[i], v)
+      const b = apply3(to[i], v)
+      for (let r = 0; r < 3; r++) for (let c = 0; c < 3; c++) S[r][c] += p.share * a[r] * b[c]
+    }
+  })
+  const [[xx, xy, xz], [yx, yy, yz], [zx, zy, zz]] = S
+  const N = [
+    [xx + yy + zz, yz - zy, zx - xz, xy - yx],
+    [yz - zy, xx - yy - zz, xy + yx, zx + xz],
+    [zx - xz, xy + yx, -xx + yy - zz, yz + zy],
+    [xy - yx, zx + xz, yz + zy, -xx - yy + zz],
+  ]
+  const shift = N.flat().reduce((s2, v) => s2 + Math.abs(v), 0)
+  let q = [1, 0, 0, 0]
+  for (let k = 0; k < 500; k++) {
+    const next = N.map((row, r) => row.reduce((s2, v, c) => s2 + v * q[c], 0) + shift * q[r])
+    const l = Math.hypot(...next)
+    q = next.map((v) => v / l)
+  }
+  const [w, x, y, z] = q
+  return [
+    [1 - 2 * (y * y + z * z), 2 * (x * y - w * z), 2 * (x * z + w * y)],
+    [2 * (x * y + w * z), 1 - 2 * (x * x + z * z), 2 * (y * z - w * x)],
+    [2 * (x * z - w * y), 2 * (y * z + w * x), 1 - 2 * (x * x + y * y)],
+  ]
+}
+
+/**
+ * An older moment grown out of the hand-laid ones. The hand-laid moments are
+ * first brought into one frame, each turned as a whole onto the one before it
+ * (today for the first); then each piece's last step -- the turn that took it
+ * from the second-last laid moment to the last -- is carried on, as far as the
+ * sea floor that goes missing in the meantime says, relative to that last step.
+ * Everything stays in that one frame, the hand-laid moments included, so a
+ * piece's motion from moment to moment is its own and not the whole globe's.
+ */
+function extrapolate(
+  pieces: PieceInfo[], layouts: Record<number, Record<string, Placement>>, today: Record<string, Placement>,
+  ma: number, radius: (ma: number) => number,
+): Record<string, Placement> {
+  const laid = Object.keys(layouts).map(Number).sort((a, b) => a - b)
+  let previous = pieces.map((p) => pose(p, today[p.id]))
+  const aligned: M3[][] = []
+  const turns: M3[] = []
+  for (const t of laid) {
+    const raw = pieces.map((p) => pose(p, layouts[t][p.id]))
+    const g = netTurn(pieces, raw, previous)
+    turns.push(g)
+    previous = raw.map((q) => mul(g, q))
+    aligned.push(previous)
+  }
+  const last = laid[laid.length - 1]
+  const before = laid.length > 1 ? laid[laid.length - 2] : 0
+  const lastPoses = aligned[aligned.length - 1]
+  const beforePoses = laid.length > 1 ? aligned[aligned.length - 2] : pieces.map((p) => pose(p, today[p.id]))
+  const r2 = (t: number) => radius(t) ** 2
+  const onward = (r2(last) - r2(ma)) / (r2(before) - r2(last))
+  turns.forEach((t, i) => console.log(`[concepts] ${laid[i]} Ma laid ${(axisAngle(t).angle / DEG).toFixed(1)} deg off, as a whole, from the moment before`))
+  console.log(`[concepts] ${ma} Ma: each piece's ${before}-${last} Ma step carried on ${onward.toFixed(2)} times`)
+  return Object.fromEntries(pieces.map((p, i) => {
+    const step = axisAngle(mul(lastPoses[i], transpose(beforePoses[i])))
+    const q = mul(turnMatrix(step.axis, step.angle * onward), lastPoses[i])
+    return [p.id, placementOf(p, q)]
+  }))
+}
+
+/** The hand-laid moments, each turned as a whole onto the one before it. */
+function aligned(
+  pieces: PieceInfo[], layouts: Record<number, Record<string, Placement>>, today: Record<string, Placement>,
+): Record<number, Record<string, Placement>> {
+  let previous = pieces.map((p) => pose(p, today[p.id]))
+  const out: Record<number, Record<string, Placement>> = {}
+  for (const t of Object.keys(layouts).map(Number).sort((a, b) => a - b)) {
+    const raw = pieces.map((p) => pose(p, layouts[t][p.id]))
+    const g = netTurn(pieces, raw, previous)
+    previous = raw.map((q) => mul(g, q))
+    out[t] = Object.fromEntries(pieces.map((p, i) => [p.id, placementOf(p, previous[i])]))
+  }
+  return out
+}
+
+function rotate(v: V3, axis: V3, angle: number): V3 {
+  const c = Math.cos(angle)
+  const s = Math.sin(angle)
+  const k = cross(axis, v)
+  const d = dot(axis, v) * (1 - c)
+  return [v[0] * c + k[0] * s + axis[0] * d, v[1] * c + k[1] * s + axis[1] * d, v[2] * c + k[2] * s + axis[2] * d]
+}
+
+/** How hard a grown layout is held to where it was carried. */
+const ANCHOR = Number(process.env.CONCEPT_ANCHOR ?? 0.1)
+
 /** Pieces held where they are, whatever pulls on them. Africa is the frame. */
 const PINNED = new Set(['africa'])
 
@@ -441,6 +620,7 @@ interface Join {
   /** Sea floor older than each moment along the way, km, by moment. */
   gapKm: Record<number, number>
   weight: number
+  pacific: boolean
 }
 
 function snapJoins(piece: Uint8Array): Join[] {
@@ -480,7 +660,7 @@ function snapJoins(piece: Uint8Array): Join[] {
     // where today's great circle is the poorest guide to what lay between.
     const pacific = j.why.includes('Pacific') || j.why.includes('Scalera') || j.why.includes('California')
     const weight = j.why === 'joined by continental crust today' || j.why.includes('attached') ? 4 : pacific ? 0.5 : 1
-    return { ...j, pieceA, pieceB, pointA, pointB, gapKm: {}, weight }
+    return { ...j, pieceA, pieceB, pointA, pointB, gapKm: {}, weight, pacific }
   })
 }
 
@@ -527,9 +707,8 @@ const tangentAt = (at: V3, v: V3): V3 => {
  */
 function settle(
   m: MomentInfo & { radiusKm: number }, pieces: PieceInfo[], piece: Uint8Array, joins: Join[],
-  oceanAge: Float32Array,
+  oceanAge: Float32Array, anchor?: Record<string, Placement>, rounds = 400,
 ) {
-  for (const j of joins) j.gapKm[m.ma] = oldFloorBetween(j.pointA, j.pointB, m.ma, oceanAge)
   const homes = pieces.map((p) => frame(direction(p.lon, p.lat)))
   const centre = pieces.map((p) => direction(m.place[p.id].lon, m.place[p.id].lat))
   const spin = pieces.map((p) => (m.place[p.id].spin ?? 0) * DEG)
@@ -541,7 +720,42 @@ function settle(
     const a = s * Math.PI * (3 - Math.sqrt(5))
     samples.push([r * Math.cos(a), y, r * Math.sin(a)])
   }
-  const ROUNDS = 400
+  const ROUNDS = rounds
+  const CLEAN = joins.length ? 100 : 0
+  let lastPairs = 0
+  const apply = (move: V3[], turn: number[], relax: number) => {
+    for (let p = 0; p < pieces.length; p++) {
+      if (PINNED.has(pieces[p].id)) continue
+      centre[p] = unit([
+        centre[p][0] + move[p][0] * relax,
+        centre[p][1] + move[p][1] * relax,
+        centre[p][2] + move[p][2] * relax,
+      ])
+      spin[p] += Math.max(-0.05, Math.min(0.05, turn[p] * relax))
+    }
+  }
+  // Each pair's overlap as one patch: its centre, its area, and how long it
+  // runs along the border, which together give how deep it is.
+  const overlaps = () => {
+    const q = placed({ ...m, place: Object.fromEntries(pieces.map((pc, i) => {
+      const [lon, lat] = lonLat(centre[i])
+      return [pc.id, { lat, lon, spin: spin[i] / DEG }]
+    })) }, pieces)
+    const patches = new Map<number, { p: number; r: number; xs: V3[] }>()
+    for (const x of samples) {
+      const hits = piecesAt(x, q, m.k, piece)
+      if (hits.length < 2) continue
+      for (let i = 0; i < hits.length; i++) {
+        for (let i2 = i + 1; i2 < hits.length; i2++) {
+          const key = hits[i] * 64 + hits[i2]
+          let e = patches.get(key)
+          if (!e) patches.set(key, (e = { p: hits[i], r: hits[i2], xs: [] }))
+          e.xs.push(x)
+        }
+      }
+    }
+    return patches
+  }
   for (let round = 0; round < ROUNDS; round++) {
     const move: V3[] = pieces.map(() => [0, 0, 0])
     const turn = pieces.map(() => 0)
@@ -575,26 +789,22 @@ function settle(
       move[p] = [move[p][0] / pulls[p], move[p][1] / pulls[p], move[p][2] / pulls[p]]
       turn[p] /= pulls[p]
     }
-    // The overlaps, pair by pair.
-    const q = placed({ ...m, place: Object.fromEntries(pieces.map((pc, i) => {
-      const [lon, lat] = lonLat(centre[i])
-      return [pc.id, { lat, lon, spin: spin[i] / DEG }]
-    })) }, pieces)
-    // Each pair's overlap as one patch: its centre, its area, and how long it
-    // runs along the border, which together give how deep it is.
-    const patches = new Map<number, { p: number; r: number; xs: V3[] }>()
-    for (const x of samples) {
-      const hits = piecesAt(x, q, m.k, piece)
-      if (hits.length < 2) continue
-      for (let i = 0; i < hits.length; i++) {
-        for (let i2 = i + 1; i2 < hits.length; i2++) {
-          const key = hits[i] * 64 + hits[i2]
-          let e = patches.get(key)
-          if (!e) patches.set(key, (e = { p: hits[i], r: hits[i2], xs: [] }))
-          e.xs.push(x)
-        }
+    // A layout grown from a hand-laid one stays near where it was carried to.
+    if (anchor) {
+      for (let p = 0; p < pieces.length; p++) {
+        const a = direction(anchor[pieces[p].id].lon, anchor[pieces[p].id].lat)
+        const t = tangentAt(centre[p], [a[0] - centre[p][0], a[1] - centre[p][1], a[2] - centre[p][2]])
+        for (let c = 0; c < 3; c++) move[p][c] += t[c] * ANCHOR
+        const want = (anchor[pieces[p].id].spin ?? 0) * DEG
+        turn[p] += Math.atan2(Math.sin(want - spin[p]), Math.cos(want - spin[p])) * ANCHOR
       }
     }
+    // The pulls first, a little at a time, and for the last rounds not at all,
+    // so that what is left at the end is pieces lying apart.
+    if (round < ROUNDS - CLEAN) apply(move, turn, 0.25)
+    const patches = overlaps()
+    const push: V3[] = pieces.map(() => [0, 0, 0])
+    const twist = pieces.map(() => 0)
     const spacing = Math.sqrt((4 * Math.PI) / N)
     for (const { p, r, xs } of patches.values()) {
       const g = unit(xs.reduce<V3>((s2, x) => [s2[0] + x[0], s2[1] + x[1], s2[2] + x[2]], [0, 0, 0]))
@@ -607,30 +817,23 @@ function settle(
         lo = Math.min(lo, t)
         hi = Math.max(hi, t)
       }
-      const depth = Math.min(0.03, (xs.length * spacing * spacing) / (hi - lo + spacing))
+      const depth = Math.min(0.01, (xs.length * spacing * spacing) / (hi - lo + spacing))
       const share = PINNED.has(pieces[p].id) ? 0 : PINNED.has(pieces[r].id) ? 1 : 0.5
       for (const [piece2, sign, part] of [[p, -1, share], [r, 1, 1 - share]] as [number, number, number][]) {
         if (!part) continue
         const step: V3 = [v[0] * sign * depth * part, v[1] * sign * depth * part, v[2] * sign * depth * part]
         const c = centre[piece2]
         const lever = tangentAt(c, [g[0] - c[0], g[1] - c[1], g[2] - c[2]])
-        turn[piece2] += -dot(cross(lever, step), c) / (dot(lever, lever) + 1e-2)
+        twist[piece2] += -dot(cross(lever, step), c) / (dot(lever, lever) + 1e-2)
         const t = tangentAt(c, step)
-        move[piece2][0] += t[0]
-        move[piece2][1] += t[1]
-        move[piece2][2] += t[2]
+        push[piece2][0] += t[0]
+        push[piece2][1] += t[1]
+        push[piece2][2] += t[2]
       }
     }
-    const relax = 0.5
-    for (let p = 0; p < pieces.length; p++) {
-      if (PINNED.has(pieces[p].id)) continue
-      centre[p] = unit([
-        centre[p][0] + move[p][0] * relax,
-        centre[p][1] + move[p][1] * relax,
-        centre[p][2] + move[p][2] * relax,
-      ])
-      spin[p] += Math.max(-0.05, Math.min(0.05, turn[p] * relax))
-    }
+    // Then the overlaps, pushed apart in full.
+    apply(push, twist, 1)
+    lastPairs = patches.size
     if (round === ROUNDS - 1 || round % 100 === 0) {
       let residual = 0
       for (const j of joins) {
@@ -638,7 +841,7 @@ function settle(
         const b = forward(j.pointB, homes[j.pieceB], frame(centre[j.pieceB]), spin[j.pieceB], m.k)
         residual += Math.abs(Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * m.radiusKm - j.gapKm[m.ma])
       }
-      console.log(`    settle ${m.ma} Ma round ${round}: joins off by ${(residual / joins.length).toFixed(0)} km on average, ${patches.size} overlapping pairs`)
+      console.log(`    settle ${m.ma} Ma round ${round}: ` + (joins.length ? `joins off by ${(residual / joins.length).toFixed(0)} km on average, ` : '') + `${lastPairs} overlapping pairs`)
     }
   }
   const off = joins.map((j) => {
@@ -647,6 +850,10 @@ function settle(
     return { j, km: Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * m.radiusKm - j.gapKm[m.ma] }
   }).sort((x, y) => Math.abs(y.km) - Math.abs(x.km))
   Object.assign(m, { joinOff: Object.fromEntries(off.map(({ j, km }) => [joins.indexOf(j), Math.round(km)])) })
+  const kept = off.filter(({ j }) => !j.pacific)
+  if (kept.length) {
+    console.log(`      joins off by ${(kept.reduce((s2, o) => s2 + Math.abs(o.km), 0) / kept.length).toFixed(0)} km on average, outside the Pacific`)
+  }
   for (const { j, km } of off.slice(0, 8)) {
     console.log(`      ${pieces[j.pieceA].id}-${pieces[j.pieceB].id} off by ${km.toFixed(0)} km (${j.why.slice(0, 40)})`)
   }

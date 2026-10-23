@@ -169,12 +169,14 @@
           <button type="button" id="mode-pieces" aria-pressed="false">Stukken</button>
         </div>
         <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen</label>
+        <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen</label>
         <div class="controls" id="views"></div>
         <div class="legend">
           <div><span class="sw" style="background: var(--double)"></span>Dubbel: twee stukken over elkaar</div>
           <div><span class="sw" style="background: #17324a"></span>Oceaan, of nog open</div>
           <div><span class="sw" style="background: #9fb7b8"></span>Plat: continentale korst onder water</div>
-          <div><span class="sw" style="background: #ffd166"></span>Gekozen stuk</div>
+          <div><span class="sw" style="background: #ffd166"></span>Gekozen stuk, aansluitingen</div>
+          <div><span class="sw" style="background: #7fe0d2"></span>Beweging: van het vorige moment naar dit</div>
         </div>
       </section>
       <section>
@@ -305,7 +307,7 @@ const MARBLE_JPG = "__MARBLE__";
   }
 
   // ---------- state ----------
-  const state = { moment: M - 1, lon: 20, lat: 0, mode: 0, joins: false, tool: 'move' };
+  const state = { moment: M - 1, lon: 20, lat: 0, mode: 0, joins: false, motion: false, tool: 'move' };
   try {
     const saved = JSON.parse(localStorage.getItem('concept-globes') || 'null');
     if (saved) Object.assign(state, saved);
@@ -515,16 +517,30 @@ const MARBLE_JPG = "__MARBLE__";
     if (!gesture || gesture.kind === 'view') describe();
   }
 
-  // The joins as lines between their two margins.
+  // The joins as lines between their two margins, and each piece's motion
+  // since the moment before as an arrow from where its centre was.
   function drawOverlay() {
-    if (!state.joins) { overlay.innerHTML = ''; return; }
+    if (!state.joins && !state.motion) { overlay.innerHTML = ''; return; }
     const r = stage.getBoundingClientRect();
     const R = r.width / 2 * 0.94, cx = r.width / 2, cy = r.height / 2;
     const m = C.moments[state.moment];
     const f = viewFrame();
     const project = (d) => [cx + dot(d, f.east) * R, cy - dot(d, f.north) * R, dot(d, f.up)];
     let svg = '';
-    for (const j of C.joins) {
+    if (state.motion && state.moment > 0) {
+      for (const p of C.pieces) {
+        const a = placementOf(state.moment - 1, p.id), b = placementOf(state.moment, p.id);
+        const A = project(dir(a.lon, a.lat)), B = project(dir(b.lon, b.lat));
+        if (A[2] < 0 || B[2] < 0) continue;
+        const dx = B[0] - A[0], dy = B[1] - A[1], l = Math.hypot(dx, dy);
+        svg += `<circle cx="${A[0]}" cy="${A[1]}" r="3" fill="none" stroke="#7fe0d2" stroke-width="1.5"></circle>`;
+        if (l < 4) continue;
+        const ux = dx / l, uy = dy / l, h = Math.min(10, l / 2);
+        svg += `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="#7fe0d2" stroke-width="2"></line>` +
+          `<path d="M${B[0]},${B[1]} L${B[0] - ux * h - uy * h * 0.5},${B[1] - uy * h + ux * h * 0.5} L${B[0] - ux * h + uy * h * 0.5},${B[1] - uy * h - ux * h * 0.5} Z" fill="#7fe0d2"></path>`;
+      }
+    }
+    if (state.joins) for (const j of C.joins) {
       const pa = C.pieces.findIndex((p) => p.id === j.pieceA);
       const pb = C.pieces.findIndex((p) => p.id === j.pieceB);
       const A = project(forward(dir(j.a[0], j.a[1]), placed[state.moment][pa], m.k));
@@ -556,14 +572,19 @@ const MARBLE_JPG = "__MARBLE__";
       ['Door jou verlegd', editedHere ? `${editedHere} ${editedHere === 1 ? 'stuk' : 'stukken'}` : 'niets'],
     ];
     document.getElementById('facts').innerHTML = facts.map(([a, b]) => `<dt>${a}</dt><dd>${b}</dd>`).join('');
-    document.getElementById('note').textContent = m.note || '';
+    const grown = C.baseMa != null && m.ma > C.baseMa;
+    const byHand = (C.byHand || []).includes(m.ma);
+    const laid = (C.byHand || []).join(' en ');
+    document.getElementById('note').textContent = (m.note || '') +
+      (byHand ? ' Door jou gelegd, en als geheel gedraaid zodat het zo goed mogelijk aansluit op het moment ervoor.' : '') +
+      (grown ? ` Eerste opzet, doorgetrokken uit jouw ${laid} Ma: elke stap van een stuk tussen die twee loopt door, en alleen wat over elkaar ligt is wat uit elkaar geduwd. Nog met de hand af te maken.` : '');
     const rows = C.joins.map((j, i) => ({ j, gap: j.gapKm[m.ma] ?? 0, off: st.off[i] }))
       .sort((a, b) => Math.abs(b.off) - Math.abs(a.off));
     const touchesChosen = (j) => selected >= 0 && (j.pieceA === C.pieces[selected].id || j.pieceB === C.pieces[selected].id);
     document.getElementById('joins').innerHTML = mi === 0
       ? '<div class="why">Vandaag: elke aansluiting staat op zijn huidige afstand.</div>'
       : rows.map(({ j, gap, off }) => `<div class="join${touchesChosen(j) ? ' moved' : ''}"><span class="who">${nameOf(j.pieceA)} – ${nameOf(j.pieceB)}</span>` +
-        `<span class="km">${gap < 1 ? 'tegen elkaar' : fmt(gap) + ' km oceaan'} · ${Math.abs(off) < 100 ? 'klopt' : off > 0 ? fmt(off) + ' km te ver' : fmt(-off) + ' km te dicht'}</span>` +
+        `<span class="km">${gap < 1 ? 'tegen elkaar' : fmt(gap) + ' km oceaan'} · ${Math.abs(off) < 100 ? 'klopt' : off > 0 ? fmt(off) + ' km te ver' : fmt(-off) + ' km te dicht'}${grown && j.pacific ? ' · niet meegenomen' : ''}</span>` +
         `<span class="why">${j.why}</span></div>`).join('');
     describeEdit();
     document.querySelectorAll('#pieces button').forEach((b, p) => {
@@ -893,6 +914,9 @@ const MARBLE_JPG = "__MARBLE__";
     render(); save();
   }));
   modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === state.mode)));
+  const motionBox = document.getElementById('show-motion');
+  motionBox.checked = state.motion;
+  motionBox.addEventListener('change', () => { state.motion = motionBox.checked; render(); save(); });
   const joinsBox = document.getElementById('show-joins');
   joinsBox.checked = state.joins;
   joinsBox.addEventListener('change', () => { state.joins = joinsBox.checked; render(); save(); });
