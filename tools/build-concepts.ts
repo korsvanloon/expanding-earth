@@ -226,9 +226,9 @@ async function main() {
       // Grown out of the last two hand-laid moments: their last step carried
       // on, then only what lies on top of something else nudged apart.
       m.place = extrapolate(pieces, base.layouts, moments.find((x) => x.ma === 0)!.place, m.ma, radius)
-      settle(m, pieces, piece, [], oceanAge, undefined, 150)
+      settle(m, pieces, piece, [], undefined, 150)
     } else if (m.ma > 0) {
-      settle(m, pieces, piece, joins, oceanAge)
+      settle(m, pieces, piece, joins)
     }
     previous = m.place
   }
@@ -707,7 +707,7 @@ const tangentAt = (at: V3, v: V3): V3 => {
  */
 function settle(
   m: MomentInfo & { radiusKm: number }, pieces: PieceInfo[], piece: Uint8Array, joins: Join[],
-  oceanAge: Float32Array, anchor?: Record<string, Placement>, rounds = 400,
+  anchor?: Record<string, Placement>, rounds = 400,
 ) {
   const homes = pieces.map((p) => frame(direction(p.lon, p.lat)))
   const centre = pieces.map((p) => direction(m.place[p.id].lon, m.place[p.id].lat))
