@@ -154,7 +154,7 @@ async function main() {
       }
     }
     const [lon, lat] = lonLat(centre)
-    return { id: p.id, name: p.name, lon, lat, share: area / sphere, reach: reach + 0.01 }
+    return { id: p.id, name: p.name, fold: p.fold ?? false, lon, lat, share: area / sphere, reach: reach + 0.01 }
   })
 
   // The budget is all of the continental crust, cut or not; what no piece holds
@@ -214,7 +214,7 @@ async function main() {
   // reader laid by hand, if one is given. That layout is taken as it is, and
   // every older moment grows out of it instead: each piece carried further
   // along the turn the reader gave it, then settled against the joins.
-  const base = readBase()
+  const base = readBase(pieces, piece, (ma) => moments.find((m) => m.ma === ma)!.k)
   let previous: Record<string, Placement> | null = null
   for (const m of moments) {
     for (const j of joins) j.gapKm[m.ma] = oldFloorBetween(j.pointA, j.pointB, m.ma, oceanAge)
@@ -244,7 +244,7 @@ async function main() {
     console.log(
       `[concepts] ${String(m.ma).padStart(3)} Ma  R ${m.radiusKm.toFixed(0)} km  shrink ${(100 * (1 - m.shrink)).toFixed(1)}%  ` +
         `ocean should be ${(100 * m.oceanLeft).toFixed(1)}%  is ${(100 * stats.gap).toFixed(1)}%  ` +
-        `overlap ${(100 * stats.overlap).toFixed(1)}%`,
+        `overlap ${(100 * stats.overlap).toFixed(1)}%  folded ${(100 * stats.folded).toFixed(1)}%`,
     )
   }
 
@@ -418,7 +418,7 @@ function loadMarble(): Uint8Array {
   return out
 }
 
-interface PieceInfo { id: string; lon: number; lat: number; reach: number; share: number }
+interface PieceInfo { id: string; lon: number; lat: number; reach: number; share: number; fold?: boolean }
 interface MomentInfo { ma: number; k: number; place: Record<string, Placement> }
 
 /**
@@ -453,14 +453,55 @@ function lookBack(d: V3, q: ReturnType<typeof placed>[number], k: number): V3 {
  * reader left alone included -- named by CONCEPT_BASE:
  * `{ moments: { "45": { id: { lat, lon, spin } }, ... } }`. Those moments are
  * taken as they are, and every older one grows out of the oldest of them.
+ *
+ * The layouts may have been laid with an older cut of the pieces. Then the
+ * file also carries that cut (`ids`, `homes` and the `raster` of it), and each
+ * piece of today's cut takes the place the piece it mostly came from had: its
+ * centre goes where that piece carried it, and it is turned the way that piece
+ * was turned there.
  */
-function readBase(): { ma: number; layouts: Record<number, Record<string, Placement>> } | null {
+function readBase(
+  pieces: PieceInfo[], piece: Uint8Array, kOf: (ma: number) => number,
+): { ma: number; layouts: Record<number, Record<string, Placement>> } | null {
   const file = process.env.CONCEPT_BASE
   if (!file) return null
   const body = JSON.parse(readFileSync(resolve(ROOT, file), 'utf8')) as {
     moments: Record<string, Record<string, Placement>>
+    ids?: string[]
+    homes?: Record<string, { lat: number; lon: number }>
+    raster?: string
   }
-  const layouts = Object.fromEntries(Object.entries(body.moments).map(([ma, l]) => [Number(ma), l]))
+  let layouts = Object.fromEntries(Object.entries(body.moments).map(([ma, l]) => [Number(ma), l]))
+  if (body.raster && body.ids && body.homes) {
+    const old = PNG.sync.read(readFileSync(resolve(ROOT, body.raster)))
+    const parentOf = pieces.map((_, p) => {
+      const count = new Map<number, number>()
+      for (let i = 0; i < W * H; i++) {
+        if (piece[i] !== p + 1) continue
+        const o = old.data[i * 4]
+        if (o) count.set(o - 1, (count.get(o - 1) ?? 0) + 1)
+      }
+      const best = [...count].sort((a, b) => b[1] - a[1])[0]
+      return body.ids![best[0]]
+    })
+    console.log('[concepts] each piece from: ' + pieces.map((p, i) => `${p.id}<${parentOf[i]}`).join(' '))
+    layouts = Object.fromEntries(Object.entries(layouts).map(([ma, layout]) => {
+      const k = kOf(Number(ma))
+      return [ma, Object.fromEntries(pieces.map((p, i) => {
+        const home = frame(direction(body.homes![parentOf[i]].lon, body.homes![parentOf[i]].lat))
+        const at = layout[parentOf[i]]
+        const there = frame(direction(at.lon, at.lat))
+        const spin = (at.spin ?? 0) * DEG
+        const c = direction(p.lon, p.lat)
+        const centre = forward(c, home, there, spin, k)
+        const ahead = forward(from(frame(c), 0.01, 0), home, there, spin, k)
+        const f = frame(centre)
+        const h = tangentAt(centre, [ahead[0] - centre[0], ahead[1] - centre[1], ahead[2] - centre[2]])
+        const [lon, lat] = lonLat(centre)
+        return [p.id, { lat, lon, spin: Math.atan2(dot(h, f.east), dot(h, f.north)) / DEG }]
+      }))]
+    }))
+  }
   const ma = Math.max(...Object.keys(layouts).map(Number))
   console.log(`[concepts] ${Object.keys(layouts).join(' and ')} Ma laid by hand; growing every moment after ${ma} Ma out of it`)
   return { ma, layouts }
@@ -607,7 +648,7 @@ function rotate(v: V3, axis: V3, angle: number): V3 {
 const ANCHOR = Number(process.env.CONCEPT_ANCHOR ?? 0.1)
 
 /** Pieces held where they are, whatever pulls on them. Africa is the frame. */
-const PINNED = new Set(['africa'])
+const PINNED = new Set(['nubia'])
 
 interface Join {
   a: [number, number]
@@ -743,7 +784,8 @@ function settle(
     })) }, pieces)
     const patches = new Map<number, { p: number; r: number; xs: V3[] }>()
     for (const x of samples) {
-      const hits = piecesAt(x, q, m.k, piece)
+      // Crust stacking in an arc or the Caribbean ladder is allowed to.
+      const hits = piecesAt(x, q, m.k, piece).filter((h) => !pieces[h].fold)
       if (hits.length < 2) continue
       for (let i = 0; i < hits.length; i++) {
         for (let i2 = i + 1; i2 < hits.length; i2++) {
@@ -899,6 +941,7 @@ function drawSheet(
           f.east[2] * x + f.north[2] * y + f.up[2] * z,
         ]
         let hits = 0
+        let folded = false
         let colour: V3 = [20, 34, 60]
         for (let p = 0; p < q.length; p++) {
           if (dot(d, ups[p]) < q[p].cosReach) continue
@@ -909,11 +952,12 @@ function drawSheet(
           const c = cy * W + cx
           if (piece[c] !== p + 1) continue
           hits++
+          if (pieces[p].fold) folded = true
           colour = land[c]
             ? [marble[c * 4], marble[c * 4 + 1], marble[c * 4 + 2]]
             : PALETTE[p % PALETTE.length]
         }
-        if (hits > 1) colour = [230, 30, 40]
+        if (hits > 1) colour = folded ? [150, 110, 210] : [230, 30, 40]
         const grid = Math.abs(((lonLat(d)[0] + 360) % 30) - 15) > 14.6 || Math.abs((lonLat(d)[1] + 90) % 30 - 15) > 14.6
         const shade = 0.55 + 0.45 * z
         const g = grid ? 0.7 : 1
@@ -946,6 +990,7 @@ function measure(m: MomentInfo, pieces: PieceInfo[], piece: Uint8Array) {
   const N = 200000
   let gap = 0
   let overlap = 0
+  let folded = 0
   const pairs = new Map<string, number>()
   for (let s = 0; s < N; s++) {
     const y = 1 - (2 * (s + 0.5)) / N
@@ -953,7 +998,8 @@ function measure(m: MomentInfo, pieces: PieceInfo[], piece: Uint8Array) {
     const a = s * Math.PI * (3 - Math.sqrt(5))
     const hits = piecesAt([r * Math.cos(a), y, r * Math.sin(a)], q, m.k, piece)
     if (!hits.length) gap++
-    if (hits.length > 1) {
+    if (hits.length > 1 && hits.some((h) => pieces[h].fold)) folded++
+    else if (hits.length > 1) {
       overlap++
       const key = hits.map((h) => pieces[h].id).join('+')
       pairs.set(key, (pairs.get(key) ?? 0) + 1)
@@ -961,7 +1007,7 @@ function measure(m: MomentInfo, pieces: PieceInfo[], piece: Uint8Array) {
   }
   const worst = [...pairs].sort((a, b) => b[1] - a[1]).slice(0, 8)
   for (const [key, n] of worst) console.log(`      ${key} ${((100 * n) / N).toFixed(2)}%`)
-  return { gap: gap / N, overlap: overlap / N }
+  return { gap: gap / N, overlap: overlap / N, folded: folded / N }
 }
 
 main().catch((error) => {
