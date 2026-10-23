@@ -217,18 +217,27 @@ async function main() {
   // every older moment grows out of it instead: each piece carried further
   // along the turn the reader gave it, then settled against the joins.
   const base = readBase(pieces, piece, (ma) => moments.find((m) => m.ma === ma)!.k)
+  const today = () => moments.find((x) => x.ma === 0)!.place
   let previous: Record<string, Placement> | null = null
   for (const m of moments) {
     for (const j of joins) j.gapKm[m.ma] = oldFloorBetween(j.pointA, j.pointB, m.ma, oceanAge)
     if (previous) m.place = Object.fromEntries(pieces.map((p) => [p.id, { ...previous![p.id] }]))
     if (base?.layouts[m.ma]) {
-      // Laid by hand, and turned as a whole into the frame of the moment before.
-      m.place = aligned(pieces, base.layouts, moments.find((x) => x.ma === 0)!.place)[m.ma]
+      // Laid by hand, taken as it is -- or, with CONCEPT_ALIGN=1, turned as a
+      // whole into the frame of the moment before, for moments that were laid
+      // each on their own rather than one from the other.
+      m.place = ALIGN ? aligned(pieces, base.layouts, today())[m.ma] : { ...base.layouts[m.ma] }
     } else if (base && m.ma > base.ma) {
-      // Grown out of the last two hand-laid moments: their last step carried
-      // on, then only what lies on top of something else nudged apart.
-      m.place = extrapolate(pieces, base.layouts, moments.find((x) => x.ma === 0)!.place, m.ma, radius)
-      settle(m, pieces, piece, [], undefined, 150)
+      if (GROW === 'carry') {
+        // Each piece's last step carried on, then only what lies on top of
+        // something else nudged apart.
+        m.place = extrapolate(pieces, base.layouts, today(), m.ma, radius)
+        settle(m, pieces, piece, [], undefined, 150)
+      } else {
+        // The last hand-laid moment as it is: every piece where it was and
+        // turned as it was, to be laid from there on the smaller sphere.
+        m.place = { ...(ALIGN ? aligned(pieces, base.layouts, today())[base.ma] : base.layouts[base.ma]) }
+      }
     } else if (m.ma > 0) {
       settle(m, pieces, piece, joins)
     }
@@ -256,6 +265,7 @@ async function main() {
       r0Km: R0_KM, width: W, height: H, pieces, moments,
       joins: joins.map((j) => ({ a: j.a, b: j.b, why: j.why, pieceA: pieces[j.pieceA].id, pieceB: pieces[j.pieceB].id, gapKm: j.gapKm, pacific: j.pacific })),
       baseMa: base?.ma ?? null,
+      growMode: GROW,
       byHand: base ? Object.keys(base.layouts).map(Number) : [],
     }, null, 1),
   )
@@ -736,6 +746,15 @@ function rotate(v: V3, axis: V3, angle: number): V3 {
   const d = dot(axis, v) * (1 - c)
   return [v[0] * c + k[0] * s + axis[0] * d, v[1] * c + k[1] * s + axis[1] * d, v[2] * c + k[2] * s + axis[2] * d]
 }
+
+/**
+ * How the moments after the last hand-laid one are made: `copy` (each piece
+ * where it lay then, to be laid on from there) or `carry` (each piece's last
+ * step carried on). And whether hand-laid moments are first turned as wholes
+ * onto each other, which only helps when they were laid each on its own.
+ */
+const GROW = process.env.CONCEPT_GROW ?? 'copy'
+const ALIGN = process.env.CONCEPT_ALIGN === '1'
 
 /** How hard a grown layout is held to where it was carried. */
 const ANCHOR = Number(process.env.CONCEPT_ANCHOR ?? 0.1)

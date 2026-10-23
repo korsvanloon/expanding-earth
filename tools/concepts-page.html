@@ -595,8 +595,9 @@ const MARBLE_JPG = "__MARBLE__";
     const byHand = (C.byHand || []).includes(m.ma);
     const laid = (C.byHand || []).join(' en ');
     document.getElementById('note').textContent = (m.note || '') +
-      (byHand ? ' Door jou gelegd, en als geheel gedraaid zodat het zo goed mogelijk aansluit op het moment ervoor.' : '') +
-      (grown ? ` Eerste opzet, doorgetrokken uit jouw ${laid} Ma: elke stap van een stuk tussen die twee loopt door, en alleen wat over elkaar ligt is wat uit elkaar geduwd. Nog met de hand af te maken.` : '');
+      (byHand ? ' Door jou gelegd.' : '') +
+      (grown && C.growMode === 'copy' ? ` Een kopie van jouw ${C.baseMa} Ma: elk stuk op dezelfde plek en met dezelfde draaiing. Op deze kleinere bol liggen ze daardoor meer over elkaar; om vanaf hier met de hand te leggen.` : '') +
+      (grown && C.growMode === 'carry' ? ` Eerste opzet, doorgetrokken uit jouw ${laid} Ma: elke stap van een stuk tussen die twee loopt door, en alleen wat over elkaar ligt is wat uit elkaar geduwd. Nog met de hand af te maken.` : '');
     const rows = C.joins.map((j, i) => ({ j, gap: j.gapKm[m.ma] ?? 0, off: st.off[i] }))
       .sort((a, b) => Math.abs(b.off) - Math.abs(a.off));
     const chosenIds = new Set([...chosen].map((p) => C.pieces[p].id));
