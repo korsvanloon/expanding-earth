@@ -273,7 +273,10 @@ async function main() {
   for (let i = 0; i < W * H; i++) {
     png.data[i * 4] = piece[i]
     png.data[i * 4 + 1] = land[i] ? 255 : 0
-    png.data[i * 4 + 2] = 0
+    // How high the crust stands, so that where two pieces lie over each other
+    // the viewer can show the higher; in steps of four, which the eye cannot
+    // tell apart and the PNG compresses far better.
+    png.data[i * 4 + 2] = piece[i] ? height.data[i] & 0xfc : 0
     png.data[i * 4 + 3] = 255
   }
   writeFileSync(resolve(OUT, 'pieces.png'), PNG.sync.write(png))

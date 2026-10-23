@@ -174,8 +174,8 @@
         <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen</label>
         <div class="controls" id="views"></div>
         <div class="legend">
-          <div><span class="sw" style="background: var(--double)"></span>Dubbel: twee stukken over elkaar</div>
-          <div><span class="sw" style="background: #946fd6"></span>Ingevouwen: een eilandboog of de Caribische touwladder over iets anders</div>
+          <div><span class="sw" style="background: var(--double); opacity: .6"></span>Dubbel: twee stukken over elkaar, het hoogste land erdoorheen</div>
+          <div><span class="sw" style="background: #946fd6; opacity: .6"></span>Ingevouwen: een eilandboog of de Caribische touwladder over iets anders</div>
           <div><span class="sw" style="background: #17324a"></span>Oceaan, of nog open</div>
           <div><span class="sw" style="background: #9fb7b8"></span>Plat: continentale korst onder water</div>
           <div><span class="sw" style="background: #ffd166"></span>Gekozen stuk, aansluitingen</div>
@@ -350,7 +350,10 @@ const MARBLE_JPG = "__MARBLE__";
     if (rr > 1.0) discard;
     float z = sqrt(1.0 - rr);
     vec3 d = normalize(uView * vec3(xy, z));
-    int hits = 0; vec3 colour = vec3(0.09, 0.196, 0.29); bool edge = false; bool chosen = false; bool folds = false;
+    // Where pieces lie over each other the highest crust shows, land over
+    // shelf and mountains over lowland, and the overlap is a wash over it.
+    int hits = 0; vec3 colour = vec3(0.09, 0.196, 0.29); bool folds = false;
+    float topHeight = -1.0; bool topRim = false; bool chosenRim = false;
     for (int p = 0; p < 64; p++) {
       if (p >= uCount) break;
       vec3 tu = fetch(p, 2).xyz;
@@ -383,18 +386,16 @@ const MARBLE_JPG = "__MARBLE__";
       bool rim = idAt(ivec2((cell.x + 1) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 1}) % ${W}, cell.y)) != id
         || idAt(ivec2(cell.x, max(cell.y - 1, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 1, ${H - 1}))) != id;
       if (uShowChosen == 1 && extra.w > 0.5) {
-        chosen = true;
         bool wide = idAt(ivec2((cell.x + 2) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 2}) % ${W}, cell.y)) != id
           || idAt(ivec2(cell.x, max(cell.y - 2, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 2, ${H - 1}))) != id;
-        if (rim || wide) { c = vec3(1.0, 0.82, 0.4); rim = false; }
+        if (rim || wide) chosenRim = true;
         else c = mix(c, vec3(1.0, 0.82, 0.4), 0.12);
       }
-      if (rim) edge = true;
-      colour = c;
+      if (tex.b > topHeight) { topHeight = tex.b; colour = c; topRim = rim; }
     }
-    if (hits > 1 && folds) colour = chosen ? vec3(0.72, 0.58, 0.95) : vec3(0.58, 0.44, 0.84);
-    else if (hits > 1) colour = chosen ? vec3(0.95, 0.3, 0.3) : vec3(0.84, 0.15, 0.24);
-    else if (edge) colour *= 0.55;
+    if (hits > 1) colour = mix(colour, folds ? vec3(0.55, 0.38, 0.9) : vec3(0.9, 0.1, 0.18), 0.42);
+    else if (topRim) colour *= 0.55;
+    if (chosenRim) colour = vec3(1.0, 0.82, 0.4);
     if (hits == 0) {
       float lon = atan(-d.z, d.x) / PI * 180.0, lat = asin(clamp(d.y, -1.0, 1.0)) / PI * 180.0;
       float gx = abs(mod(lon + 180.0, 30.0) - 15.0), gy = abs(mod(lat + 90.0, 30.0) - 15.0);
