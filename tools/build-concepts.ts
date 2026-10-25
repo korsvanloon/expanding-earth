@@ -367,6 +367,12 @@ async function main() {
     resolve(OUT, 'marble.jpg'),
     jpeg.encode({ width: 2 * W, height: 2 * H, data: Buffer.from(loadMarble(2 * W, 2 * H)) }, 84).data,
   )
+  // The crustal fabric at the piece grid, a little over half the site's
+  // resolution: it travels next to the page and is only fetched when asked for.
+  const fabric = loadFabric(W, H)
+  if (fabric) {
+    writeFileSync(resolve(OUT, 'fabric.jpg'), jpeg.encode({ width: W, height: H, data: Buffer.from(fabric) }, 85).data)
+  }
   if (base) {
     writeFileSync(resolve(OUT, 'aligned.json'), JSON.stringify(
       Object.fromEntries(Object.keys(base.layouts).map((ma) => [ma, moments.find((m) => m.ma === Number(ma))!.place])), null, 1))
@@ -669,6 +675,36 @@ function loadMarble(width = W, height = H): Uint8Array {
       out[o] = r[0] / n
       out[o + 1] = r[1] / n
       out[o + 2] = r[2] / n
+      out[o + 3] = 255
+    }
+  }
+  return out
+}
+
+/**
+ * The site's crustal fabric, averaged down. Zero is where the altimetry never
+ * reached, so it is left out of every average and kept only where nothing else
+ * fell in the cell. Null when `pnpm data` has not made it here.
+ */
+function loadFabric(width: number, height: number): Uint8Array | null {
+  const file = resolve(ROOT, 'public/data/fabric.jpg')
+  if (!existsSync(file)) return null
+  const src = jpeg.decode(readFileSync(file), { useTArray: true, maxMemoryUsageInMB: 1024 })
+  const out = new Uint8Array(width * height * 4)
+  const sx = src.width / width
+  const sy = src.height / height
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      let sum = 0
+      let n = 0
+      for (let j = Math.floor(y * sy); j < Math.floor((y + 1) * sy); j++) {
+        for (let i = Math.floor(x * sx); i < Math.floor((x + 1) * sx); i++) {
+          const v = src.data[(j * src.width + i) * 4]
+          if (v > 0) { sum += v; n++ }
+        }
+      }
+      const o = (y * width + x) * 4
+      out[o] = out[o + 1] = out[o + 2] = n ? Math.max(1, Math.round(sum / n)) : 0
       out[o + 3] = 255
     }
   }

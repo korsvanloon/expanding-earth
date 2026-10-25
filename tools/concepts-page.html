@@ -172,8 +172,10 @@
         <div class="seg" role="group" aria-label="Kleuren">
           <button type="button" id="mode-photo" aria-pressed="true" title="K wisselt">Foto</button>
           <button type="button" id="mode-pieces" aria-pressed="false" title="K wisselt">Stukken</button>
+          <button type="button" id="mode-fabric" aria-pressed="false" title="K wisselt">Fabric</button>
         </div>
         <span class="keys">Kleuren wisselen: <kbd>K</kbd></span>
+        <p class="note" id="fabric-note" hidden>Crustal fabric: hoe snel de verticale zwaartekrachtgradiënt verandert. Donker waar de korst met rust is gelaten, licht waar hij bewerkt is: breukzones, suturen, gefaalde rifts, gebergtewortels. Grijs is waar de altimetrie niet kwam. Op ruim de halve resolutie van de site.</p>
         <label class="check"><input type="checkbox" id="show-overlap" checked> Overlap arceren <kbd>O</kbd></label>
         <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen <kbd>A</kbd></label>
         <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen <kbd>B</kbd></label>
@@ -340,7 +342,7 @@ const MARBLE_JPG = "__MARBLE__";
   in vec2 aPos; void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
   const FRAG = `#version 300 es
   precision highp float; precision highp int; precision highp sampler2D;
-  uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData;
+  uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData; uniform sampler2D uFabric;
   uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap;
   uniform float uMa; uniform float uSeaLevel;
   uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[128];
@@ -355,6 +357,15 @@ const MARBLE_JPG = "__MARBLE__";
   // A cell is part of its piece at a moment only if its crust is older: the
   // green channel is its age in whole Ma, 255 for continent.
   bool existsAt(vec4 t) { return t.g * 255.0 > uMa + 0.5; }
+  // The site's fabric ramp: quiet crust dark blue, worked crust pale gold, a
+  // grey where the altimetry never reached.
+  vec3 fabricRamp(vec2 uv) {
+    float encoded = texture(uFabric, uv).r;
+    if (encoded < 0.5 / 255.0) return vec3(0.20, 0.20, 0.22);
+    float t = clamp((encoded * 255.0 - 1.0) / 254.0, 0.0, 1.0);
+    vec3 quiet = vec3(0.09, 0.11, 0.16), middle = vec3(0.29, 0.42, 0.55), busy = vec3(0.97, 0.87, 0.62);
+    return t < 0.55 ? mix(quiet, middle, t / 0.55) : mix(middle, busy, (t - 0.55) / 0.45);
+  }
   int idAt(ivec2 c) { vec4 t = texelFetch(uPieces, c, 0); return existsAt(t) ? int(t.r * 255.0 + 0.5) : 0; }
   void main() {
     vec2 xy = (gl_FragCoord.xy - uCentre) / uRadius;
@@ -388,11 +399,11 @@ const MARBLE_JPG = "__MARBLE__";
       bool land = tex.b >= uSeaLevel;
       bool continent = tex.g > 0.999;
       vec3 c;
-      if (uMode == 0) {
-        // The photograph everywhere, sea floor included, read where the point
-        // really lies rather than at the centre of its cell.
+      if (uMode != 1) {
+        // The photograph or the fabric everywhere, sea floor included, read
+        // where the point really lies rather than at the centre of its cell.
         vec2 uv = vec2(atan(-q.z, q.x) / (2.0 * PI) + 0.5, acos(clamp(q.y, -1.0, 1.0)) / PI);
-        c = texture(uMarble, uv).rgb;
+        c = uMode == 0 ? texture(uMarble, uv).rgb : fabricRamp(uv);
       } else {
         c = uColours[p];
         if (!land) c = continent ? mix(c, vec3(0.92), 0.35) : mix(c, vec3(0.16, 0.2, 0.28), 0.55);
@@ -489,7 +500,7 @@ const MARBLE_JPG = "__MARBLE__";
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 8, N * M, gl.RGBA, gl.FLOAT, data);
   }
-  gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2);
+  gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2); gl.uniform1i(U('uFabric'), 3);
   gl.uniform1i(U('uCount'), N);
   gl.uniform3fv(U('uColours'), new Float32Array(Array.from({ length: 128 }, (_, i) => COLOURS[i % COLOURS.length].map((c) => c / 255)).flat()));
 
@@ -874,7 +885,7 @@ const MARBLE_JPG = "__MARBLE__";
     if (key === 'o') { overlapBox.click(); }
     else if (key === 'a') { joinsBox.click(); }
     else if (key === 'b') { motionBox.click(); }
-    else if (key === 'k') { modes[state.mode === 0 ? 1 : 0].click(); }
+    else if (key === 'k') { modes[(state.mode + 1) % modes.length].click(); }
     else if (key === 'm') { many = !many; describeEdit(); }
     else if (key === 'd') { state.tool = state.tool === 'rotate' ? 'move' : 'rotate'; save(); describeEdit(); }
     else if (key >= '1' && key <= String(M)) { state.moment = Number(key) - 1; render(); save(); }
@@ -1017,14 +1028,40 @@ const MARBLE_JPG = "__MARBLE__";
     b.addEventListener('click', () => { state.lon = lon; state.lat = lat; render(); save(); });
     views.append(b);
   }
-  const modes = [document.getElementById('mode-photo'), document.getElementById('mode-pieces')];
+  const modes = ['mode-photo', 'mode-pieces', 'mode-fabric'].map((id) => document.getElementById(id));
+  const fabricNote = document.getElementById('fabric-note');
+  /**
+   * The fabric travels next to the page rather than inside it, so the page
+   * opens as fast as before; it is fetched the first time it is asked for.
+   */
+  let fabric = null;
+  function wantFabric() {
+    fabricNote.hidden = state.mode !== 2;
+    if (state.mode !== 2 || fabric) return;
+    fabric = load('fabric.jpg').then((image) => {
+      texture(3, () => {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      });
+      thumbsDirty = true;
+      render();
+    }, () => {
+      fabric = null;
+      fabricNote.textContent = 'De fabric-kaart kon niet geladen worden.';
+    });
+  }
   modes.forEach((b, i) => b.addEventListener('click', () => {
     state.mode = i;
     modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === i)));
+    wantFabric();
     thumbsDirty = true;
     render(); save();
   }));
+  if (!(state.mode >= 0 && state.mode < modes.length)) state.mode = 0;
   modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === state.mode)));
+  wantFabric();
   const overlapBox = document.getElementById('show-overlap');
   overlapBox.checked = state.overlap;
   overlapBox.addEventListener('change', () => { state.overlap = overlapBox.checked; thumbsDirty = true; render(); save(); });
