@@ -21,6 +21,16 @@ export interface Dataset {
    */
   layerBase: string | null
   /**
+   * Where the survey rasters are -- the crustal fabric, ECM1's cells and the
+   * fracture zones.
+   *
+   * They come from the survey rather than the solve, so every run carries the
+   * same ones, and this site's own folder carries none since the deploy stopped
+   * restoring a run into it. A run solved in the browser borrows the folder of
+   * the run it was explored from, which is why this is not just `layerBase`.
+   */
+  rasterBase: string
+  /**
    * Vertices in the cut mesh, read from mesh.bin rather than taken from the
    * metadata. The mesh file is the authority on its own shape: cutting the
    * shell into fragments duplicates vertices, so a count computed anywhere
@@ -164,6 +174,8 @@ export function buildDataset(
   { meta, mesh, frames, strain, plates, topology, tracks, sink }: InlineData,
   /** See Dataset.layerBase; null for a run that was solved in the browser. */
   layerBase: string | null = '',
+  /** See Dataset.rasterBase. */
+  rasterBase = layerBase ?? '',
 ): Dataset {
 
   const [vertexCount, faceCount, , cutPairCount] = new Uint32Array(mesh, 0, 4)
@@ -243,6 +255,7 @@ export function buildDataset(
     gravity: gravityFabric,
     gravityRoughness,
     layerBase,
+    rasterBase,
     sink: sink ? readChannel(sink, vertexCount) : null,
     tracks: tracks ? readTracks(tracks) : undefined,
     radiusKm: meta.crustModels[0].radiusKm,
@@ -404,6 +417,10 @@ export async function fetchLayer(
     return null
   }
 }
+
+/** The URL of one of the survey rasters; see Dataset.rasterBase. */
+export const rasterUrl = (base: string, path: string) =>
+  base ? `${base}/${path.replace('data/', '')}` : asset(path)
 
 export const radiusAt = (data: Dataset, timeMa: number) =>
   sampleCurve(data.radiusKm, timeMa, data.meta.radiusStepMa)

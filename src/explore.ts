@@ -98,8 +98,10 @@ export function explore(
         tracks: message.tracks,
         sink: message.sink ?? undefined,
         // Solved here and now, so there is nowhere to fetch a strain map from
-        // -- and the shipped one is a different mesh entirely.
-      }, null)
+        // -- and the shipped one is a different mesh entirely. The survey
+        // rasters are the same in every run, so those come from the one on
+        // screen.
+      }, null, base)
       console.log(
         `[explore] ${built.vertexCount} points over ${built.meta.frameCount} frames `
         + `in ${message.seconds.toFixed(1)} s`,

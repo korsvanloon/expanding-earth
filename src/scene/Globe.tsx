@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { SURFACE_MAPS } from '@shared/maps'
 import { asset } from '@/assets'
-import { buildIndex, fetchLayer, radiusAt, sampleFrame, type Dataset } from '@/data'
+import { buildIndex, fetchLayer, radiusAt, rasterUrl, sampleFrame, type Dataset } from '@/data'
 import { buildReferenceRotations } from '@/frames'
 import {
   clock, describePicks, onClockMoved, useStore, VIEW_MODES, ZONE_LIMIT, type Pick,
@@ -86,7 +86,7 @@ export function Globe({ data }: { data: Dataset }) {
   ) => useEffect(() => {
     if (!wanted || held) return
     let live = true
-    new THREE.TextureLoader().loadAsync(asset(file)).then((texture) => {
+    new THREE.TextureLoader().loadAsync(rasterUrl(data.rasterBase, file)).then((texture) => {
       if (!live) {
         texture.dispose()
         return
@@ -109,7 +109,7 @@ export function Globe({ data }: { data: Dataset }) {
       keep(texture)
     }).catch(() => {})
     return () => { live = false }
-  }, [wanted, held, file])
+  }, [wanted, held, file, data.rasterBase])
   raster('data/fabric.jpg', mode === 'fabric', fabric, setFabric)
   raster('data/zones.png', showZones, zones, setZones)
   raster('data/crust.png', mode === 'crust' || mode === 'thickness', crust, setCrust)
@@ -166,9 +166,9 @@ export function Globe({ data }: { data: Dataset }) {
       const { data } = context.getImageData(0, 0, image.width, image.height)
       setZoneIds({ width: image.width, height: image.height, data })
     }
-    image.src = asset('data/zones.png')
+    image.src = rasterUrl(data.rasterBase, 'data/zones.png')
     return () => { live = false }
-  }, [showZones, zoneIds])
+  }, [showZones, zoneIds, data.rasterBase])
   useEffect(() => () => fabric?.dispose(), [fabric])
   useEffect(() => () => zones?.dispose(), [zones])
   useEffect(() => () => crust?.dispose(), [crust])
