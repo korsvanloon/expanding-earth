@@ -468,40 +468,57 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
     name: 'Oost-Antarctica: Dronning Maud',
     outline: [[-35, -55], [70, -55], [70, -90], [-35, -90]],
   },
+  // The basins behind the Tonga-Kermadec and New Hebrides trenches: young
+  // sea floor on the Australian side of the trench, opened between arcs that
+  // fold together going back -- the Lau basin with the Tonga ridge, and the
+  // North and South Fiji basins either side of Fiji, the first with the New
+  // Hebrides arc. Listed before the Pacific so that it does not take them.
   {
-    // The Pacific plate's interior, clear of the trenches and the marginal
-    // basins; the rest of the plate, out to its ridges, it takes by growing.
+    id: 'lau',
+    name: 'Laubekken–Tongarug',
+    ocean: true,
+    fold: true,
+    outline: [[181, -15.5], [187.5, -14.6], [187.3, -17], [186.5, -20], [185.5, -23], [184.5, -26],
+      [183.5, -29], [182.5, -33], [181.5, -36], [180.5, -36.5], [179.5, -33], [180.2, -29],
+      [180.8, -25], [181.2, -20]],
+  },
+  {
+    id: 'fijinorth',
+    name: 'Noord-Fijibekken',
+    ocean: true,
+    fold: true,
+    outline: [[165.5, -11], [181, -12.4], [181, -15.5], [181.2, -20], [177, -21.5], [171, -22.5],
+      [168.5, -21], [166, -16]],
+  },
+  {
+    id: 'fijisouth',
+    name: 'Zuid-Fijibekken',
+    ocean: true,
+    fold: true,
+    outline: [[171, -22.5], [177, -21.5], [181.2, -20], [180.8, -25], [180.2, -29], [179.5, -33],
+      [176, -33.5], [173, -31], [172, -27]],
+  },
+  {
+    // The Pacific plate as one piece, out to its trenches: the Kuril-Japan,
+    // Izu-Bonin-Mariana, Solomon, Tonga-Kermadec, Hikurangi and Aleutian
+    // trenches on the old side, and its ridges, which it takes by growing, on
+    // the young side. Every way out from the oldest crust near 16N 157E the
+    // floor gets younger, so going back the plate shrinks towards that point,
+    // and that is where it is centred. The seam it had at the 120 Ma isochron,
+    // and the seamount strands cut from its middle, both put gaps into a plate
+    // that has nothing growing there.
     id: 'pacific',
     name: 'Pacifische plaat',
     ocean: true,
-    outline: [[150, 35], [155, 45], [165, 50], [180, 50], [200, 48], [215, 45], [220, 30], [225, 15],
-      [235, 0], [235, -20], [225, -40], [200, -50], [185, -45], [183, -30], [185, -20], [175, -12],
-      [165, -8], [158, -2], [150, 5], [148, 15], [147, 25]],
-  },
-  // The western Pacific as an island of old sea floor: grown from the oldest
-  // crust in the region over all of the plate older than 120 Ma (about M0,
-  // where the long Cretaceous quiet zone begins), so that its edge is an
-  // isochron. At 180 Ma it is a small island; it grows from there.
-  {
-    id: 'pacificwest',
-    name: 'West-Pacific',
-    from: 'pacific',
-    seed: [156.8, 16.1],
-    olderThan: 120,
     centre: [156.8, 16.1],
-    outline: [],
-  },
-  // The seamount chains and plateaus of the south-west Pacific: the sea floor
-  // that stands well above the abyssal plain round it (grey 124, against
-  // 92-104 for the plain), cut out of the plate and into strands.
-  {
-    id: 'swseamounts',
-    name: 'Zeebergen Zuidwest-Pacific',
-    from: 'pacific',
-    above: 124,
-    fold: true,
-    slats: { join: 2, least: 40 },
-    outline: [[160, -5], [215, -5], [215, -52], [192, -52], [189, -24], [187, -14], [172, -12], [160, -12]],
+    outline: [[142, 34], [142.7, 30], [143.7, 27], [145, 24.5], [147.3, 21], [148.2, 17], [147, 13.5],
+      [143, 11.3], [149, 4], [149.5, 0], [150, -1.5], [153, -3], [156, -4.5], [159, -6.5],
+      [161.5, -8.5], [163, -10], [168, -10.5], [175, -11.5], [182, -12.5], [187.5, -14.6],
+      [187.3, -17], [186.5, -20], [185.5, -23], [184.5, -26], [183.5, -29], [182.5, -33],
+      [181.5, -36], [179, -40], [178, -42], [185, -45], [200, -50], [225, -40], [235, -20],
+      [235, 0], [225, 15], [220, 30], [215, 45], [212, 57], [205, 55], [200, 53.5], [190, 51],
+      [180, 50.8], [172, 51.5], [167, 53.5], [163, 54], [160, 51], [156, 48], [153, 46],
+      [149, 44], [146.5, 41.5], [144.2, 40], [144, 37], [142.5, 34.5]],
   },
   // The sea floor China took because the arcs in front of it take none: the
   // Philippine Sea, and the Sea of Japan behind the Japanese arc.

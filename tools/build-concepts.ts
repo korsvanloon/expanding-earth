@@ -437,28 +437,37 @@ function tidyPieces(piece: Uint8Array) {
   for (const b of bodies) largest.set(b.piece, Math.max(largest.get(b.piece) ?? 0, b.cells.length))
   const kept = bodies.map((b) => b.cells.length * 4 >= largest.get(b.piece)!)
 
-  // Nearest kept body for every cell of the grid, by a breadth-first flood.
-  const nearest = new Uint8Array(W * H)
-  const queue: number[] = []
-  bodies.forEach((b, id) => {
-    if (!kept[id]) return
-    for (const c of b.cells) {
-      nearest[c] = b.piece
-      queue.push(c)
-    }
-  })
-  for (let k = 0; k < queue.length; k++) {
-    for (const j of around(queue[k])) {
-      if (!nearest[j]) {
-        nearest[j] = nearest[queue[k]]
-        queue.push(j)
+  // Nearest kept body for every cell of the grid, by a breadth-first flood:
+  // once over every piece, and once over the land pieces only, because a
+  // scrap of land -- an island of an arc -- is never handed to a piece that is
+  // only sea floor just because the plate's outline runs up to the trench.
+  const nearestOf = (from: (p: number) => boolean) => {
+    const nearest = new Uint8Array(W * H)
+    const queue: number[] = []
+    bodies.forEach((b, id) => {
+      if (!kept[id] || !from(b.piece)) return
+      for (const c of b.cells) {
+        nearest[c] = b.piece
+        queue.push(c)
+      }
+    })
+    for (let k = 0; k < queue.length; k++) {
+      for (const j of around(queue[k])) {
+        if (!nearest[j]) {
+          nearest[j] = nearest[queue[k]]
+          queue.push(j)
+        }
       }
     }
+    return nearest
   }
+  const nearestAny = nearestOf(() => true)
+  const nearestLand = nearestOf((p) => !DEFS[p - 1].ocean)
   let moved = 0
   const moves = new Map<string, number>()
   bodies.forEach((b, id) => {
     if (kept[id]) return
+    const nearest = DEFS[b.piece - 1].ocean ? nearestAny : nearestLand
     const votes = new Map<number, number>()
     for (const c of b.cells) {
       // The scrap's own cells are not seeds; ask the cells just outside it.
@@ -767,19 +776,27 @@ function readBase(
   let layouts = Object.fromEntries(Object.entries(body.moments).map(([ma, l]) => [Number(ma), l]))
   if (body.raster && body.ids && body.homes) {
     const old = PNG.sync.read(readFileSync(resolve(ROOT, body.raster)))
-    const parentOf = pieces.map((_, p) => {
+    // Per moment, the old piece whose crust this one mostly shows then: two
+    // old pieces merged into one were laid apart, and the one to follow is the
+    // one that is on the globe at that moment, not the one that is biggest
+    // today. A piece with nothing left at a moment follows its majority.
+    const parentsAt = (ma: number) => pieces.map((_, p) => {
       const count = new Map<number, number>()
+      const shown = new Map<number, number>()
       for (let i = 0; i < W * H; i++) {
         if (piece[i] !== p + 1) continue
         const o = old.data[i * 4]
-        if (o) count.set(o - 1, (count.get(o - 1) ?? 0) + 1)
+        if (!o) continue
+        count.set(o - 1, (count.get(o - 1) ?? 0) + 1)
+        if (cellAge[i] > ma) shown.set(o - 1, (shown.get(o - 1) ?? 0) + 1)
       }
-      const best = [...count].sort((a, b) => b[1] - a[1])[0]
+      const best = [...(shown.size ? shown : count)].sort((a, b) => b[1] - a[1])[0]
       return body.ids![best[0]]
     })
-    console.log('[concepts] each piece from: ' + pieces.map((p, i) => `${p.id}<${parentOf[i]}`).join(' '))
     layouts = Object.fromEntries(Object.entries(layouts).map(([ma, layout]) => {
       const k = kOf(Number(ma))
+      const parentOf = parentsAt(Number(ma))
+      console.log(`[concepts] ${ma} Ma, each piece from: ` + pieces.flatMap((p, i) => (p.id === parentOf[i] ? [] : [`${p.id}<${parentOf[i]}`])).join(' '))
       return [ma, Object.fromEntries(pieces.map((p, i) => {
         const home = frame(direction(body.homes![parentOf[i]].lon, body.homes![parentOf[i]].lat))
         const at = layout[parentOf[i]]
