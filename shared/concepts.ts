@@ -68,6 +68,13 @@ export interface ConceptPiece {
   olderThan?: number
   /** With `from`: only the cells standing at least this high (height-map grey), seamounts. */
   above?: number
+  /**
+   * With `from` and an outline: only the sea floor younger than this, Ma, so
+   * that a strip cut along fracture zones stops at an isochron and leaves the
+   * plate's old core whole. An island inside the outline goes with the floor
+   * round it.
+   */
+  youngerThan?: number
   /** Where the piece's centre is, [lon, lat], when it should not be its centroid. */
   centre?: [number, number]
   /** Outline that claims the continental cells inside it, [lon, lat] in degrees. */
@@ -418,6 +425,18 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
     outline: [[-94.5, 14.5], [-94.8, 18.3], [-91, 21.8], [-86.6, 21.9], [-85.5, 19.5], [-81, 18.5],
       [-78.6, 17.6], [-78.6, 15.5], [-82.6, 11], [-85.7, 11.1], [-87.5, 12.9], [-92, 14]],
   },
+  // The Basin and Range: stretched to about twice its width since some 35 Ma,
+  // so going back it was narrower and the coast closer to the shield. As
+  // luxaflex the Cordillera can slide east over it without that counting as
+  // an error.
+  {
+    id: 'basinrange',
+    name: 'Basin and Range',
+    fold: true,
+    outline: [[-121, 42], [-119.5, 44], [-116, 44], [-112.5, 42.5], [-112, 39.5], [-112.5, 37],
+      [-111.5, 34.5], [-108.5, 32.5], [-105, 31.5], [-104, 29], [-106, 27], [-109, 27.5], [-111.5, 30],
+      [-114.5, 32.5], [-117, 35], [-118.5, 37.3], [-120, 39.5], [-120.8, 40.5]],
+  },
   {
     id: 'cordillera',
     name: 'Cordillera',
@@ -455,9 +474,20 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
     outline: [[-44, -1.5], [-36, -3], [-30, -8], [-34, -20], [-28, -32], [-40, -40], [-56, -38.5],
       [-62, -35], [-62, -30], [-58, -26], [-55, -20], [-50, -15], [-47, -8], [-45, -3]],
   },
+  // The Andes with the Nazca floor in front of them, apart from the craton:
+  // shortened by up to some 300 km since about 40 Ma, so going back they were
+  // wider and their coast lay further west than the craton allows.
+  {
+    id: 'andes',
+    name: 'Andes',
+    outline: [[-77.5, 7.5], [-78.2, 6.5], [-79.5, 4], [-81.5, 1], [-83, -5], [-80, -10], [-74, -18],
+      [-73, -25], [-75, -35], [-76, -38.5], [-69, -38.5], [-68.3, -33], [-66.5, -28], [-65, -24],
+      [-63.5, -20], [-64, -17], [-67.5, -15], [-71.5, -12], [-74.5, -10], [-76.5, -6], [-77.5, -3],
+      [-77.5, 0], [-76.5, 2], [-73, 5], [-72, 7], [-73.5, 8.5]],
+  },
   {
     id: 'amazonia',
-    name: 'Amazonië–Andes',
+    name: 'Amazonië',
     outline: [[-77.5, 7.5], [-77.2, 9], [-73, 12.8], [-65, 13], [-64, 18.6], [-59, 18.6],
       [-56, 10], [-45, 3], [-36, -3], [-30, -8], [-34, -20], [-28, -32], [-40, -40],
       [-40, -50], [-33, -53], [-33, -57], [-68, -57], [-80, -55], [-78, -45], [-75, -35],
@@ -519,6 +549,63 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
       [235, 0], [225, 15], [220, 30], [215, 45], [212, 57], [205, 55], [200, 53.5], [190, 51],
       [180, 50.8], [172, 51.5], [167, 53.5], [163, 54], [160, 51], [156, 48], [153, 46],
       [149, 44], [146.5, 41.5], [144.2, 40], [144, 37], [142.5, 34.5]],
+  },
+  // The young east and south of the plate in strips along its great fracture
+  // zones -- Mendocino, Molokai, Clipperton and Marquesas -- so that
+  // they can slide along each other the way the floor on the two sides of a
+  // fracture zone does. The plate's old core, everything from 100 Ma up, stays
+  // whole. Without them the plate is one rigid cap, and on a smaller sphere a
+  // cap that size cannot meet America along its whole edge at once.
+  {
+    id: 'pacnorth',
+    name: 'Pacific noord van Mendocino',
+    from: 'pacific',
+    youngerThan: 100,
+    outline: [[140, 70], [290, 70], [290, 40.3], [238, 40.3], [220, 40], [200, 39.5], [190, 37.5],
+      [180, 34], [140, 34]],
+  },
+  {
+    id: 'pacmendocino',
+    name: 'Pacific Mendocino–Molokai',
+    from: 'pacific',
+    youngerThan: 100,
+    outline: [[290, 40.3], [238, 40.3], [220, 40], [200, 39.5], [190, 37.5], [180, 34], [140, 34],
+      [140, 17], [185, 17], [195, 19], [205, 20.5], [225, 22], [245, 23], [290, 23]],
+  },
+  {
+    id: 'pacmolokai',
+    name: 'Pacific Molokai–Clipperton',
+    from: 'pacific',
+    youngerThan: 100,
+    outline: [[290, 23], [245, 23], [225, 22], [205, 20.5], [195, 19], [185, 17], [140, 17], [140, 5],
+      [185, 5], [200, 6], [220, 7.3], [240, 8.8], [262, 10], [290, 10]],
+  },
+  {
+    id: 'pacclipperton',
+    name: 'Pacific Clipperton–Marquesas',
+    from: 'pacific',
+    youngerThan: 100,
+    outline: [[290, 10], [262, 10], [240, 8.8], [220, 7.3], [200, 6], [185, 5], [140, 5], [140, -15.5],
+      [200, -15.5], [210, -12.8], [228, -9], [240, -7.5], [255, -5], [290, -5]],
+  },
+  {
+    id: 'pacmarquesas',
+    name: 'Pacific Marquesas–Foundation',
+    from: 'pacific',
+    youngerThan: 100,
+    outline: [[290, -5], [255, -5], [240, -7.5], [228, -9], [210, -12.8], [200, -15.5], [140, -15.5],
+      [140, -28], [200, -28], [215, -31], [226, -33], [236, -35], [250, -37.2], [260, -38], [290, -38]],
+  },
+  // The last cut is no fracture zone but the Foundation seamounts, which run
+  // with the spreading the way the fracture zones do. The Eltanin zones lie
+  // too close to the ridge to leave a strip of the plate south of them.
+  {
+    id: 'pacfoundation',
+    name: 'Pacific zuid van Foundation',
+    from: 'pacific',
+    youngerThan: 100,
+    outline: [[290, -38], [260, -38], [250, -37.2], [236, -35], [226, -33], [215, -31], [200, -28],
+      [140, -28], [140, -80], [290, -80]],
   },
   // The sea floor China took because the arcs in front of it take none: the
   // Philippine Sea, and the Sea of Japan behind the Japanese arc.

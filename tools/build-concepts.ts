@@ -190,12 +190,37 @@ async function main() {
       console.log(`[concepts] ${cut.id}: ${n} cells of ${cut.from} older than ${cut.olderThan} Ma, grown from ${cut.seed}`)
       return
     }
+    const islands: number[] = []
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const i = y * W + x
         if (piece[i] !== parent || (!anyCell && continental[i])) continue
         if (cut.above !== undefined && height.data[i] < cut.above) continue
         if (!insideOutline(cellLon(x), cellLat(y), cut.outline)) continue
+        if (cut.youngerThan !== undefined && oceanAge[i] < 0) { islands.push(i); continue }
+        if (cut.youngerThan !== undefined && oceanAge[i] >= cut.youngerThan) continue
+        piece[i] = c + 1
+        body[i] = c + 1
+        n++
+      }
+    }
+    // An island goes where most of the sea floor round it went.
+    for (const i of islands) {
+      const x = i % W
+      const y = (i / W) | 0
+      let mine = 0
+      let theirs = 0
+      for (let dy = -8; dy <= 8; dy++) {
+        const ny = y + dy
+        if (ny < 0 || ny >= H) continue
+        for (let dx = -8; dx <= 8; dx++) {
+          const j = ny * W + ((x + dx + W) % W)
+          if (continental[j]) continue
+          if (piece[j] === c + 1) mine++
+          else if (piece[j] === parent) theirs++
+        }
+      }
+      if (mine > theirs) {
         piece[i] = c + 1
         body[i] = c + 1
         n++
@@ -203,6 +228,19 @@ async function main() {
     }
     console.log(`[concepts] ${cut.id}: ${n} cells cut out of ${cut.from}`)
   })
+  // Strips cut along fracture zones leave bodies behind, of their own and of
+  // the plate's core, where the isochron they stop at wanders: those go to
+  // the piece round them, the way the scraps of a continent's cut do.
+  const stripped = new Set<number>()
+  DEFS.forEach((cut, c) => {
+    if (cut.youngerThan === undefined) return
+    stripped.add(c + 1)
+    stripped.add(DEFS.findIndex((p) => p.id === cut.from) + 1)
+  })
+  if (stripped.size) {
+    tidyPieces(piece, stripped)
+    for (let i = 0; i < W * H; i++) if (stripped.has(body[i]) || stripped.has(piece[i])) body[i] = piece[i]
+  }
   // Pieces cut out of a plate that are slats themselves, the seamounts.
   splitSlats(piece, () => true, (d) => Boolean(DEFS[d].from), body)
   cellAge = new Uint8Array(W * H)
@@ -404,7 +442,7 @@ async function main() {
  * scrap goes to whichever kept body is nearest across the grid, its own piece's
  * included, so a small island next to the rest of its arc stays with it.
  */
-function tidyPieces(piece: Uint8Array) {
+function tidyPieces(piece: Uint8Array, only?: Set<number>) {
   const component = new Int32Array(W * H).fill(-1)
   const bodies: { piece: number; cells: number[] }[] = []
   const around = (i: number) => {
@@ -435,7 +473,7 @@ function tidyPieces(piece: Uint8Array) {
   }
   const largest = new Map<number, number>()
   for (const b of bodies) largest.set(b.piece, Math.max(largest.get(b.piece) ?? 0, b.cells.length))
-  const kept = bodies.map((b) => b.cells.length * 4 >= largest.get(b.piece)!)
+  const kept = bodies.map((b) => (only && !only.has(b.piece)) || b.cells.length * 4 >= largest.get(b.piece)!)
 
   // Nearest kept body for every cell of the grid, by a breadth-first flood:
   // once over every piece, and once over the land pieces only, because a
@@ -461,13 +499,15 @@ function tidyPieces(piece: Uint8Array) {
     }
     return nearest
   }
+  // Sea floor: a plate of its own, or a strip cut from one.
+  const sea = (p: number) => Boolean(DEFS[p - 1].ocean || DEFS.find((d) => d.id === DEFS[p - 1].from)?.ocean)
   const nearestAny = nearestOf(() => true)
-  const nearestLand = nearestOf((p) => !DEFS[p - 1].ocean)
+  const nearestLand = nearestOf((p) => !sea(p))
   let moved = 0
   const moves = new Map<string, number>()
   bodies.forEach((b, id) => {
     if (kept[id]) return
-    const nearest = DEFS[b.piece - 1].ocean ? nearestAny : nearestLand
+    const nearest = sea(b.piece) ? nearestAny : nearestLand
     const votes = new Map<number, number>()
     for (const c of b.cells) {
       // The scrap's own cells are not seeds; ask the cells just outside it.
