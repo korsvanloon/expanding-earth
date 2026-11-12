@@ -127,12 +127,29 @@ const PACIFIC_LANES: [number, number][][] = [
  */
 function pacificStrips(): ConceptPiece[] {
   const L = PACIFIC_LANES
+  // From the seventh lane south the lines run on west to the plate's edge,
+  // so that the lanes take the southern core with them and only its northern
+  // part is left whole: each in its own direction, and due west where its
+  // own direction would cross the line beside it.
+  const WEST: Record<number, [number, number][]> = {
+    5: [[150, 0.7], [175, 5.7]],
+    6: [[150, -7], [170, -3]],
+    7: [[150, -14.4], [160, -13.1], [180, -10.5]],
+    8: [[150, -14.8], [170, -14.8]],
+    9: [[170, -29.5], [185, -27.5]],
+    10: [[170, -30.5], [185, -32.5], [200, -34.5]],
+    11: [[170, -40.5]],
+    12: [[170, -42.8], [188.8, -42.8], [196.3, -46.8]],
+    13: [[170, -43]],
+  }
+  const long = (k: number) => [...(WEST[k] ?? []), ...L[k]]
   const on = (l: [number, number][]): [number, number][] =>
     [...l, [l[l.length - 1][0] + 15, l[l.length - 1][1]]]
   const lane = (i: number): [number, number][] => {
+    const line = (k: number) => (i >= 6 ? long(k) : L[k])
     if (i === 0) return [[162.5, 75], [241.3, 75], ...on(L[0]).reverse()]
-    if (i === L.length) return [...on(L[L.length - 1]), [260, -80], [188.8, -80]]
-    return [...on(L[i - 1]), ...on(L[i]).reverse()]
+    if (i === L.length) return [...on(line(L.length - 1)), [260, -80], [170, -80]]
+    return [...on(line(i - 1)), ...on(line(i)).reverse()]
   }
   const out: ConceptPiece[] = []
   for (let i = 0; i <= L.length; i++) {
@@ -597,14 +614,20 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
       [149, 44], [146.5, 41.5], [144.2, 40], [144, 37], [142.5, 34.5]],
   },
   ...pacificStrips(),
-  // The sea floor China took because the arcs in front of it take none: the
-  // Philippine Sea, and the Sea of Japan behind the Japanese arc.
+  // The Philippine Sea plate as a plate of its own, out to the trenches round
+  // it, so that it takes its own floor: cut out of what China grew over, the
+  // Pacific reached its eastern basins first from the Mariana trench.
   {
     id: 'philippinesea',
     name: 'Filipijnse Zee',
-    from: 'china',
-    outline: [[115, 5], [150, 5], [150, 33.5], [115, 33.5]],
+    ocean: true,
+    outline: [[127, 5], [133, 4], [135, 6], [138, 8.5], [140, 11], [143, 11.3], [147, 13.5], [148.2, 17],
+      [147.3, 21], [145, 24.5], [143.7, 27], [142.7, 30], [142, 34], [139.5, 34.8], [136, 33.3],
+      [133.5, 32.5], [131.5, 30.8], [130, 28.5], [127.5, 26], [125, 24.5], [123, 23.5], [122, 22.5],
+      [122.5, 20], [123, 18], [124, 15], [126, 13.5], [126.8, 10], [127, 6]],
   },
+  // The sea floor China took because the arcs in front of it take none: the
+  // Sea of Japan behind the Japanese arc.
   {
     id: 'japansea',
     name: 'Japanse Zee',
