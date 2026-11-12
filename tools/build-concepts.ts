@@ -190,37 +190,12 @@ async function main() {
       console.log(`[concepts] ${cut.id}: ${n} cells of ${cut.from} older than ${cut.olderThan} Ma, grown from ${cut.seed}`)
       return
     }
-    const islands: number[] = []
     for (let y = 0; y < H; y++) {
       for (let x = 0; x < W; x++) {
         const i = y * W + x
         if (piece[i] !== parent || (!anyCell && continental[i])) continue
         if (cut.above !== undefined && height.data[i] < cut.above) continue
         if (!insideOutline(cellLon(x), cellLat(y), cut.outline)) continue
-        if (cut.youngerThan !== undefined && oceanAge[i] < 0) { islands.push(i); continue }
-        if (cut.youngerThan !== undefined && oceanAge[i] >= cut.youngerThan) continue
-        piece[i] = c + 1
-        body[i] = c + 1
-        n++
-      }
-    }
-    // An island goes where most of the sea floor round it went.
-    for (const i of islands) {
-      const x = i % W
-      const y = (i / W) | 0
-      let mine = 0
-      let theirs = 0
-      for (let dy = -8; dy <= 8; dy++) {
-        const ny = y + dy
-        if (ny < 0 || ny >= H) continue
-        for (let dx = -8; dx <= 8; dx++) {
-          const j = ny * W + ((x + dx + W) % W)
-          if (continental[j]) continue
-          if (piece[j] === c + 1) mine++
-          else if (piece[j] === parent) theirs++
-        }
-      }
-      if (mine > theirs) {
         piece[i] = c + 1
         body[i] = c + 1
         n++
@@ -228,12 +203,13 @@ async function main() {
     }
     console.log(`[concepts] ${cut.id}: ${n} cells cut out of ${cut.from}`)
   })
-  // Strips cut along fracture zones leave bodies behind, of their own and of
-  // the plate's core, where the isochron they stop at wanders: those go to
-  // the piece round them, the way the scraps of a continent's cut do.
+  // An outline cut through a plate leaves bodies behind, of its own and of
+  // what is left of the plate, where the outline crosses a corner of it:
+  // those go to the piece round them, the way the scraps of a continent's
+  // cut do.
   const stripped = new Set<number>()
   DEFS.forEach((cut, c) => {
-    if (cut.youngerThan === undefined) return
+    if (!cut.from || cut.seed || cut.above !== undefined) return
     stripped.add(c + 1)
     stripped.add(DEFS.findIndex((p) => p.id === cut.from) + 1)
   })
@@ -499,9 +475,10 @@ function tidyPieces(piece: Uint8Array, only?: Set<number>) {
     }
     return nearest
   }
-  // Sea floor: a plate of its own, or a strip cut from one.
-  const sea = (p: number) => Boolean(DEFS[p - 1].ocean || DEFS.find((d) => d.id === DEFS[p - 1].from)?.ocean)
-  const nearestAny = nearestOf(() => true)
+  // Sea floor: a plate of its own, or anything cut out after the flood.
+  const sea = (p: number) => Boolean(DEFS[p - 1].ocean || DEFS[p - 1].from)
+  // Sea floor goes to no luxaflex: those take none.
+  const nearestAny = nearestOf((p) => !DEFS[p - 1].fold)
   const nearestLand = nearestOf((p) => !sea(p))
   let moved = 0
   const moves = new Map<string, number>()

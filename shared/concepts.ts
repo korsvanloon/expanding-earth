@@ -68,13 +68,6 @@ export interface ConceptPiece {
   olderThan?: number
   /** With `from`: only the cells standing at least this high (height-map grey), seamounts. */
   above?: number
-  /**
-   * With `from` and an outline: only the sea floor younger than this, Ma, so
-   * that a strip cut along fracture zones stops at an isochron and leaves the
-   * plate's old core whole. An island inside the outline goes with the floor
-   * round it.
-   */
-  youngerThan?: number
   /** Where the piece's centre is, [lon, lat], when it should not be its centroid. */
   centre?: [number, number]
   /** Outline that claims the continental cells inside it, [lon, lat] in degrees. */
@@ -97,6 +90,59 @@ export interface ConceptMoment {
   note: string
   /** Pieces left out stay where they are today. */
   place: Record<string, Placement>
+}
+
+/**
+ * The fracture zones of the Pacific as a reader drew them on the age map, by
+ * carrying on the corners of the isochrons: where an isochron steps, a
+ * fracture zone crosses it, and the steps line up into lanes that run from the
+ * old core out to the ridges. North to south, [lon, lat], east longitudes past
+ * 180 as they are.
+ */
+const PACIFIC_LANES: [number, number][][] = [
+  [[162.5, 46], [170, 47.8], [177.5, 49], [185, 49.5], [192.5, 49.8], [200, 50.8], [207.5, 52.5], [215, 54], [222.5, 54.8], [226.3, 55]],
+  [[170, 40], [177.5, 40.8], [185, 43.8], [192.5, 46], [200, 45.3], [207.5, 44.5], [215, 44.5], [222.5, 45.3], [230, 47], [233.8, 47.5]],
+  [[166.3, 23.8], [173.8, 28], [181.3, 33], [188.8, 35.5], [196.3, 37.3], [203.8, 39], [211.3, 39.8], [218.8, 40.3], [226.3, 40.8], [237.5, 40.5]],
+  [[173.8, 20.5], [181.3, 24], [188.8, 26.3], [196.3, 27.5], [203.8, 29.3], [211.3, 31.5], [218.8, 33.3], [226.3, 32.8], [233.8, 31.5], [241.3, 32], [248.8, 32.3]],
+  [[185, 18], [192.5, 18.3], [200, 21.5], [207.5, 23.3], [215, 24.8], [222.5, 26], [230, 26.8], [237.5, 27], [245, 26.3], [248.8, 26.3]],
+  [[196.3, 10], [203.8, 11.5], [211.3, 14.3], [218.8, 16], [226.3, 17.3], [233.8, 17.5], [241.3, 18.3], [248.8, 19], [252.5, 19]],
+  [[188.8, 0.8], [196.3, 2.3], [203.8, 4.5], [211.3, 5.8], [218.8, 5.3], [226.3, 5.5], [233.8, 7.8], [241.3, 10.3], [248.8, 11], [256.3, 9.5], [260, 9.3]],
+  [[200, -7.8], [207.5, -6.8], [215, -4], [222.5, -2], [230, -0.5], [237.5, 0.5], [245, 2], [252.5, 2.5], [263.8, 2.5]],
+  [[196.3, -14.8], [203.8, -14.8], [211.3, -13.3], [218.8, -11.3], [226.3, -9.8], [233.8, -9.5], [241.3, -8.3], [248.8, -8.3], [256.3, -8], [263.8, -7.8], [271.3, -6], [278.8, -2.8], [282.5, -2.3]],
+  [[200, -25.5], [207.5, -24.5], [215, -22], [222.5, -19], [230, -18.8], [237.5, -19.8], [245, -21]],
+  [[218.8, -37], [226.3, -38], [233.8, -39], [241.3, -39.5], [248.8, -40]],
+  [[218.8, -40.5], [226.3, -43], [233.8, -45], [241.3, -48], [248.8, -50.5], [256.3, -51.5]],
+  [[207.5, -47], [215, -50], [222.5, -52.3], [230, -53.8], [237.5, -56.5], [245, -57.5]],
+  [[188.8, -43], [196.3, -47], [203.8, -50.8], [211.3, -54], [218.8, -55.8], [226.3, -57], [233.8, -59.5], [241.3, -61.8], [245, -62.3]],
+]
+
+/**
+ * The Pacific in lanes between those lines, so that they can slide along each
+ * other the way the floor either side of a fracture zone does, and the old
+ * core west of where the lines begin left whole. Each line runs on 15 degrees
+ * past its last point, over the ridge to the plate's edge. Where a reader drew
+ * a line on across the ridge, the floor on the far side is cut the same way:
+ * the Nazca floor north of the line that runs to Ecuador, and the Antarctic
+ * floor between the three southern lines.
+ */
+function pacificStrips(): ConceptPiece[] {
+  const L = PACIFIC_LANES
+  const on = (l: [number, number][]): [number, number][] =>
+    [...l, [l[l.length - 1][0] + 15, l[l.length - 1][1]]]
+  const lane = (i: number): [number, number][] => {
+    if (i === 0) return [[162.5, 75], [241.3, 75], ...on(L[0]).reverse()]
+    if (i === L.length) return [...on(L[L.length - 1]), [260, -80], [188.8, -80]]
+    return [...on(L[i - 1]), ...on(L[i]).reverse()]
+  }
+  const out: ConceptPiece[] = []
+  for (let i = 0; i <= L.length; i++) {
+    out.push({ id: `pac${i + 1}`, name: `Pacific baan ${i + 1}`, from: 'pacific', outline: lane(i) })
+  }
+  out.push({ id: 'nazcanorth', name: 'Nazca noord', from: 'andes', outline: lane(8) })
+  for (const i of [11, 12, 13]) {
+    out.push({ id: `antarctic${i - 10}`, name: `Antarctische baan ${i - 10}`, from: 'westantarctica', outline: lane(i) })
+  }
+  return out
 }
 
 export const CONCEPT_PIECES: ConceptPiece[] = [
@@ -550,63 +596,7 @@ export const CONCEPT_PIECES: ConceptPiece[] = [
       [180, 50.8], [172, 51.5], [167, 53.5], [163, 54], [160, 51], [156, 48], [153, 46],
       [149, 44], [146.5, 41.5], [144.2, 40], [144, 37], [142.5, 34.5]],
   },
-  // The young east and south of the plate in strips along its great fracture
-  // zones -- Mendocino, Molokai, Clipperton and Marquesas -- so that
-  // they can slide along each other the way the floor on the two sides of a
-  // fracture zone does. The plate's old core, everything from 100 Ma up, stays
-  // whole. Without them the plate is one rigid cap, and on a smaller sphere a
-  // cap that size cannot meet America along its whole edge at once.
-  {
-    id: 'pacnorth',
-    name: 'Pacific noord van Mendocino',
-    from: 'pacific',
-    youngerThan: 100,
-    outline: [[140, 70], [290, 70], [290, 40.3], [238, 40.3], [220, 40], [200, 39.5], [190, 37.5],
-      [180, 34], [140, 34]],
-  },
-  {
-    id: 'pacmendocino',
-    name: 'Pacific Mendocino–Molokai',
-    from: 'pacific',
-    youngerThan: 100,
-    outline: [[290, 40.3], [238, 40.3], [220, 40], [200, 39.5], [190, 37.5], [180, 34], [140, 34],
-      [140, 17], [185, 17], [195, 19], [205, 20.5], [225, 22], [245, 23], [290, 23]],
-  },
-  {
-    id: 'pacmolokai',
-    name: 'Pacific Molokai–Clipperton',
-    from: 'pacific',
-    youngerThan: 100,
-    outline: [[290, 23], [245, 23], [225, 22], [205, 20.5], [195, 19], [185, 17], [140, 17], [140, 5],
-      [185, 5], [200, 6], [220, 7.3], [240, 8.8], [262, 10], [290, 10]],
-  },
-  {
-    id: 'pacclipperton',
-    name: 'Pacific Clipperton–Marquesas',
-    from: 'pacific',
-    youngerThan: 100,
-    outline: [[290, 10], [262, 10], [240, 8.8], [220, 7.3], [200, 6], [185, 5], [140, 5], [140, -15.5],
-      [200, -15.5], [210, -12.8], [228, -9], [240, -7.5], [255, -5], [290, -5]],
-  },
-  {
-    id: 'pacmarquesas',
-    name: 'Pacific Marquesas–Foundation',
-    from: 'pacific',
-    youngerThan: 100,
-    outline: [[290, -5], [255, -5], [240, -7.5], [228, -9], [210, -12.8], [200, -15.5], [140, -15.5],
-      [140, -28], [200, -28], [215, -31], [226, -33], [236, -35], [250, -37.2], [260, -38], [290, -38]],
-  },
-  // The last cut is no fracture zone but the Foundation seamounts, which run
-  // with the spreading the way the fracture zones do. The Eltanin zones lie
-  // too close to the ridge to leave a strip of the plate south of them.
-  {
-    id: 'pacfoundation',
-    name: 'Pacific zuid van Foundation',
-    from: 'pacific',
-    youngerThan: 100,
-    outline: [[290, -38], [260, -38], [250, -37.2], [236, -35], [226, -33], [215, -31], [200, -28],
-      [140, -28], [140, -80], [290, -80]],
-  },
+  ...pacificStrips(),
   // The sea floor China took because the arcs in front of it take none: the
   // Philippine Sea, and the Sea of Japan behind the Japanese arc.
   {
