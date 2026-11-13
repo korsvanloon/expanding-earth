@@ -190,16 +190,16 @@
         <div class="cutlog" id="cutlog"></div>
       </section>
       <section id="mapviewpanel" hidden>
-        <h2>Achtergrond</h2>
-        <div class="seg" role="group" aria-label="Achtergrond van de kaart" id="mapbg">
-          <button type="button" data-bg="age">Leeftijd</button>
-          <button type="button" data-bg="fabric">Fabric</button>
-          <button type="button" data-bg="relief">Reliëf</button>
-          <button type="button" data-bg="photo">Foto</button>
+        <h2>Weergave</h2>
+        <div class="seg" role="group" aria-label="Weergave van de kaart" id="mapbg">
+          <button type="button" data-mode="0">Foto</button>
+          <button type="button" data-mode="1">Stukken</button>
+          <button type="button" data-mode="3">Leeftijd</button>
+          <button type="button" data-mode="2">Fabric</button>
+          <button type="button" data-mode="4">Reliëf</button>
         </div>
-        <span class="keys">Wisselen: <kbd>K</kbd></span>
-        <label class="check"><input type="checkbox" id="map-iso"> Isochronen, om de 30 Ma <kbd>I</kbd></label>
-        <label class="check"><input type="checkbox" id="map-tint"> Kleur van de stukken over de achtergrond <kbd>C</kbd></label>
+        <span class="keys">Wisselen: <kbd>K</kbd> · zelfde keuze als bij Puzzelen</span>
+        <label class="check"><input type="checkbox" id="map-iso"> Witte leeftijdslijnen, om de 30 Ma <kbd>I</kbd></label>
         <p class="note" id="mapbg-note"></p>
       </section>
       <section id="sec-edit">
@@ -228,6 +228,7 @@
         </div>
         <span class="keys">Kleuren wisselen: <kbd>K</kbd></span>
         <p class="note" id="fabric-note" hidden>Crustal fabric: hoe snel de verticale zwaartekrachtgradiënt verandert. Donker waar de korst met rust is gelaten, licht waar hij bewerkt is: breukzones, suturen, gefaalde rifts, gebergtewortels. Grijs is waar de altimetrie niet kwam. Op ruim de halve resolutie van de site.</p>
+        <label class="check"><input type="checkbox" id="show-iso"> Witte leeftijdslijnen, om de 30 Ma <kbd>I</kbd></label>
         <label class="check"><input type="checkbox" id="show-overlap" checked> Overlap arceren <kbd>O</kbd></label>
         <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen <kbd>A</kbd></label>
         <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen <kbd>B</kbd></label>
@@ -560,7 +561,7 @@ const MARBLE_JPG = "__MARBLE__";
   const FRAG = `#version 300 es
   precision highp float; precision highp int; precision highp sampler2D;
   uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData; uniform sampler2D uFabric; uniform sampler2D uRelief;
-  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap;
+  uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap; uniform int uIso;
   uniform float uMa; uniform float uSeaLevel;
   uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[128];
   out vec4 outColour;
@@ -582,6 +583,15 @@ const MARBLE_JPG = "__MARBLE__";
     float t = clamp((encoded * 255.0 - 1.0) / 254.0, 0.0, 1.0);
     vec3 quiet = vec3(0.09, 0.11, 0.16), middle = vec3(0.29, 0.42, 0.55), busy = vec3(0.97, 0.87, 0.62);
     return t < 0.55 ? mix(quiet, middle, t / 0.55) : mix(middle, busy, (t - 0.55) / 0.45);
+  }
+  // The usual age map: red at the ridge through yellow and green to blue and
+  // violet for the oldest floor.
+  vec3 ageRamp(float a) {
+    const float at[8] = float[8](0.0, 15.0, 35.0, 60.0, 90.0, 120.0, 150.0, 180.0);
+    const vec3 col[8] = vec3[8](vec3(0.78, 0.12, 0.12), vec3(0.94, 0.47, 0.16), vec3(0.96, 0.86, 0.24), vec3(0.47, 0.78, 0.31),
+      vec3(0.24, 0.75, 0.59), vec3(0.27, 0.67, 0.86), vec3(0.24, 0.35, 0.78), vec3(0.51, 0.24, 0.71));
+    for (int i = 0; i < 7; i++) if (a < at[i + 1]) return mix(col[i], col[i + 1], (a - at[i]) / (at[i + 1] - at[i]));
+    return col[7];
   }
   int idAt(ivec2 c) { vec4 t = texelFetch(uPieces, c, 0); return existsAt(t) ? int(t.r * 255.0 + 0.5) : 0; }
   void main() {
@@ -623,21 +633,17 @@ const MARBLE_JPG = "__MARBLE__";
         vec2 uv = vec2(atan(-q.z, q.x) / (2.0 * PI) + 0.5, acos(clamp(q.y, -1.0, 1.0)) / PI);
         c = uMode == 0 ? texture(uMarble, uv).rgb : uMode == 2 ? fabricRamp(uv) : texture(uRelief, uv).rgb;
       } else if (uMode == 3) {
-        // The piece's colour, darker the older its floor, with a white line
-        // every 30 Ma: the age map the cuts are made on.
-        c = uColours[p];
-        if (continent) c = mix(c, vec3(0.95), 0.35);
-        else {
-          float a = tex.g * 255.0;
-          c *= 1.0 - 0.5 * min(a, 200.0) / 200.0;
-          vec4 tr = texelFetch(uPieces, ivec2((cell.x + 1) % ${W}, cell.y), 0);
-          vec4 td = texelFetch(uPieces, ivec2(cell.x, min(cell.y + 1, ${H - 1})), 0);
-          float band = floor(a / 30.0);
-          if ((tr.g < 0.999 && floor(tr.g * 255.0 / 30.0) != band) || (td.g < 0.999 && floor(td.g * 255.0 / 30.0) != band)) c = mix(c, vec3(1.0), 0.85);
-        }
+        c = continent ? (land ? vec3(0.56, 0.56, 0.54) : vec3(0.44, 0.45, 0.45)) : ageRamp(tex.g * 255.0);
       } else {
         c = uColours[p];
         if (!land) c = continent ? mix(c, vec3(0.92), 0.35) : mix(c, vec3(0.16, 0.2, 0.28), 0.55);
+      }
+      if (uIso == 1 && !continent) {
+        // A white line every 30 Ma, over any view.
+        vec4 tr = texelFetch(uPieces, ivec2((cell.x + 1) % ${W}, cell.y), 0);
+        vec4 td = texelFetch(uPieces, ivec2(cell.x, min(cell.y + 1, ${H - 1})), 0);
+        float band = floor(tex.g * 255.0 / 30.0);
+        if ((tr.g < 0.999 && floor(tr.g * 255.0 / 30.0) != band) || (td.g < 0.999 && floor(td.g * 255.0 / 30.0) != band)) c = mix(c, vec3(1.0), 0.85);
       }
       bool rim = idAt(ivec2((cell.x + 1) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 1}) % ${W}, cell.y)) != id
         || idAt(ivec2(cell.x, max(cell.y - 1, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 1, ${H - 1}))) != id;
@@ -746,6 +752,7 @@ const MARBLE_JPG = "__MARBLE__";
     gl.uniform1i(U('uMode'), state.mode);
     gl.uniform1i(U('uShowChosen'), showChosen ? 1 : 0);
     gl.uniform1i(U('uShowOverlap'), state.overlap ? 1 : 0);
+    gl.uniform1i(U('uIso'), state.iso ? 1 : 0);
     gl.uniform1f(U('uMa'), C.moments[mi].ma);
     gl.uniform1f(U('uSeaLevel'), (C.seaLevel & 0xfc) / 255);
     gl.uniformMatrix3fv(U('uView'), false, new Float32Array([...f.east, ...f.north, ...f.up]));
@@ -1122,6 +1129,7 @@ const MARBLE_JPG = "__MARBLE__";
     // One key for every switch on the page.
     const key = e.key.toLowerCase();
     if (key === 'o') { overlapBox.click(); }
+    else if (key === 'i') { setIso(!state.iso); }
     else if (key === 'a') { joinsBox.click(); }
     else if (key === 'b') { motionBox.click(); }
     else if (key === 'k') { modes[(modes.findIndex((b) => b.mode === state.mode) + 1) % modes.length].el.click(); }
@@ -1273,7 +1281,7 @@ const MARBLE_JPG = "__MARBLE__";
     .map(([id, mode]) => ({ el: document.getElementById(id), mode }));
   const fabricNote = document.getElementById('fabric-note');
   const MODE_NOTES = {
-    3: 'Leeftijd: elk stuk in zijn eigen kleur, hoe donkerder hoe ouder de oceaanbodem, met een witte lijn om de 30 Ma.',
+    3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs.',
     4: 'Reliëf: de hoogtekaart met schaduw, zeebodem inbegrepen, zodat ruggen, troggen en zeebergketens te zien zijn.',
   };
   /**
@@ -1326,6 +1334,9 @@ const MARBLE_JPG = "__MARBLE__";
   if (!modes.some((b) => b.mode === state.mode)) state.mode = 0;
   modes.forEach((x) => x.el.setAttribute('aria-pressed', String(x.mode === state.mode)));
   wantFabric();
+  const isoGlobeBox = document.getElementById('show-iso');
+  isoGlobeBox.checked = Boolean(state.iso);
+  isoGlobeBox.addEventListener('change', () => { setIso(isoGlobeBox.checked); });
   const overlapBox = document.getElementById('show-overlap');
   overlapBox.checked = state.overlap;
   overlapBox.addEventListener('change', () => { state.overlap = overlapBox.checked; thumbsDirty = true; render(); save(); });
@@ -1373,15 +1384,17 @@ const MARBLE_JPG = "__MARBLE__";
   const cutStatus = document.getElementById('cutstatus');
   const ISO = 30;
   const BG_NOTES = {
-    age: 'Leeftijd: elk stuk in zijn eigen kleur, hoe donkerder hoe ouder de oceaanbodem. Waar de witte lijnen knikken, loopt een breukzone.',
-    fabric: 'Fabric: donker waar de korst met rust is gelaten, licht waar hij bewerkt is -- breukzones, suturen, rifts, gebergtewortels.',
-    relief: 'Reliëf: de hoogtekaart met schaduw, zeebodem inbegrepen: ruggen, troggen, plateaus en zeebergketens.',
-    photo: 'Foto: Blue Marble.',
+    0: 'Foto: Blue Marble.',
+    1: 'Stukken: elk stuk in zijn eigen kleur, de oceaanbodem donkerder.',
+    3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs. Waar de witte lijnen knikken, loopt een breukzone.',
+    2: 'Fabric: donker waar de korst met rust is gelaten, licht waar hij bewerkt is -- breukzones, suturen, rifts, gebergtewortels.',
+    4: 'Reliëf: de hoogtekaart met schaduw, zeebodem inbegrepen: ruggen, troggen, plateaus en zeebergketens.',
   };
-  const BG_FILES = { fabric: 'fabric.jpg', relief: 'relief.jpg', photo: MARBLE_JPG };
+  const BG_FILES = { 0: MARBLE_JPG, 2: 'fabric.jpg', 4: 'relief.jpg' };
+  const MODE_ORDER = [0, 1, 3, 2, 4];
+  const SEA = C.seaLevel & 0xfc;
   const cs = {
     tool: state.cutTool || 'gum', target: state.cutTarget || null, brush: state.brush || 5,
-    bg: state.cutBg || 'age', iso: state.iso !== false, tint: state.tint !== false,
     line: null, glue: null, dirty: false, pointer: null,
   };
   const mv = { lon: Number.isFinite(state.mapLon) ? state.mapLon : 200, lat: Number.isFinite(state.mapLat) ? state.mapLat : 0, zoom: Number.isFinite(state.mapZoom) ? state.mapZoom : 0 };
@@ -1393,8 +1406,8 @@ const MARBLE_JPG = "__MARBLE__";
   const live = (i) => i >= 0 && i < work.list.length && !work.list[i].gone;
   const workIndex = (id) => { const i = work.index.get(id); return i === undefined || !live(i) ? -1 : i; };
   function wantBackground() {
-    const name = cs.bg;
-    if (name === 'age' || bgPixels[name] || bgLoading[name]) return;
+    const name = state.mode;
+    if (!BG_FILES[name] || bgPixels[name] || bgLoading[name]) return;
     bgLoading[name] = true;
     cutSay('Achtergrond laden…');
     loadImage(BG_FILES[name]).then((image) => {
@@ -1403,6 +1416,12 @@ const MARBLE_JPG = "__MARBLE__";
       compose(); drawMap();
     }, () => { bgLoading[name] = false; cutSay('Deze achtergrond kon niet geladen worden.', true); });
   }
+  const AGE_AT = [0, 15, 35, 60, 90, 120, 150, 180];
+  const AGE_RGB = [[199, 31, 31], [240, 120, 41], [245, 219, 61], [120, 199, 79], [61, 191, 150], [69, 171, 219], [61, 89, 199], [130, 61, 181]];
+  const ageRgb = (a) => {
+    for (let i = 0; i < 7; i++) if (a < AGE_AT[i + 1]) { const t = (a - AGE_AT[i]) / (AGE_AT[i + 1] - AGE_AT[i]); return AGE_RGB[i].map((v, k) => v + (AGE_RGB[i + 1][k] - v) * t); }
+    return AGE_RGB[7];
+  };
   const fabricRgb = (v) => {
     if (v < 1) return [51, 51, 56];
     const t = Math.min(1, (v - 1) / 254), q = [0.09, 0.11, 0.16], m = [0.29, 0.42, 0.55], b = [0.97, 0.87, 0.62];
@@ -1412,7 +1431,7 @@ const MARBLE_JPG = "__MARBLE__";
   /** The picture of the grid, or of one box of it, again. */
   function compose(x0 = 0, y0 = 0, x1 = W, y1 = H) {
     const d = layerData.data, own = work.owner;
-    const src = cs.bg === 'age' ? null : bgPixels[cs.bg];
+    const mode = state.mode, src = bgPixels[mode];
     const target = cs.target ? workIndex(cs.target) : -1;
     const glue = cs.glue !== null ? cs.glue : -1;
     const ya = Math.max(0, y0), yb = Math.min(H, y1);
@@ -1420,15 +1439,19 @@ const MARBLE_JPG = "__MARBLE__";
       const x = ((xx % W) + W) % W, c = y * W + x, p = own[c], a = basePx[c * 4 + 1];
       const pc = p >= 0 ? workColours[p] : [38, 42, 48];
       let r, g, b;
-      if (!src) {
-        if (cs.bg !== 'age') { r = g = b = 70; }
-        else if (a === 255) { r = pc[0] + (240 - pc[0]) * 0.35; g = pc[1] + (240 - pc[1]) * 0.35; b = pc[2] + (240 - pc[2]) * 0.35; }
-        else { const k = 1 - 0.5 * Math.min(a, 200) / 200; r = pc[0] * k; g = pc[1] * k; b = pc[2] * k; }
-      } else if (cs.bg === 'fabric') { [r, g, b] = fabricRgb(src[c * 4]); }
+      const land = basePx[c * 4 + 2] >= SEA;
+      if (mode === 1) {
+        if (land) { r = pc[0]; g = pc[1]; b = pc[2]; }
+        else if (a === 255) { r = pc[0] + (235 - pc[0]) * 0.35; g = pc[1] + (235 - pc[1]) * 0.35; b = pc[2] + (235 - pc[2]) * 0.35; }
+        else { r = pc[0] * 0.45 + 41 * 0.55; g = pc[1] * 0.45 + 51 * 0.55; b = pc[2] * 0.45 + 71 * 0.55; }
+      } else if (mode === 3) {
+        if (a === 255) { r = g = land ? 143 : 113; b = land ? 138 : 115; }
+        else [r, g, b] = ageRgb(a);
+      } else if (!src) { r = g = b = 70; }
+      else if (mode === 2) { [r, g, b] = fabricRgb(src[c * 4]); }
       else { r = src[c * 4]; g = src[c * 4 + 1]; b = src[c * 4 + 2]; }
-      if (src && cs.tint && p >= 0) { r = r * 0.68 + pc[0] * 0.32; g = g * 0.68 + pc[1] * 0.32; b = b * 0.68 + pc[2] * 0.32; }
       const cr = y * W + (x + 1) % W, cd = y < H - 1 ? c + W : c;
-      if (cs.iso && a < 255) {
+      if (state.iso && a < 255) {
         const ar = basePx[cr * 4 + 1], ad = basePx[cd * 4 + 1], band = Math.floor(a / ISO);
         if ((ar < 255 && Math.floor(ar / ISO) !== band) || (ad < 255 && Math.floor(ad / ISO) !== band)) { r = r * 0.15 + 217; g = g * 0.15 + 217; b = b * 0.15 + 217; }
       }
@@ -1774,31 +1797,36 @@ const MARBLE_JPG = "__MARBLE__";
     const tool = TOOLS.find((t) => t[2].toLowerCase() === key);
     if (tool) { setTool(tool[0]); return true; }
     if (key === '[' || key === ']') { cs.brush = Math.max(1, Math.min(40, cs.brush + (key === ']' ? 1 : -1))); state.brush = cs.brush; save(); describeCut(); requestMap(); return true; }
-    if (key === 'k') { const order = ['age', 'fabric', 'relief', 'photo']; setBackground(order[(order.indexOf(cs.bg) + 1) % order.length]); return true; }
-    if (key === 'i') { isoBox.click(); return true; }
-    if (key === 'c') { tintBox.click(); return true; }
+    if (key === 'k') { setBackground(MODE_ORDER[(MODE_ORDER.indexOf(state.mode) + 1) % MODE_ORDER.length]); return true; }
+    if (key === 'i') { setIso(!state.iso); return true; }
     return false;
   }
-  const bgButtons = [...document.querySelectorAll('#mapbg [data-bg]')];
-  function setBackground(bg) {
-    cs.bg = bg; state.cutBg = bg; save();
-    bgButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.bg === bg)));
-    document.getElementById('mapbg-note').textContent = BG_NOTES[bg];
-    wantBackground(); compose(); drawMap();
+  const bgButtons = [...document.querySelectorAll('#mapbg [data-mode]')];
+  /** One choice of view for the globe and the map alike. */
+  function setBackground(mode) {
+    state.mode = mode; save();
+    bgButtons.forEach((b) => b.setAttribute('aria-pressed', String(Number(b.dataset.mode) === mode)));
+    modes.forEach((x) => x.el.setAttribute('aria-pressed', String(x.mode === mode)));
+    document.getElementById('mapbg-note').textContent = BG_NOTES[mode];
+    wantFabric();
+    thumbsDirty = true;
+    if (state.view === 'map') { wantBackground(); compose(); drawMap(); }
   }
-  bgButtons.forEach((b) => b.addEventListener('click', () => setBackground(b.dataset.bg)));
+  bgButtons.forEach((b) => b.addEventListener('click', () => setBackground(Number(b.dataset.mode))));
   const isoBox = document.getElementById('map-iso');
-  isoBox.checked = cs.iso;
-  isoBox.addEventListener('change', () => { cs.iso = isoBox.checked; state.iso = cs.iso; save(); compose(); drawMap(); });
-  const tintBox = document.getElementById('map-tint');
-  tintBox.checked = cs.tint;
-  tintBox.addEventListener('change', () => { cs.tint = tintBox.checked; state.tint = cs.tint; save(); compose(); drawMap(); });
+  isoBox.checked = Boolean(state.iso);
+  isoBox.addEventListener('change', () => setIso(isoBox.checked));
+  function setIso(on) {
+    state.iso = on; save();
+    isoBox.checked = on; isoGlobeBox.checked = on;
+    thumbsDirty = true;
+    if (state.view === 'map') { compose(); drawMap(); } else render();
+  }
 
   // ---------- puzzling or cutting ----------
   const tabs = { globe: document.getElementById('tab-globe'), map: document.getElementById('tab-map') };
   const globeOnly = ['stage', 'strip', 'sec-edit', 'sec-moment', 'sec-view', 'sec-joins'].map((id) => document.getElementById(id));
   const mapOnly = ['mapstage', 'cutpanel', 'mapviewpanel'].map((id) => document.getElementById(id));
-  let composed = false;
   function setView(view) {
     if (view === 'globe' && cs.dirty) {
       // The globe is built from the cut once, as the page loads: load it again.
@@ -1813,7 +1841,7 @@ const MARBLE_JPG = "__MARBLE__";
     globeOnly.forEach((el) => { el.hidden = view !== 'globe'; });
     mapOnly.forEach((el) => { el.hidden = view !== 'map'; });
     if (view === 'map') {
-      if (!composed) { composed = true; setBackground(cs.bg); }
+      setBackground(state.mode);
       sizeMap(); drawMap(); describeCut();
       mapStage.focus({ preventScroll: true });
       if (cutTrouble) cutSay(cutTrouble, true);
