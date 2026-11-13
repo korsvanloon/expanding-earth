@@ -387,6 +387,9 @@ async function main() {
   if (fabric) {
     writeFileSync(resolve(OUT, 'fabric.jpg'), jpeg.encode({ width: W, height: H, data: Buffer.from(fabric) }, 85).data)
   }
+  // Shaded relief off the height map, sea floor included, for cutting by:
+  // ridges, trenches, seamount chains and plateaus show as they stand.
+  writeFileSync(resolve(OUT, 'relief.jpg'), jpeg.encode({ width: W, height: H, data: Buffer.from(shadedRelief(height.data, seaLevel)) }, 85).data)
   if (base) {
     writeFileSync(resolve(OUT, 'aligned.json'), JSON.stringify(
       Object.fromEntries(Object.keys(base.layouts).map((ma) => [ma, moments.find((m) => m.ma === Number(ma))!.place])), null, 1))
@@ -701,6 +704,59 @@ function loadMarble(width = W, height = H): Uint8Array {
       out[o] = r[0] / n
       out[o + 1] = r[1] / n
       out[o + 2] = r[2] / n
+      out[o + 3] = 255
+    }
+  }
+  return out
+}
+
+/**
+ * The height map as a shaded relief: sea floor in blues by depth, land in
+ * greens to browns by height, lit from the north-west. Heights are the map's
+ * grey levels, so the shading is for the eye, not to scale.
+ */
+function shadedRelief(grey: Float32Array | Uint8Array | number[], seaLevel: number): Uint8Array {
+  const out = new Uint8Array(W * H * 4)
+  // Smoothed twice over three cells first: the map has 256 grey levels and
+  // JPEG blocks, and shading the raw steps draws them as terraces.
+  const blur = (a: ArrayLike<number>) => {
+    const t = new Float32Array(W * H)
+    const o = new Float32Array(W * H)
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) t[y * W + x] = (a[y * W + ((x + W - 1) % W)] + a[y * W + x] + a[y * W + ((x + 1) % W)]) / 3
+    }
+    for (let y = 0; y < H; y++) {
+      for (let x = 0; x < W; x++) {
+        let sum = 0
+        let n = 0
+        for (let d = -1; d <= 1; d++) if (y + d >= 0 && y + d < H) { sum += t[(y + d) * W + x]; n++ }
+        o[y * W + x] = sum / n
+      }
+    }
+    return o
+  }
+  const smooth = blur(blur(grey))
+  const at = (x: number, y: number) => smooth[Math.max(0, Math.min(H - 1, y)) * W + ((x + W) % W)]
+  const lerp = (a: number[], b: number[], t: number) => a.map((v, i) => v + (b[i] - v) * t)
+  const sea = [[18, 38, 84], [40, 84, 150], [92, 148, 196], [150, 196, 222]]
+  const land = [[88, 140, 74], [168, 170, 96], [150, 112, 72], [236, 232, 226]]
+  const ramp = (stops: number[][], t: number) => {
+    const f = Math.max(0, Math.min(1, t)) * (stops.length - 1)
+    const i = Math.min(stops.length - 2, Math.floor(f))
+    return lerp(stops[i], stops[i + 1], f - i)
+  }
+  for (let y = 0; y < H; y++) {
+    const stretch = 1 / Math.max(0.15, Math.cos(((90 - ((y + 0.5) / H) * 180) * Math.PI) / 180))
+    for (let x = 0; x < W; x++) {
+      const g = grey[y * W + x]
+      const dx = ((at(x + 1, y) - at(x - 1, y)) / 2) * stretch
+      const dy = (at(x, y + 1) - at(x, y - 1)) / 2
+      // Light from the north-west, at 45 degrees.
+      const nx = -dx * 1.4, ny = -dy * 1.4
+      const shade = Math.max(0, Math.min(1, (nx * -0.5 + ny * 0.5 + 0.707) / Math.sqrt(nx * nx + ny * ny + 1) + 0.25))
+      const c = g < seaLevel ? ramp(sea, g / seaLevel) : ramp(land, (g - seaLevel) / (255 - seaLevel))
+      const o = (y * W + x) * 4
+      for (let k = 0; k < 3; k++) out[o + k] = Math.max(0, Math.min(255, c[k] * (0.45 + 0.75 * shade)))
       out[o + 3] = 255
     }
   }

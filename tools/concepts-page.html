@@ -32,6 +32,7 @@
     color-scheme: dark;
   }
   html, body { background: var(--ground); color: var(--ink); }
+  [hidden] { display: none !important; }
   body {
     font: 16px/1.5 var(--body);
     padding-left: max(16px, env(safe-area-inset-left, 0px));
@@ -131,6 +132,26 @@
   .status.bad { color: var(--double); }
   .pieces .edited::after { content: "•"; color: var(--accent); margin-left: 4px; font-weight: 700; }
   footer { color: var(--muted); font-size: 14px; max-width: 80ch; }
+  .tabs { justify-self: start; }
+  body.cutting .wrap { max-width: 1680px; }
+  body.cutting .main { grid-template-columns: minmax(0, 1fr) 320px; }
+  @media (max-width: 860px) { body.cutting .main { grid-template-columns: minmax(0, 1fr); } }
+  .mapstage {
+    position: relative; width: 100%; aspect-ratio: 2 / 1; touch-action: none; user-select: none;
+    cursor: crosshair; background: #0b0d0f; border: 1px solid var(--rule); border-radius: 4px; overflow: hidden;
+  }
+  .mapstage.pan { cursor: grab; }
+  .mapstage:focus { outline: none; }
+  .mapstage:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+  .mapstage canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+  .target { display: flex; align-items: center; gap: 8px; }
+  .target .sw { width: 14px; height: 14px; border-radius: 2px; flex: none; outline: 1px solid var(--rule); }
+  .target b { font: 600 17px/1.1 var(--display); letter-spacing: .02em; }
+  .row { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .row input[type="text"] { font: 14px var(--body); padding: 4px 8px; border: 1px solid var(--rule); border-radius: 3px; background: var(--ground); color: var(--ink); min-width: 0; flex: 1; }
+  .row input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .cutlog { font: 12px/1.45 var(--data); color: var(--muted); display: grid; gap: 2px; max-height: 160px; overflow: auto; }
+  .banner { padding: 8px 10px; border: 1px solid var(--accent); border-radius: 4px; font-size: 14px; }
   @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -143,6 +164,14 @@
 
   <div class="main">
     <div class="stage-col">
+      <div class="seg tabs" role="group" aria-label="Werkblad">
+        <button type="button" id="tab-globe" aria-pressed="true">Puzzelen <kbd>E</kbd></button>
+        <button type="button" id="tab-map" aria-pressed="false">Knippen <kbd>E</kbd></button>
+      </div>
+      <div class="mapstage" id="mapstage" tabindex="0" hidden aria-label="Kaart van vandaag om stukken te knippen, te gummen en te lijmen">
+        <canvas id="map"></canvas>
+        <div class="tip" id="maptip" hidden></div>
+      </div>
       <div class="stage" id="stage" tabindex="0" aria-label="Globe van het gekozen moment. Klik een stuk om het te kiezen.">
         <canvas id="globe"></canvas>
         <svg id="overlay" aria-hidden="true"></svg>
@@ -152,7 +181,28 @@
     </div>
 
     <aside>
-      <section>
+      <section id="cutpanel" hidden>
+        <h2>Knippen</h2>
+        <div class="edit" id="cutedit"></div>
+        <div class="controls"><button type="button" id="cut-undo">Laatste knipbewerking terug</button></div>
+        <div class="status" id="cutstatus"></div>
+        <div class="banner" id="cutbanner" hidden>Je knipwerk staat op de globe zodra je terug gaat naar Puzzelen; de pagina laadt dan opnieuw.</div>
+        <div class="cutlog" id="cutlog"></div>
+      </section>
+      <section id="mapviewpanel" hidden>
+        <h2>Achtergrond</h2>
+        <div class="seg" role="group" aria-label="Achtergrond van de kaart" id="mapbg">
+          <button type="button" data-bg="age">Leeftijd</button>
+          <button type="button" data-bg="fabric">Fabric</button>
+          <button type="button" data-bg="relief">Reliëf</button>
+          <button type="button" data-bg="photo">Foto</button>
+        </div>
+        <span class="keys">Wisselen: <kbd>K</kbd></span>
+        <label class="check"><input type="checkbox" id="map-iso"> Isochronen, om de 30 Ma <kbd>I</kbd></label>
+        <label class="check"><input type="checkbox" id="map-tint"> Kleur van de stukken over de achtergrond <kbd>C</kbd></label>
+        <p class="note" id="mapbg-note"></p>
+      </section>
+      <section id="sec-edit">
         <h2>Bewerken</h2>
         <div class="edit" id="edit"></div>
         <div class="controls">
@@ -162,17 +212,19 @@
         </div>
         <div class="status" id="status"></div>
       </section>
-      <section>
+      <section id="sec-moment">
         <h2>Dit moment</h2>
         <dl id="facts"></dl>
         <p class="note" id="note"></p>
       </section>
-      <section>
+      <section id="sec-view">
         <h2>Weergave</h2>
         <div class="seg" role="group" aria-label="Kleuren">
           <button type="button" id="mode-photo" aria-pressed="true" title="K wisselt">Foto</button>
           <button type="button" id="mode-pieces" aria-pressed="false" title="K wisselt">Stukken</button>
+          <button type="button" id="mode-age" aria-pressed="false" title="K wisselt">Leeftijd</button>
           <button type="button" id="mode-fabric" aria-pressed="false" title="K wisselt">Fabric</button>
+          <button type="button" id="mode-relief" aria-pressed="false" title="K wisselt">Reliëf</button>
         </div>
         <span class="keys">Kleuren wisselen: <kbd>K</kbd></span>
         <p class="note" id="fabric-note" hidden>Crustal fabric: hoe snel de verticale zwaartekrachtgradiënt verandert. Donker waar de korst met rust is gelaten, licht waar hij bewerkt is: breukzones, suturen, gefaalde rifts, gebergtewortels. Grijs is waar de altimetrie niet kwam. Op ruim de halve resolutie van de site.</p>
@@ -193,7 +245,7 @@
         <h2>Stukken</h2>
         <div class="pieces" id="pieces"></div>
       </section>
-      <section>
+      <section id="sec-joins">
         <h2>Aansluitingen op dit moment</h2>
         <div class="joins" id="joins"></div>
       </section>
@@ -209,21 +261,20 @@ const PIECES_PNG = "__PIECES__";
 const MARBLE_JPG = "__MARBLE__";
 </script>
 <script>
-(() => {
+(async () => {
   const C = CONCEPTS;
   const DEG = Math.PI / 180;
-  const N = C.pieces.length;
   const M = C.moments.length;
   const W = C.width, H = C.height;
 
   // One colour per piece, stepped by the golden angle so that neighbours in
   // the list come out far apart, and kept to orange through blue: red and
   // violet mean crust lying double, and no piece may be mistaken for that.
-  const COLOURS = C.pieces.map((_, i) => {
+  function colourOf(i) {
     const h = 25 + (i * 137.508) % 220, l = [0.68, 0.58, 0.74][i % 3], sat = 0.42;
     const f = (n) => { const k = (n + h / 30) % 12; return l - sat * Math.min(l, 1 - l) * Math.max(-1, Math.min(k - 3, 9 - k, 1)); };
     return [f(0), f(8), f(4)].map((v) => Math.round(v * 255));
-  });
+  }
 
   // ---------- geometry, the same as tools/build-concepts.ts ----------
   const dir = (lon, lat) => { const a = lon * DEG, b = lat * DEG, c = Math.cos(b); return [c * Math.cos(a), Math.sin(b), -c * Math.sin(a)]; };
@@ -248,9 +299,175 @@ const MARBLE_JPG = "__MARBLE__";
   }
   const wrap180 = (a) => ((a + 540) % 360) - 180;
 
+  // ---------- cuts: the reader's own changes to the pieces themselves ----------
+  // Each change is a group of operations on the cells of today's grid -- a
+  // piece made, cells given to a piece, two pieces glued, a name, luxaflex or
+  // not -- kept in order and played over the cut the build made, so that a
+  // rebuild keeps them.
+  const loadImage = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
+  function pixelsOf(image) {
+    const c = document.createElement('canvas');
+    c.width = W; c.height = H;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.drawImage(image, 0, 0, W, H);
+    return x.getImageData(0, 0, W, H).data;
+  }
+  /** Cells as runs, "start.length" in base 36: a stroke is a few hundred bytes. */
+  function encodeRuns(cells) {
+    const s = [...cells].sort((a, b) => a - b), out = [];
+    for (let i = 0; i < s.length;) {
+      let j = i;
+      while (j + 1 < s.length && s[j + 1] === s[j] + 1) j++;
+      out.push(s[i].toString(36) + '.' + (j - i + 1).toString(36));
+      i = j + 1;
+    }
+    return out.join(',');
+  }
+  function eachRun(text, fn) {
+    if (!text) return;
+    for (const r of String(text).split(',')) {
+      const [a, b] = r.split('.');
+      const start = parseInt(a, 36), n = parseInt(b, 36);
+      for (let c = start; c < start + n && c < W * H; c++) fn(c);
+    }
+  }
+  const cosLat = new Float64Array(H), sinLat = new Float64Array(H), cosLon = new Float64Array(W), sinLon = new Float64Array(W);
+  for (let y = 0; y < H; y++) { const b = (90 - (y + 0.5) * 180 / H) * DEG; cosLat[y] = Math.cos(b); sinLat[y] = Math.sin(b); }
+  for (let x = 0; x < W; x++) { const a = ((x + 0.5) * 360 / W - 180) * DEG; cosLon[x] = Math.cos(a); sinLon[x] = Math.sin(a); }
+
+  /**
+   * The cut the build made with the reader's groups played over it: the
+   * pieces that come out, whose each cell is, and for every piece made here
+   * the piece it came out of -- it keeps that one's place until it is moved
+   * itself. A piece keeps its own centre whatever it gains or loses, so that
+   * nothing already laid jumps; only a new piece gets a centre of its own.
+   */
+  function applyCuts(basePieces, baseOwner, groups) {
+    const list = basePieces.map((p) => ({ ...p }));
+    const index = new Map(list.map((p, i) => [p.id, i]));
+    const merged = new Set();
+    const owner = Int32Array.from(baseOwner);
+    const parentOf = {};
+    const at = (id) => { const i = index.get(id); return i === undefined || merged.has(i) ? -1 : i; };
+    for (const g of groups) for (const op of (g.ops || [])) {
+      if (op.t === 'new') {
+        if (index.has(op.id)) continue;
+        const parent = at(op.parent);
+        index.set(op.id, list.length);
+        list.push({ id: op.id, name: op.name || op.id, fold: parent >= 0 ? Boolean(list[parent].fold) : false, lon: 0, lat: 0, reach: 0, share: 0, ci: list.length, made: true });
+        parentOf[op.id] = op.parent;
+      } else if (op.t === 'paint') {
+        const to = at(op.to);
+        if (to >= 0) eachRun(op.cells, (c) => { owner[c] = to; });
+      } else if (op.t === 'merge') {
+        const a = at(op.into), b = at(op.from);
+        if (a < 0 || b < 0 || a === b) continue;
+        for (let c = 0; c < owner.length; c++) if (owner[c] === b) owner[c] = a;
+        merged.add(b);
+      } else if (op.t === 'rename') {
+        const q = at(op.id);
+        if (q >= 0 && op.name) list[q].name = String(op.name);
+      } else if (op.t === 'fold') {
+        const q = at(op.id);
+        if (q >= 0) list[q].fold = Boolean(op.fold);
+      }
+    }
+    const count = new Float64Array(list.length);
+    const sum = list.map(() => [0, 0, 0]);
+    let total = 0;
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const c = y * W + x, q = owner[c], w = cosLat[y];
+      total += w;
+      if (q < 0) continue;
+      count[q] += w;
+      if (list[q].made) { sum[q][0] += w * cosLat[y] * cosLon[x]; sum[q][1] += w * sinLat[y]; sum[q][2] -= w * cosLat[y] * sinLon[x]; }
+    }
+    list.forEach((p, i) => { if (p.made && count[i] > 0) [p.lon, p.lat] = lonLat(unit(sum[i])); });
+    const centre = list.map((p) => dir(p.lon, p.lat));
+    const lowest = new Float64Array(list.length).fill(1);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const q = owner[y * W + x];
+      if (q < 0) continue;
+      const k = centre[q], d = k[0] * cosLat[y] * cosLon[x] + k[1] * sinLat[y] - k[2] * cosLat[y] * sinLon[x];
+      if (d < lowest[q]) lowest[q] = d;
+    }
+    list.forEach((p, i) => { p.gone = merged.has(i) || count[i] === 0; });
+    const renumber = new Int32Array(list.length).fill(-1);
+    const pieces = [];
+    list.forEach((p, i) => {
+      if (p.gone) return;
+      renumber[i] = pieces.length;
+      pieces.push({ ...p, share: count[i] / total, reach: Math.acos(Math.max(-1, Math.min(1, lowest[i]))) + 0.004 });
+    });
+    const cells = new Uint8Array(W * H);
+    for (let c = 0; c < cells.length; c++) cells[c] = owner[c] >= 0 && renumber[owner[c]] >= 0 ? Math.min(255, renumber[owner[c]] + 1) : 0;
+    const homes = Object.fromEntries(list.map((p) => [p.id, { lon: p.lon, lat: p.lat }]));
+    return { pieces, cells, parentOf, homes, owner, list, index };
+  }
+
+  // Where the cuts are kept: one document per group in the page's store, or
+  // this browser when there is none.
+  let cutDb = null;
+  async function openCutStore() {
+    let groups = [];
+    try { groups = JSON.parse(localStorage.getItem('concept-cuts') || '[]'); } catch (e) { /* none */ }
+    if (window.claude && window.claude.use) {
+      try {
+        const store = await window.claude.use('db');
+        if (store) {
+          cutDb = store;
+          const snap = await store.collection('cuts').get();
+          groups = snap.docs.map((d) => ({ key: d.id, ...d.data() })).sort((a, b) => (a.seq || 0) - (b.seq || 0));
+        }
+      } catch (e) { /* keep what this browser has */ }
+    }
+    return groups;
+  }
+
+  const basePieces = C.pieces.map((p, i) => ({ ...p, ci: i }));
+  const basePx = pixelsOf(await loadImage(PIECES_PNG));
+  const baseOwner = new Int32Array(W * H);
+  for (let c = 0; c < W * H; c++) baseOwner[c] = basePx[c * 4] - 1;
+  let cutGroups = await openCutStore();
+  let cutTrouble = '';
+  let cut = applyCuts(basePieces, baseOwner, cutGroups);
+  if (cut.pieces.length > 127) {
+    cutTrouble = `Met je knipwerk zijn er ${cut.pieces.length} stukken; de globe kan er 127 aan. Lijm er een paar of draai de laatste bewerking terug.`;
+    cut = applyCuts(basePieces, baseOwner, []);
+  }
+  C.pieces = cut.pieces;
+  const indexOfId = new Map(C.pieces.map((p, i) => [p.id, i]));
+  C.joins = C.joins.filter((j) => indexOfId.has(j.pieceA) && indexOfId.has(j.pieceB));
+  const N = C.pieces.length;
+  const COLOURS = C.pieces.map((p) => colourOf(p.ci));
+  const parentOf = cut.parentOf, homes = cut.homes;
+  const kidsOf = {};
+  for (const [kid, parent] of Object.entries(parentOf)) if (indexOfId.has(kid)) (kidsOf[parent] = kidsOf[parent] || []).push(kid);
+  const piecePx = new Uint8Array(basePx);
+  for (let c = 0; c < W * H; c++) piecePx[c * 4] = cut.cells[c];
+
   // ---------- placements: computed, and the reader's own on top ----------
   const edits = C.moments.map(() => ({}));
-  const placementOf = (mi, id) => edits[mi][id] || C.moments[mi].place[id];
+  const placementOf = (mi, id) => edits[mi][id] || inheritedPlace(mi, id) || C.moments[mi].place[id] ||
+    { lat: homes[id].lat, lon: homes[id].lon, spin: 0 };
+  /**
+   * A piece cut here lies where the piece it came out of lies -- its centre
+   * carried by that piece's own placement, turned the same way -- until it
+   * is moved itself; until then it follows that piece about.
+   */
+  function inheritedPlace(mi, id, depth = 0) {
+    const parent = parentOf[id];
+    if (!parent || depth > 20 || !homes[parent]) return null;
+    const at = indexOfId.has(parent) ? placementOf(mi, parent) : (C.moments[mi].place[parent] || inheritedPlace(mi, parent, depth + 1));
+    if (!at) return null;
+    const k = C.moments[mi].k;
+    const q = { home: frame(dir(homes[parent].lon, homes[parent].lat)), there: frame(dir(at.lon, at.lat)), spin: (at.spin || 0) * DEG };
+    const c = dir(homes[id].lon, homes[id].lat);
+    const centre = forward(c, q, k), ahead = forward(from(frame(c), 0.01, 0), q, k);
+    const f = frame(centre), v = [ahead[0] - centre[0], ahead[1] - centre[1], ahead[2] - centre[2]];
+    const [lon, lat] = lonLat(centre);
+    return { lat, lon, spin: Math.atan2(dot(v, f.east), dot(v, f.north)) / DEG };
+  }
   const placed = C.moments.map(() => new Array(N));
   function placeOne(mi, p) {
     const piece = C.pieces[p];
@@ -342,7 +559,7 @@ const MARBLE_JPG = "__MARBLE__";
   in vec2 aPos; void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
   const FRAG = `#version 300 es
   precision highp float; precision highp int; precision highp sampler2D;
-  uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData; uniform sampler2D uFabric;
+  uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData; uniform sampler2D uFabric; uniform sampler2D uRelief;
   uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap;
   uniform float uMa; uniform float uSeaLevel;
   uniform mat3 uView; uniform vec2 uCentre; uniform float uRadius; uniform vec3 uColours[128];
@@ -399,11 +616,25 @@ const MARBLE_JPG = "__MARBLE__";
       bool land = tex.b >= uSeaLevel;
       bool continent = tex.g > 0.999;
       vec3 c;
-      if (uMode != 1) {
-        // The photograph or the fabric everywhere, sea floor included, read
-        // where the point really lies rather than at the centre of its cell.
+      if (uMode == 0 || uMode == 2 || uMode == 4) {
+        // The photograph, the fabric or the relief everywhere, sea floor
+        // included, read where the point really lies rather than at the
+        // centre of its cell.
         vec2 uv = vec2(atan(-q.z, q.x) / (2.0 * PI) + 0.5, acos(clamp(q.y, -1.0, 1.0)) / PI);
-        c = uMode == 0 ? texture(uMarble, uv).rgb : fabricRamp(uv);
+        c = uMode == 0 ? texture(uMarble, uv).rgb : uMode == 2 ? fabricRamp(uv) : texture(uRelief, uv).rgb;
+      } else if (uMode == 3) {
+        // The piece's colour, darker the older its floor, with a white line
+        // every 30 Ma: the age map the cuts are made on.
+        c = uColours[p];
+        if (continent) c = mix(c, vec3(0.95), 0.35);
+        else {
+          float a = tex.g * 255.0;
+          c *= 1.0 - 0.5 * min(a, 200.0) / 200.0;
+          vec4 tr = texelFetch(uPieces, ivec2((cell.x + 1) % ${W}, cell.y), 0);
+          vec4 td = texelFetch(uPieces, ivec2(cell.x, min(cell.y + 1, ${H - 1})), 0);
+          float band = floor(a / 30.0);
+          if ((tr.g < 0.999 && floor(tr.g * 255.0 / 30.0) != band) || (td.g < 0.999 && floor(td.g * 255.0 / 30.0) != band)) c = mix(c, vec3(1.0), 0.85);
+        }
       } else {
         c = uColours[p];
         if (!land) c = continent ? mix(c, vec3(0.92), 0.35) : mix(c, vec3(0.16, 0.2, 0.28), 0.55);
@@ -500,11 +731,11 @@ const MARBLE_JPG = "__MARBLE__";
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 8, N * M, gl.RGBA, gl.FLOAT, data);
   }
-  gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2); gl.uniform1i(U('uFabric'), 3);
+  gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2); gl.uniform1i(U('uFabric'), 3); gl.uniform1i(U('uRelief'), 4);
   gl.uniform1i(U('uCount'), N);
   gl.uniform3fv(U('uColours'), new Float32Array(Array.from({ length: 128 }, (_, i) => COLOURS[i % COLOURS.length].map((c) => c / 255)).flat()));
 
-  const load = (src) => new Promise((ok, fail) => { const i = new Image(); i.onload = () => ok(i); i.onerror = fail; i.src = src; });
+  const load = loadImage;
 
   function viewFrame() { return frame(dir(state.lon, state.lat)); }
 
@@ -551,7 +782,7 @@ const MARBLE_JPG = "__MARBLE__";
 
   let thumbsDirty = true;
   function render() {
-    if (!pieceCells) return;
+    if (!pieceCells || state.view === 'map' || !canvas.width || !canvas.height) return;
     gl.viewport(0, 0, canvas.width, canvas.height);
     if (thumbsDirty) {
       // Drawn into a corner of the big canvas and copied out, one context for all.
@@ -700,14 +931,14 @@ const MARBLE_JPG = "__MARBLE__";
       const theirs = ids.filter((id) => edits[mi][id]);
       if (!theirs.length) return;
       pushUndo(mi, theirs);
-      for (const id of theirs) { delete edits[mi][id]; replace(mi, indexOf(id)); }
+      for (const id of theirs) { delete edits[mi][id]; replace(mi, indexOf(id)); followers(mi, id); }
       commit();
     });
     box.querySelector('[data-drop]').addEventListener('click', () => { choose([]); render(); });
   }
 
   // ---------- editing ----------
-  const indexOf = (id) => C.pieces.findIndex((p) => p.id === id);
+  const indexOf = (id) => indexOfId.get(id);
   function choose(list) { chosen.clear(); for (const p of list) chosen.add(p); markChosen(); }
   function toggle(p) { if (chosen.has(p)) chosen.delete(p); else chosen.add(p); markChosen(); }
 
@@ -717,6 +948,11 @@ const MARBLE_JPG = "__MARBLE__";
   function put(mi, id, next) {
     edits[mi][id] = { lat: +next.lat.toFixed(3), lon: +wrap180(next.lon).toFixed(3), spin: +wrap180(next.spin || 0).toFixed(2) };
     replace(mi, indexOf(id));
+    followers(mi, id);
+  }
+  /** Pieces cut out of this one that have not been moved themselves come along. */
+  function followers(mi, id) {
+    for (const kid of kidsOf[id] || []) if (!edits[mi][kid]) { replace(mi, indexOf(kid)); followers(mi, kid); }
   }
   /** After a gesture: measure again, redraw everything, keep it. */
   function commit() {
@@ -878,6 +1114,9 @@ const MARBLE_JPG = "__MARBLE__";
     commit();
   });
   document.addEventListener('keydown', (e) => {
+    if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+    if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'e') { setView(state.view === 'map' ? 'globe' : 'map'); e.preventDefault(); return; }
+    if (state.view === 'map') { if (mapKey(e)) e.preventDefault(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     // One key for every switch on the page.
@@ -885,7 +1124,7 @@ const MARBLE_JPG = "__MARBLE__";
     if (key === 'o') { overlapBox.click(); }
     else if (key === 'a') { joinsBox.click(); }
     else if (key === 'b') { motionBox.click(); }
-    else if (key === 'k') { modes[(state.mode + 1) % modes.length].click(); }
+    else if (key === 'k') { modes[(modes.findIndex((b) => b.mode === state.mode) + 1) % modes.length].el.click(); }
     else if (key === 'm') { many = !many; describeEdit(); }
     else if (key === 'd') { state.tool = state.tool === 'rotate' ? 'move' : 'rotate'; save(); describeEdit(); }
     else if (key >= '1' && key <= String(M)) { state.moment = Number(key) - 1; render(); save(); }
@@ -899,6 +1138,7 @@ const MARBLE_JPG = "__MARBLE__";
       if (before) edits[last.mi][id] = before;
       else delete edits[last.mi][id];
       replace(last.mi, indexOf(id));
+      followers(last.mi, id);
     }
     state.moment = last.mi;
     commit();
@@ -910,6 +1150,7 @@ const MARBLE_JPG = "__MARBLE__";
     if (!ids.length) return;
     pushUndo(mi, ids);
     for (const id of ids) { delete edits[mi][id]; replace(mi, indexOf(id)); }
+    for (let p = 0; p < N; p++) replace(mi, p);
     commit();
   });
   document.getElementById('copy').addEventListener('click', async () => {
@@ -1028,15 +1269,36 @@ const MARBLE_JPG = "__MARBLE__";
     b.addEventListener('click', () => { state.lon = lon; state.lat = lat; render(); save(); });
     views.append(b);
   }
-  const modes = ['mode-photo', 'mode-pieces', 'mode-fabric'].map((id) => document.getElementById(id));
+  const modes = [['mode-photo', 0], ['mode-pieces', 1], ['mode-age', 3], ['mode-fabric', 2], ['mode-relief', 4]]
+    .map(([id, mode]) => ({ el: document.getElementById(id), mode }));
   const fabricNote = document.getElementById('fabric-note');
+  const MODE_NOTES = {
+    3: 'Leeftijd: elk stuk in zijn eigen kleur, hoe donkerder hoe ouder de oceaanbodem, met een witte lijn om de 30 Ma.',
+    4: 'Reliëf: de hoogtekaart met schaduw, zeebodem inbegrepen, zodat ruggen, troggen en zeebergketens te zien zijn.',
+  };
   /**
    * The fabric travels next to the page rather than inside it, so the page
    * opens as fast as before; it is fetched the first time it is asked for.
    */
   let fabric = null;
+  let relief = null;
+  function wantRelief() {
+    if (state.mode !== 4 || relief) return;
+    relief = load('relief.jpg').then((image) => {
+      texture(4, () => {
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+      });
+      thumbsDirty = true;
+      render();
+    }, () => { relief = null; fabricNote.textContent = 'De reliëfkaart kon niet geladen worden.'; });
+  }
   function wantFabric() {
-    fabricNote.hidden = state.mode !== 2;
+    fabricNote.hidden = !(state.mode === 2 || MODE_NOTES[state.mode]);
+    if (MODE_NOTES[state.mode]) fabricNote.textContent = MODE_NOTES[state.mode];
+    wantRelief();
     if (state.mode !== 2 || fabric) return;
     fabric = load('fabric.jpg').then((image) => {
       texture(3, () => {
@@ -1052,15 +1314,17 @@ const MARBLE_JPG = "__MARBLE__";
       fabricNote.textContent = 'De fabric-kaart kon niet geladen worden.';
     });
   }
-  modes.forEach((b, i) => b.addEventListener('click', () => {
-    state.mode = i;
-    modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === i)));
+  const FABRIC_NOTE = fabricNote.textContent;
+  modes.forEach((b) => b.el.addEventListener('click', () => {
+    state.mode = b.mode;
+    modes.forEach((x) => x.el.setAttribute('aria-pressed', String(x.mode === state.mode)));
+    if (state.mode === 2) fabricNote.textContent = FABRIC_NOTE;
     wantFabric();
     thumbsDirty = true;
     render(); save();
   }));
-  if (!(state.mode >= 0 && state.mode < modes.length)) state.mode = 0;
-  modes.forEach((x, k) => x.setAttribute('aria-pressed', String(k === state.mode)));
+  if (!modes.some((b) => b.mode === state.mode)) state.mode = 0;
+  modes.forEach((x) => x.el.setAttribute('aria-pressed', String(x.mode === state.mode)));
   wantFabric();
   const overlapBox = document.getElementById('show-overlap');
   overlapBox.checked = state.overlap;
@@ -1079,6 +1343,7 @@ const MARBLE_JPG = "__MARBLE__";
     const c = COLOURS[i % COLOURS.length];
     b.innerHTML = `<span class="sw" style="background: rgb(${c.join(',')})"></span><span class="label">${p.name}</span>`;
     b.addEventListener('click', (e) => {
+      if (state.view === 'map') { pickTarget(workIndex(p.id)); return; }
       if (e.ctrlKey || e.metaKey || e.shiftKey || many) {
         toggle(i);
       } else {
@@ -1093,13 +1358,478 @@ const MARBLE_JPG = "__MARBLE__";
     list.append(b);
   });
 
+  // ---------- the cutting map ----------
+  // Today's grid, flat, with the reader's cuts played over it. What changes
+  // here is a group of operations kept in the store; the globe picks it up
+  // when the page loads again.
+  const mapStage = document.getElementById('mapstage');
+  const mapCanvas = document.getElementById('map');
+  const mctx = mapCanvas.getContext('2d');
+  const layer = document.createElement('canvas');
+  layer.width = W; layer.height = H;
+  const lctx = layer.getContext('2d');
+  const layerData = lctx.createImageData(W, H);
+  const mapTip = document.getElementById('maptip');
+  const cutStatus = document.getElementById('cutstatus');
+  const ISO = 30;
+  const BG_NOTES = {
+    age: 'Leeftijd: elk stuk in zijn eigen kleur, hoe donkerder hoe ouder de oceaanbodem. Waar de witte lijnen knikken, loopt een breukzone.',
+    fabric: 'Fabric: donker waar de korst met rust is gelaten, licht waar hij bewerkt is -- breukzones, suturen, rifts, gebergtewortels.',
+    relief: 'Reliëf: de hoogtekaart met schaduw, zeebodem inbegrepen: ruggen, troggen, plateaus en zeebergketens.',
+    photo: 'Foto: Blue Marble.',
+  };
+  const BG_FILES = { fabric: 'fabric.jpg', relief: 'relief.jpg', photo: MARBLE_JPG };
+  const cs = {
+    tool: state.cutTool || 'gum', target: state.cutTarget || null, brush: state.brush || 5,
+    bg: state.cutBg || 'age', iso: state.iso !== false, tint: state.tint !== false,
+    line: null, glue: null, dirty: false, pointer: null,
+  };
+  const mv = { lon: Number.isFinite(state.mapLon) ? state.mapLon : 200, lat: Number.isFinite(state.mapLat) ? state.mapLat : 0, zoom: Number.isFinite(state.mapZoom) ? state.mapZoom : 0 };
+  let work = cut;
+  let workColours = work.list.map((p) => colourOf(p.ci));
+  const bgPixels = {};
+  const bgLoading = {};
+  function cutSay(text, bad) { cutStatus.textContent = text; cutStatus.classList.toggle('bad', Boolean(bad)); }
+  const live = (i) => i >= 0 && i < work.list.length && !work.list[i].gone;
+  const workIndex = (id) => { const i = work.index.get(id); return i === undefined || !live(i) ? -1 : i; };
+  function wantBackground() {
+    const name = cs.bg;
+    if (name === 'age' || bgPixels[name] || bgLoading[name]) return;
+    bgLoading[name] = true;
+    cutSay('Achtergrond laden…');
+    loadImage(BG_FILES[name]).then((image) => {
+      bgPixels[name] = pixelsOf(image);
+      cutSay('');
+      compose(); drawMap();
+    }, () => { bgLoading[name] = false; cutSay('Deze achtergrond kon niet geladen worden.', true); });
+  }
+  const fabricRgb = (v) => {
+    if (v < 1) return [51, 51, 56];
+    const t = Math.min(1, (v - 1) / 254), q = [0.09, 0.11, 0.16], m = [0.29, 0.42, 0.55], b = [0.97, 0.87, 0.62];
+    return (t < 0.55 ? q.map((x, i) => x + (m[i] - x) * t / 0.55) : m.map((x, i) => x + (b[i] - x) * (t - 0.55) / 0.45)).map((x) => x * 255);
+  };
+
+  /** The picture of the grid, or of one box of it, again. */
+  function compose(x0 = 0, y0 = 0, x1 = W, y1 = H) {
+    const d = layerData.data, own = work.owner;
+    const src = cs.bg === 'age' ? null : bgPixels[cs.bg];
+    const target = cs.target ? workIndex(cs.target) : -1;
+    const glue = cs.glue !== null ? cs.glue : -1;
+    const ya = Math.max(0, y0), yb = Math.min(H, y1);
+    for (let y = ya; y < yb; y++) for (let xx = x0; xx < x1; xx++) {
+      const x = ((xx % W) + W) % W, c = y * W + x, p = own[c], a = basePx[c * 4 + 1];
+      const pc = p >= 0 ? workColours[p] : [38, 42, 48];
+      let r, g, b;
+      if (!src) {
+        if (cs.bg !== 'age') { r = g = b = 70; }
+        else if (a === 255) { r = pc[0] + (240 - pc[0]) * 0.35; g = pc[1] + (240 - pc[1]) * 0.35; b = pc[2] + (240 - pc[2]) * 0.35; }
+        else { const k = 1 - 0.5 * Math.min(a, 200) / 200; r = pc[0] * k; g = pc[1] * k; b = pc[2] * k; }
+      } else if (cs.bg === 'fabric') { [r, g, b] = fabricRgb(src[c * 4]); }
+      else { r = src[c * 4]; g = src[c * 4 + 1]; b = src[c * 4 + 2]; }
+      if (src && cs.tint && p >= 0) { r = r * 0.68 + pc[0] * 0.32; g = g * 0.68 + pc[1] * 0.32; b = b * 0.68 + pc[2] * 0.32; }
+      const cr = y * W + (x + 1) % W, cd = y < H - 1 ? c + W : c;
+      if (cs.iso && a < 255) {
+        const ar = basePx[cr * 4 + 1], ad = basePx[cd * 4 + 1], band = Math.floor(a / ISO);
+        if ((ar < 255 && Math.floor(ar / ISO) !== band) || (ad < 255 && Math.floor(ad / ISO) !== band)) { r = r * 0.15 + 217; g = g * 0.15 + 217; b = b * 0.15 + 217; }
+      }
+      const pr = own[cr], pd = own[cd];
+      if (pr !== p || pd !== p) {
+        if (target >= 0 && (p === target || pr === target || pd === target)) { r = 255; g = 209; b = 102; }
+        else if (glue >= 0 && (p === glue || pr === glue || pd === glue)) { r = 127; g = 224; b = 210; }
+        else { r *= 0.2; g *= 0.2; b *= 0.2; }
+      }
+      const o = c * 4;
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+    }
+    // Back into the picture, the box in at most two pieces where it wraps.
+    const put = (xa, xb) => { if (xb > xa) lctx.putImageData(layerData, 0, 0, xa, ya, xb - xa, yb - ya); };
+    if (x1 - x0 >= W) put(0, W);
+    else {
+      const a0 = ((x0 % W) + W) % W, a1 = a0 + (x1 - x0);
+      if (a1 <= W) put(a0, a1); else { put(a0, W); put(0, a1 - W); }
+    }
+  }
+
+  function mapBox() { return mapStage.getBoundingClientRect(); }
+  /** Screen pixels per degree. Zoom 0 shows the whole world across. */
+  const perDegree = () => mapBox().width / 360 * Math.pow(2, mv.zoom);
+  function toGeo(sx, sy) { const r = mapBox(), s = perDegree(); return [mv.lon + (sx - r.width / 2) / s, mv.lat - (sy - r.height / 2) / s]; }
+  function toScreen(lon, lat) { const r = mapBox(), s = perDegree(); return [r.width / 2 + (lon - mv.lon) * s, r.height / 2 - (lat - mv.lat) * s]; }
+  function cellAt(lon, lat) {
+    const y = Math.floor((90 - lat) / 180 * H);
+    if (y < 0 || y >= H) return -1;
+    const x = Math.floor(((((lon + 180) % 360) + 360) % 360) / 360 * W);
+    return y * W + Math.min(W - 1, x);
+  }
+  function sizeMap() {
+    const r = mapBox(), dpr = Math.min(2, window.devicePixelRatio || 1);
+    mapCanvas.width = Math.round(r.width * dpr);
+    mapCanvas.height = Math.round(r.height * dpr);
+  }
+  let mapPending = false;
+  function requestMap() { if (mapPending) return; mapPending = true; requestAnimationFrame(() => { mapPending = false; drawMap(); }); }
+  function drawMap() {
+    if (state.view !== 'map') return;
+    const r = mapBox(), dpr = mapCanvas.width / Math.max(1, r.width), s = perDegree();
+    mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    mctx.fillStyle = '#0b0d0f';
+    mctx.fillRect(0, 0, r.width, r.height);
+    mctx.imageSmoothingEnabled = s * 360 / W < 1.5;
+    const top = r.height / 2 - (90 - mv.lat) * s;
+    for (let k = -3; k <= 3; k++) {
+      const left = r.width / 2 + (-180 + 360 * k - mv.lon) * s;
+      if (left > r.width || left + 360 * s < 0) continue;
+      mctx.drawImage(layer, left, top, 360 * s, 180 * s);
+    }
+    // The line being cut, and the brush.
+    if (cs.line && cs.line.length) {
+      mctx.strokeStyle = '#ffd166'; mctx.lineWidth = 2; mctx.setLineDash([6, 4]);
+      mctx.beginPath();
+      cs.line.forEach(([lon, lat], i) => { const [x, y] = toScreen(lon, lat); if (i) mctx.lineTo(x, y); else mctx.moveTo(x, y); });
+      if (cs.pointer && cs.tool === 'cut') { const [lon, lat] = toGeo(cs.pointer[0], cs.pointer[1]); const [x, y] = toScreen(unwrapNear(lon, cs.line[cs.line.length - 1][0]), lat); mctx.lineTo(x, y); }
+      mctx.stroke(); mctx.setLineDash([]);
+      mctx.fillStyle = '#ffd166';
+      for (const [lon, lat] of cs.line) { const [x, y] = toScreen(lon, lat); mctx.fillRect(x - 3, y - 3, 6, 6); }
+    }
+    if (cs.pointer && cs.tool === 'gum') {
+      const rad = cs.brush * 180 / H * s;
+      mctx.strokeStyle = 'rgba(255,255,255,.85)'; mctx.lineWidth = 1.5;
+      mctx.beginPath(); mctx.arc(cs.pointer[0], cs.pointer[1], Math.max(2, rad), 0, 2 * Math.PI); mctx.stroke();
+    }
+  }
+  const unwrapNear = (lon, near) => lon + 360 * Math.round((near - lon) / 360);
+
+  function pickTarget(i) {
+    if (!live(i)) return;
+    cs.target = work.list[i].id;
+    state.cutTarget = cs.target; save();
+    compose(); drawMap(); describeCut();
+  }
+
+  // Painting: the cells of one piece under the brush go to the target.
+  let mg = null;
+  function brushAt(lon, lat) {
+    const c = cellAt(lon, lat);
+    if (c < 0) return;
+    const cx = c % W, cy = (c / W) | 0, r = cs.brush, own = work.owner;
+    for (let dy = -r; dy <= r; dy++) {
+      const y = cy + dy;
+      if (y < 0 || y >= H) continue;
+      for (let dx = -r; dx <= r; dx++) {
+        if (dx * dx + dy * dy > r * r) continue;
+        const k = y * W + ((cx + dx + W) % W);
+        if (own[k] === mg.src) { own[k] = mg.to; mg.cells.add(k); }
+      }
+    }
+    compose(cx - r - 1, cy - r - 1, cx + r + 2, cy + r + 2);
+  }
+
+  /** Cut a piece along the line drawn: what lies on the far side becomes a piece of its own. */
+  function finishCut() {
+    const line = cs.line;
+    if (!line || line.length < 2) { cutSay('Klik minstens twee punten, dwars over het stuk heen.'); return; }
+    const own = work.owner, barrier = new Set();
+    for (let i = 0; i + 1 < line.length; i++) {
+      const [ax, ay] = [(line[i][0] + 180) / 360 * W, (90 - line[i][1]) / 180 * H];
+      const [bx, by] = [(line[i + 1][0] + 180) / 360 * W, (90 - line[i + 1][1]) / 180 * H];
+      const steps = Math.ceil(Math.max(Math.abs(bx - ax), Math.abs(by - ay)) * 2) + 1;
+      for (let k = 0; k <= steps; k++) {
+        const x = Math.floor(ax + (bx - ax) * k / steps), y = Math.floor(ay + (by - ay) * k / steps);
+        if (y >= 0 && y < H) barrier.add(y * W + ((x % W) + W) % W);
+      }
+    }
+    // The piece the line crosses most.
+    const votes = new Map();
+    for (const c of barrier) if (own[c] >= 0) votes.set(own[c], (votes.get(own[c]) || 0) + 1);
+    const best = [...votes].sort((a, b) => b[1] - a[1])[0];
+    if (!best) { cutSay('De lijn ligt over geen enkel stuk.'); return; }
+    const p = best[0];
+    // Its cells either side of the line, as connected parts.
+    const part = new Int32Array(W * H).fill(-1), sizes = [];
+    for (let s0 = 0; s0 < W * H; s0++) {
+      if (own[s0] !== p || barrier.has(s0) || part[s0] >= 0) continue;
+      const id = sizes.length, stack = [s0];
+      part[s0] = id;
+      let n = 0;
+      while (stack.length) {
+        const c = stack.pop(); n++;
+        const x = c % W, y = (c / W) | 0;
+        for (const k of [y * W + (x + 1) % W, y * W + (x + W - 1) % W, y > 0 ? c - W : -1, y < H - 1 ? c + W : -1]) {
+          if (k >= 0 && own[k] === p && part[k] < 0 && !barrier.has(k)) { part[k] = id; stack.push(k); }
+        }
+      }
+      sizes.push(n);
+    }
+    const order = sizes.map((n, i) => [n, i]).sort((a, b) => b[0] - a[0]);
+    if (order.length < 2 || order[1][0] < 4) {
+      cutSay(`De lijn snijdt ${work.list[p].name} niet helemaal door: trek hem tot buiten het stuk.`, true);
+      return;
+    }
+    const keep = order[0][1];
+    const cells = [];
+    for (let c = 0; c < W * H; c++) if (own[c] === p && part[c] >= 0 && part[c] !== keep) cells.push(c);
+    const parent = work.list[p];
+    let n = 2;
+    while (work.index.has(`${parent.id}-${n}`)) n++;
+    const id = `${parent.id}-${n}`;
+    cs.line = null;
+    commitGroup([{ t: 'new', id, name: `${parent.name} (${n})`, parent: parent.id }, { t: 'paint', to: id, cells: encodeRuns(cells) }],
+      `${parent.name} doorgesneden; het afgesneden deel heet ${parent.name} (${n})`, id);
+  }
+
+  async function commitGroup(ops, label, target) {
+    const seq = cutGroups.reduce((m, g) => Math.max(m, g.seq || 0), 0) + 1;
+    const group = { key: 'g' + String(seq).padStart(5, '0'), seq, ops, label, at: new Date().toISOString() };
+    cutGroups.push(group);
+    rework();
+    if (target) { cs.target = target; state.cutTarget = target; save(); compose(); drawMap(); describeCut(); }
+    cs.dirty = true;
+    document.getElementById('cutbanner').hidden = false;
+    if (!cutDb) {
+      try { localStorage.setItem('concept-cuts', JSON.stringify(cutGroups)); } catch (e) { /* full */ }
+      cutSay(label + '. Bewaard in deze browser.');
+      return;
+    }
+    cutSay(label + '. Opslaan…');
+    try {
+      await cutDb.doc('cuts/' + group.key).set({ seq, ops, label, at: group.at });
+      cutSay(label + '. Opgeslagen.');
+    } catch (e) {
+      cutSay('Niet opgeslagen: ' + (e && e.message ? e.message : 'onbekende fout'), true);
+    }
+  }
+  function rework() {
+    work = applyCuts(basePieces, baseOwner, cutGroups);
+    workColours = work.list.map((p) => colourOf(p.ci));
+    if (cs.target && workIndex(cs.target) < 0) cs.target = null;
+    cs.glue = null;
+    compose(); drawMap(); describeCut();
+  }
+  async function undoCut() {
+    const last = cutGroups.pop();
+    if (!last) { cutSay('Er is geen knipbewerking om terug te draaien.'); return; }
+    rework();
+    cs.dirty = true;
+    document.getElementById('cutbanner').hidden = false;
+    if (!cutDb) { try { localStorage.setItem('concept-cuts', JSON.stringify(cutGroups)); } catch (e) { /* full */ } cutSay(`Teruggedraaid: ${last.label}.`); return; }
+    try { await cutDb.doc('cuts/' + last.key).delete(); cutSay(`Teruggedraaid: ${last.label}.`); }
+    catch (e) { cutSay('Terugdraaien niet opgeslagen: ' + (e && e.message ? e.message : ''), true); }
+  }
+  document.getElementById('cut-undo').addEventListener('click', undoCut);
+
+  const TOOLS = [
+    ['gum', 'Gummen', 'G', 'Sleep over een stuk: die cellen gaan naar het doel. Alleen het stuk waar je de streek begint wordt gegumd.'],
+    ['cut', 'Snijden', 'S', 'Klik punten dwars over een stuk, tot buiten het stuk; dubbelklik of Enter snijdt, Esc wist de lijn. Het grootste deel houdt de naam.'],
+    ['glue', 'Lijmen', 'L', 'Klik het stuk dat blijft, dan het stuk dat erbij komt.'],
+    ['pan', 'Schuiven', 'H', 'Sleep om de kaart te verschuiven; scrollen zoomt. Spatie ingedrukt schuift ook.'],
+  ];
+  function describeCut() {
+    const box = document.getElementById('cutedit');
+    const t = cs.target ? workIndex(cs.target) : -1;
+    const tool = TOOLS.find((x) => x[0] === cs.tool) || TOOLS[0];
+    const chip = t >= 0 ? `<span class="sw" style="background: rgb(${workColours[t].join(',')})"></span><b>${work.list[t].name}</b>` : '<span class="hint">nog geen</span>';
+    box.innerHTML = `
+      <div class="seg" role="group" aria-label="Gereedschap">${TOOLS.map(([id, label, key]) => `<button type="button" data-cuttool="${id}" aria-pressed="${cs.tool === id}">${label} <kbd>${key}</kbd></button>`).join('')}</div>
+      <p class="hint">${tool[3]}</p>
+      ${cs.tool === 'gum' ? `<div class="row"><span>Penseel</span><input type="range" min="1" max="40" value="${cs.brush}" id="brush" aria-label="Grootte van het penseel"><span class="num" id="brushkm"></span></div><span class="keys">Kleiner en groter: <kbd>[</kbd> <kbd>]</kbd></span>` : ''}
+      ${cs.tool === 'cut' && cs.line ? `<div class="controls"><button type="button" data-finish>Snijden <kbd>Enter</kbd></button><button type="button" data-clear>Lijn wissen <kbd>Esc</kbd></button></div>` : ''}
+      ${cs.tool === 'glue' && cs.glue !== null ? `<p class="hint">Blijft: <b>${work.list[cs.glue].name}</b>. Klik nu het stuk dat erbij komt; Esc begint opnieuw.</p>` : ''}
+      <div class="target">Doel: ${chip}</div>
+      <p class="hint">Kies het doel met rechtsklik of <kbd>Alt</kbd>-klik op de kaart, of in de lijst hieronder.</p>
+      ${t >= 0 ? `<div class="row"><input type="text" id="rename" value="${work.list[t].name.replace(/"/g, '&quot;')}" aria-label="Naam van het doel"><button type="button" data-rename>Hernoemen</button></div>
+      <label class="check"><input type="checkbox" id="target-fold" ${work.list[t].fold ? 'checked' : ''}> Luxaflex: mag over andere stukken schuiven</label>` : ''}`;
+    box.querySelectorAll('[data-cuttool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.cuttool)));
+    const brush = box.querySelector('#brush');
+    if (brush) {
+      const km = () => { box.querySelector('#brushkm').textContent = `${Math.round(cs.brush * 180 / H * 111)} km`; };
+      km();
+      brush.addEventListener('input', () => { cs.brush = Number(brush.value); state.brush = cs.brush; save(); km(); });
+    }
+    const fin = box.querySelector('[data-finish]');
+    if (fin) fin.addEventListener('click', finishCut);
+    const clr = box.querySelector('[data-clear]');
+    if (clr) clr.addEventListener('click', () => { cs.line = null; drawMap(); describeCut(); });
+    const rn = box.querySelector('[data-rename]');
+    if (rn) rn.addEventListener('click', () => {
+      const name = box.querySelector('#rename').value.trim();
+      if (name && name !== work.list[t].name) commitGroup([{ t: 'rename', id: work.list[t].id, name }], `${work.list[t].name} heet nu ${name}`);
+    });
+    const fold = box.querySelector('#target-fold');
+    if (fold) fold.addEventListener('change', () => commitGroup([{ t: 'fold', id: work.list[t].id, fold: fold.checked }],
+      `${work.list[t].name} ${fold.checked ? 'is nu luxaflex' : 'is geen luxaflex meer'}`));
+    const log = document.getElementById('cutlog');
+    log.innerHTML = cutGroups.length
+      ? cutGroups.slice(-10).reverse().map((g) => `<div>${(g.label || '').replace(/</g, '&lt;')}</div>`).join('')
+      : '<div>Nog geen knipwerk.</div>';
+  }
+  function setTool(tool) {
+    cs.tool = tool; state.cutTool = tool; save();
+    if (tool !== 'cut') cs.line = null;
+    if (tool !== 'glue') cs.glue = null;
+    mapStage.classList.toggle('pan', tool === 'pan');
+    compose(); drawMap(); describeCut();
+  }
+
+  function localXY(e) { const r = mapBox(); return [e.clientX - r.left, e.clientY - r.top]; }
+  let spaceDown = false;
+  mapStage.addEventListener('contextmenu', (e) => e.preventDefault());
+  mapStage.addEventListener('pointerdown', (e) => {
+    mapStage.focus({ preventScroll: true });
+    const [sx, sy] = localXY(e);
+    const [lon, lat] = toGeo(sx, sy);
+    const c = cellAt(lon, lat);
+    const under = c >= 0 ? work.owner[c] : -1;
+    if (e.button === 2 || e.altKey) { if (under >= 0) pickTarget(under); return; }
+    if (e.button === 1 || cs.tool === 'pan' || spaceDown) {
+      mg = { kind: 'pan', sx, sy, lon: mv.lon, lat: mv.lat };
+      mapStage.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (cs.tool === 'gum') {
+      const to = cs.target ? workIndex(cs.target) : -1;
+      if (to < 0) { cutSay('Kies eerst het doel: rechtsklik op het stuk waar de cellen heen moeten.', true); return; }
+      if (under < 0 || under === to) { cutSay('Begin de streek op het stuk dat je wilt weggummen, niet op het doel.', true); return; }
+      mg = { kind: 'gum', src: under, to, cells: new Set(), last: [lon, lat] };
+      brushAt(lon, lat);
+      requestMap();
+      mapStage.setPointerCapture(e.pointerId);
+    } else if (cs.tool === 'cut') {
+      cs.line = cs.line || [];
+      const prev = cs.line[cs.line.length - 1];
+      cs.line.push([prev ? unwrapNear(lon, prev[0]) : lon, lat]);
+      drawMap(); describeCut();
+    } else if (cs.tool === 'glue') {
+      if (under < 0) return;
+      if (cs.glue === null) { cs.glue = under; compose(); drawMap(); describeCut(); }
+      else if (under !== cs.glue) {
+        const a = work.list[cs.glue], b = work.list[under];
+        commitGroup([{ t: 'merge', from: b.id, into: a.id }], `${b.name} vastgelijmd aan ${a.name}`, a.id);
+      }
+    }
+  });
+  mapStage.addEventListener('pointermove', (e) => {
+    const [sx, sy] = localXY(e);
+    cs.pointer = [sx, sy];
+    if (mg && mg.kind === 'pan') {
+      const s = perDegree();
+      mv.lon = mg.lon - (sx - mg.sx) / s;
+      mv.lat = Math.max(-90, Math.min(90, mg.lat + (sy - mg.sy) / s));
+      requestMap();
+      return;
+    }
+    const [lon, lat] = toGeo(sx, sy);
+    if (mg && mg.kind === 'gum') {
+      // Fill in between pointer events, so a quick stroke leaves no gaps.
+      const [l0, b0] = mg.last, l1 = unwrapNear(lon, l0);
+      const step = Math.max(0.05, cs.brush * 180 / H / 2);
+      const n = Math.ceil(Math.hypot(l1 - l0, lat - b0) / step);
+      for (let k = 1; k <= n; k++) brushAt(l0 + (l1 - l0) * k / n, b0 + (lat - b0) * k / n);
+      mg.last = [l1, lat];
+      requestMap();
+      return;
+    }
+    const c = cellAt(lon, lat);
+    if (c < 0) { mapTip.hidden = true; requestMap(); return; }
+    const p = work.owner[c], a = basePx[c * 4 + 1];
+    mapTip.innerHTML = `<b>${p >= 0 ? work.list[p].name : 'Geen stuk'}</b><br><span class="num">${a === 255 ? 'continent' : 'oceaanbodem van ' + a + ' Ma'} · ${fmt(lat, 1)}°, ${fmt(wrap180(lon), 1)}°</span>`;
+    mapTip.style.left = sx + 'px'; mapTip.style.top = sy + 'px';
+    mapTip.hidden = false;
+    requestMap();
+  });
+  function endMap() {
+    if (!mg) return;
+    const g = mg;
+    mg = null;
+    if (g.kind === 'pan') { state.mapLon = mv.lon; state.mapLat = mv.lat; save(); return; }
+    if (g.kind === 'gum' && g.cells.size) {
+      const from = work.list[g.src], to = work.list[g.to];
+      commitGroup([{ t: 'paint', to: to.id, cells: encodeRuns(g.cells) }], `${g.cells.size} cellen van ${from.name} naar ${to.name}`);
+    }
+  }
+  mapStage.addEventListener('pointerup', endMap);
+  mapStage.addEventListener('pointercancel', endMap);
+  mapStage.addEventListener('pointerleave', () => { mapTip.hidden = true; cs.pointer = null; requestMap(); });
+  mapStage.addEventListener('dblclick', (e) => { if (cs.tool === 'cut') { e.preventDefault(); if (cs.line) cs.line.pop(); finishCut(); } });
+  mapStage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const [sx, sy] = localXY(e);
+    const [lon, lat] = toGeo(sx, sy);
+    mv.zoom = Math.max(0, Math.min(6, mv.zoom - e.deltaY * 0.0015));
+    // Keep the point under the pointer where it is.
+    const r = mapBox(), s = perDegree();
+    mv.lon = lon - (sx - r.width / 2) / s;
+    mv.lat = Math.max(-90, Math.min(90, lat + (sy - r.height / 2) / s));
+    state.mapLon = mv.lon; state.mapLat = mv.lat; state.mapZoom = mv.zoom; save();
+    requestMap();
+  }, { passive: false });
+  document.addEventListener('keyup', (e) => { if (e.key === ' ') spaceDown = false; });
+
+  function mapKey(e) {
+    const key = e.key.toLowerCase();
+    if ((e.ctrlKey || e.metaKey) && key === 'z') { e.preventDefault(); undoCut(); return true; }
+    if (e.ctrlKey || e.metaKey || e.altKey) return false;
+    if (e.key === ' ') { spaceDown = true; e.preventDefault(); return true; }
+    if (e.key === 'Enter' && cs.tool === 'cut') { finishCut(); return true; }
+    if (e.key === 'Escape') { cs.line = null; cs.glue = null; compose(); drawMap(); describeCut(); return true; }
+    const tool = TOOLS.find((t) => t[2].toLowerCase() === key);
+    if (tool) { setTool(tool[0]); return true; }
+    if (key === '[' || key === ']') { cs.brush = Math.max(1, Math.min(40, cs.brush + (key === ']' ? 1 : -1))); state.brush = cs.brush; save(); describeCut(); requestMap(); return true; }
+    if (key === 'k') { const order = ['age', 'fabric', 'relief', 'photo']; setBackground(order[(order.indexOf(cs.bg) + 1) % order.length]); return true; }
+    if (key === 'i') { isoBox.click(); return true; }
+    if (key === 'c') { tintBox.click(); return true; }
+    return false;
+  }
+  const bgButtons = [...document.querySelectorAll('#mapbg [data-bg]')];
+  function setBackground(bg) {
+    cs.bg = bg; state.cutBg = bg; save();
+    bgButtons.forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.bg === bg)));
+    document.getElementById('mapbg-note').textContent = BG_NOTES[bg];
+    wantBackground(); compose(); drawMap();
+  }
+  bgButtons.forEach((b) => b.addEventListener('click', () => setBackground(b.dataset.bg)));
+  const isoBox = document.getElementById('map-iso');
+  isoBox.checked = cs.iso;
+  isoBox.addEventListener('change', () => { cs.iso = isoBox.checked; state.iso = cs.iso; save(); compose(); drawMap(); });
+  const tintBox = document.getElementById('map-tint');
+  tintBox.checked = cs.tint;
+  tintBox.addEventListener('change', () => { cs.tint = tintBox.checked; state.tint = cs.tint; save(); compose(); drawMap(); });
+
+  // ---------- puzzling or cutting ----------
+  const tabs = { globe: document.getElementById('tab-globe'), map: document.getElementById('tab-map') };
+  const globeOnly = ['stage', 'strip', 'sec-edit', 'sec-moment', 'sec-view', 'sec-joins'].map((id) => document.getElementById(id));
+  const mapOnly = ['mapstage', 'cutpanel', 'mapviewpanel'].map((id) => document.getElementById(id));
+  let composed = false;
+  function setView(view) {
+    if (view === 'globe' && cs.dirty) {
+      // The globe is built from the cut once, as the page loads: load it again.
+      state.view = 'globe'; save();
+      cutSay('De globe wordt opnieuw opgebouwd met je knipwerk…');
+      try { location.reload(); return; } catch (e) { cutSay('Laad de pagina opnieuw om je knipwerk op de globe te zien.', true); }
+    }
+    state.view = view; save();
+    document.body.classList.toggle('cutting', view === 'map');
+    tabs.globe.setAttribute('aria-pressed', String(view === 'globe'));
+    tabs.map.setAttribute('aria-pressed', String(view === 'map'));
+    globeOnly.forEach((el) => { el.hidden = view !== 'globe'; });
+    mapOnly.forEach((el) => { el.hidden = view !== 'map'; });
+    if (view === 'map') {
+      if (!composed) { composed = true; setBackground(cs.bg); }
+      sizeMap(); drawMap(); describeCut();
+      mapStage.focus({ preventScroll: true });
+      if (cutTrouble) cutSay(cutTrouble, true);
+    } else { resize(); thumbsDirty = true; render(); }
+  }
+  tabs.globe.addEventListener('click', () => setView('globe'));
+  tabs.map.addEventListener('click', () => setView('map'));
+  new ResizeObserver(() => { if (state.view === 'map') { sizeMap(); drawMap(); } }).observe(mapStage);
+
   document.getElementById('footer').textContent =
     'Elk stuk is een plaat: een continent met de oceaanbodem aan zijn kant van de rug. Op elk moment bestaat alleen de bodem die toen al gemaakt was; de rest is weggeknipt, en wat er is hoort de bol precies te vullen. ' +
     'Elk stuk houdt zijn oppervlak; op een kleinere bol kan het zijn vorm niet houden, dus de randen van de grote stukken zijn wat samengedrukt langs de rand en uitgerekt naar buiten. ' +
     'Alle stukken krimpen per moment even veel, zodat wat er toen bestond de bol precies bedekt: wat het model zegt dat de uitgerekte randen toen nog niet waren. ' +
     'De berekende ligging: Afrika vast, de rest geschoven om de aansluitingen zo dicht mogelijk te benaderen zonder over elkaar te liggen. Wat je zelf verlegt, gaat daar overheen.';
 
-  Promise.all([load(MARBLE_JPG), load(PIECES_PNG)]).then(([marble, pieces]) => {
+  load(MARBLE_JPG).then((marble) => {
     texture(0, () => {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, marble);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
@@ -1107,22 +1837,18 @@ const MARBLE_JPG = "__MARBLE__";
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
     });
     texture(1, () => {
-      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, pieces);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, W, H, 0, gl.RGBA, gl.UNSIGNED_BYTE, piecePx);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
       gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     });
-    const c2 = document.createElement('canvas');
-    c2.width = W; c2.height = H;
-    const x2 = c2.getContext('2d', { willReadFrequently: true });
-    x2.drawImage(pieces, 0, 0);
-    const px = x2.getImageData(0, 0, W, H).data;
-    pieceCells = new Uint8Array(W * H);
+    pieceCells = cut.cells;
     cellAge = new Uint8Array(W * H);
-    for (let i = 0; i < W * H; i++) { pieceCells[i] = px[i * 4]; cellAge[i] = px[i * 4 + 1]; }
+    for (let i = 0; i < W * H; i++) cellAge[i] = basePx[i * 4 + 1];
     for (let mi = 0; mi < M; mi++) measure(mi);
     resize();
     render();
     connect();
+    setView(state.view === 'map' ? 'map' : 'globe');
   });
   new ResizeObserver(() => { resize(); thumbsDirty = true; requestRender(); }).observe(stage);
 })();
