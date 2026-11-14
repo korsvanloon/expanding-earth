@@ -1236,10 +1236,13 @@ const MARBLE_JPG = "__MARBLE__";
     for (let p = 0; p < N; p++) replace(mi, p);
     measure(mi);
   }
-  try {
-    const local = JSON.parse(localStorage.getItem('concept-edits') || 'null');
-    if (Array.isArray(local)) local.forEach((pieces, mi) => { if (mi < M) adopt(mi, pieces); });
-  } catch (e) {}
+  /** Edits this browser kept, for when the page has no store; once the pieces are in. */
+  function adoptLocal() {
+    try {
+      const local = JSON.parse(localStorage.getItem('concept-edits') || 'null');
+      if (Array.isArray(local)) local.forEach((pieces, mi) => { if (mi < M) adopt(mi, pieces); });
+    } catch (e) { /* nothing kept */ }
+  }
   async function connect() {
     if (!window.claude || !window.claude.use) { say('Bewaard in deze browser.'); return; }
     const store = await window.claude.use('db');
@@ -1872,6 +1875,7 @@ const MARBLE_JPG = "__MARBLE__";
     pieceCells = cut.cells;
     cellAge = new Uint8Array(W * H);
     for (let i = 0; i < W * H; i++) cellAge[i] = basePx[i * 4 + 1];
+    adoptLocal();
     for (let mi = 0; mi < M; mi++) measure(mi);
     resize();
     render();
