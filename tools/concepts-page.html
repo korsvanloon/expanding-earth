@@ -1300,7 +1300,8 @@ const MARBLE_JPG = "__MARBLE__";
   const statusEl = document.getElementById('status');
   function say(text, bad) { statusEl.textContent = text; statusEl.classList.toggle('bad', Boolean(bad)); }
   function persist(mi) {
-    try { localStorage.setItem('concept-edits', JSON.stringify(edits)); } catch (e) {}
+    // Kept by Ma, not by position: positions shift when moments are added.
+    try { localStorage.setItem('concept-edits', JSON.stringify(Object.fromEntries(C.moments.map((m, i) => [m.ma, edits[i]])))); } catch (e) {}
     if (!db) { say('Bewaard in deze browser.'); return; }
     clearTimeout(saveTimers[mi]);
     unsaved.add(mi);
@@ -1329,8 +1330,10 @@ const MARBLE_JPG = "__MARBLE__";
   /** Edits this browser kept, for when the page has no store; once the pieces are in. */
   function adoptLocal() {
     try {
+      // An array is the old way, by position, from when there were five moments:
+      // read by today's positions it puts one moment's layout on another.
       const local = JSON.parse(localStorage.getItem('concept-edits') || 'null');
-      if (Array.isArray(local)) local.forEach((pieces, mi) => { if (mi < M) adopt(mi, pieces); });
+      if (local && !Array.isArray(local)) C.moments.forEach((m, mi) => { if (local[m.ma]) adopt(mi, local[m.ma]); });
     } catch (e) { /* nothing kept */ }
   }
   async function connect() {
