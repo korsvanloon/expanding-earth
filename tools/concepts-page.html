@@ -81,6 +81,7 @@
   .moment[aria-pressed="true"] { border-color: var(--accent); color: var(--ink); }
   .moment:focus-visible, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
   .moment canvas { display: block; }
+  .moment.between { font-weight: 400; font-size: 12px; }
   aside { display: grid; gap: 18px; min-width: 0; }
   section { display: grid; gap: 8px; }
   h2 {
@@ -232,7 +233,7 @@
         <label class="check"><input type="checkbox" id="show-overlap" checked> Overlap arceren <kbd>O</kbd></label>
         <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen <kbd>A</kbd></label>
         <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen <kbd>B</kbd></label>
-        <span class="keys">Moment kiezen: <kbd>1</kbd> tot <kbd>5</kbd></span>
+        <span class="keys">Moment kiezen: <kbd>1</kbd>–<kbd>5</kbd> voor 0, 45, 90, 135 en 180 Ma; <kbd>,</kbd> <kbd>.</kbd> een stap van 15 Ma</span>
         <div class="controls" id="views"></div>
         <div class="legend">
           <div><span class="sw" style="background: repeating-linear-gradient(-45deg, var(--double) 0 3px, transparent 3px 7px)"></span>Dubbel: twee stukken over elkaar, het hoogste land erdoorheen</div>
@@ -448,8 +449,45 @@ const MARBLE_JPG = "__MARBLE__";
 
   // ---------- placements: computed, and the reader's own on top ----------
   const edits = C.moments.map(() => ({}));
-  const placementOf = (mi, id) => edits[mi][id] || inheritedPlace(mi, id) || C.moments[mi].place[id] ||
+  /** Moments laid in their own right: today and the ones the build calls key. */
+  const isKey = C.moments.map((m) => m.ma === 0 || Boolean(m.key));
+  const placementOf = (mi, id) => edits[mi][id] || betweenPlace(mi, id) || inheritedPlace(mi, id) || C.moments[mi].place[id] ||
     { lat: homes[id].lat, lon: homes[id].lon, spin: 0 };
+  const mul3 = (a, b) => [0, 1, 2].map((r) => [0, 1, 2].map((c) => a[r][0] * b[0][c] + a[r][1] * b[1][c] + a[r][2] * b[2][c]));
+  const tr3 = (a) => [0, 1, 2].map((r) => [0, 1, 2].map((c) => a[c][r]));
+  const apply3 = (a, v) => [0, 1, 2].map((r) => a[r][0] * v[0] + a[r][1] * v[1] + a[r][2] * v[2]);
+  /** A placement as the turn of the sphere that carries the piece's home frame onto it. */
+  function poseOf(home, at) {
+    const h = frame(dir(home.lon, home.lat)), t = frame(dir(at.lon, at.lat)), s = (at.spin || 0) * DEG;
+    const n2 = [0, 1, 2].map((i) => t.north[i] * Math.cos(s) + t.east[i] * Math.sin(s));
+    const e2 = cross(n2, t.up);
+    return [0, 1, 2].map((r) => [0, 1, 2].map((c) => e2[r] * h.east[c] + n2[r] * h.north[c] + t.up[r] * h.up[c]));
+  }
+  /**
+   * A moment where a piece was not laid, with laid moments either side: it
+   * lies that part of the way between them, turned about one axis. Laid is a
+   * key moment, or one where the reader put this piece himself; past the last
+   * one it stays where that one has it.
+   */
+  function betweenPlace(mi, id) {
+    if (isKey[mi]) return null;
+    let a = mi - 1, b = mi + 1;
+    while (a > 0 && !isKey[a] && !edits[a][id]) a--;
+    while (b < M && !isKey[b] && !edits[b][id]) b++;
+    const pa = placementOf(a, id);
+    if (b >= M) return pa;
+    const pb = placementOf(b, id), home = homes[id];
+    const f = (C.moments[mi].ma - C.moments[a].ma) / (C.moments[b].ma - C.moments[a].ma);
+    const A = poseOf(home, pa), R = mul3(poseOf(home, pb), tr3(A));
+    const angle = Math.acos(Math.max(-1, Math.min(1, (R[0][0] + R[1][1] + R[2][2] - 1) / 2)));
+    if (angle < 1e-9) return pa;
+    const axis = unit([R[2][1] - R[1][2], R[0][2] - R[2][0], R[1][0] - R[0][1]]);
+    const cols = [[1, 0, 0], [0, 1, 0], [0, 0, 1]].map((e) => turn(e, axis, angle * f));
+    const P = mul3([0, 1, 2].map((r) => [0, 1, 2].map((c) => cols[c][r])), A);
+    const h = frame(dir(home.lon, home.lat)), up = apply3(P, h.up), north = apply3(P, h.north), fr = frame(up);
+    const [lon, lat] = lonLat(up);
+    return { lat, lon, spin: Math.atan2(dot(north, fr.east), dot(north, fr.north)) / DEG };
+  }
   /**
    * A piece cut here lies where the piece it came out of lies -- its centre
    * carried by that piece's own placement, turned the same way -- until it
@@ -730,6 +768,11 @@ const MARBLE_JPG = "__MARBLE__";
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, 8, 1, gl.RGBA, gl.FLOAT, data.subarray(row * 32, row * 32 + 32));
   }
+  function uploadAll() {
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, dataTexture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 8, N * M, gl.RGBA, gl.FLOAT, data);
+  }
   /** The chosen pieces changed: mark them in every moment's texels. */
   function markChosen() {
     for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) data[(mi * N + p) * 32 + 27] = chosen.has(p) ? 1 : 0;
@@ -765,7 +808,8 @@ const MARBLE_JPG = "__MARBLE__";
   const stage = document.getElementById('stage');
   const overlay = document.getElementById('overlay');
   const strip = document.getElementById('strip');
-  const THUMB = 76;
+  const THUMB = 56;
+  const keyMoments = C.moments.map((m, i) => (isKey[i] ? i : -1)).filter((i) => i >= 0);
   const thumbs = C.moments.map((m, i) => {
     const b = document.createElement('button');
     b.className = 'moment';
@@ -775,6 +819,7 @@ const MARBLE_JPG = "__MARBLE__";
     c.width = c.height = px * 2;
     c.style.width = c.style.height = px + 'px';
     b.append(c, document.createTextNode(m.ma + ' Ma'));
+    if (!isKey[i]) b.classList.add('between');
     b.addEventListener('click', () => { state.moment = i; render(); save(); });
     strip.append(b);
     return { b, c, ctx: c.getContext('2d') };
@@ -852,6 +897,7 @@ const MARBLE_JPG = "__MARBLE__";
   const nameOf = (id) => C.pieces.find((p) => p.id === id).name;
   function describe() {
     const mi = state.moment;
+    if (stale.has(mi) || !stats[mi]) { measure(mi); stale.delete(mi); }
     const m = C.moments[mi];
     const st = stats[mi];
     const editedHere = Object.keys(edits[mi]).length;
@@ -869,7 +915,11 @@ const MARBLE_JPG = "__MARBLE__";
     const grown = C.baseMa != null && m.ma > C.baseMa;
     const byHand = (C.byHand || []).includes(m.ma);
     const laid = (C.byHand || []).join(' en ');
-    document.getElementById('note').textContent = (m.note || '') +
+    const keyBefore = [...C.moments].slice(0, mi).reverse().find((x) => x.ma === 0 || x.key);
+    const keyAfter = C.moments.slice(mi + 1).find((x) => x.key);
+    document.getElementById('note').textContent = (m.note || (keyAfter
+      ? `Tussenstap: elk stuk dat je hier niet zelf legt, ligt tussen ${keyBefore.ma} en ${keyAfter.ma} Ma in, en schuift mee als je die verandert.`
+      : '')) +
       (byHand ? ' Door jou gelegd.' : '') +
       (grown && C.growMode === 'copy' ? ` Een kopie van jouw ${C.baseMa} Ma: elk stuk op dezelfde plek en met dezelfde draaiing. Op deze kleinere bol liggen ze daardoor meer over elkaar; om vanaf hier met de hand te leggen.` : '') +
       (grown && C.growMode === 'carry' ? ` Eerste opzet, doorgetrokken uit jouw ${laid} Ma: elke stap van een stuk tussen die twee loopt door, en alleen wat over elkaar ligt is wat uit elkaar geduwd. Nog met de hand af te maken.` : '');
@@ -956,13 +1006,27 @@ const MARBLE_JPG = "__MARBLE__";
     replace(mi, indexOf(id));
     followers(mi, id);
   }
-  /** Pieces cut out of this one that have not been moved themselves come along. */
+  /**
+   * A piece moved at one moment: the moments between that lean on it move
+   * too, and so do the pieces cut out of it that were not moved themselves.
+   */
   function followers(mi, id) {
-    for (const kid of kidsOf[id] || []) if (!edits[mi][kid]) { replace(mi, indexOf(kid)); followers(mi, kid); }
+    const ids = [id];
+    for (let i = 0; i < ids.length; i++) for (const kid of kidsOf[ids[i]] || []) ids.push(kid);
+    for (const x of ids) { const p = indexOf(x); for (let m = 0; m < M; m++) { placeOne(m, p); packRow(m, p); } }
+    uploadAll();
   }
+  function refreshAll() {
+    for (let m = 0; m < M; m++) for (let p = 0; p < N; p++) { placeOne(m, p); packRow(m, p); }
+    uploadAll();
+  }
+  /** Moments whose figures are out of date, measured when they are looked at. */
+  const stale = new Set();
   /** After a gesture: measure again, redraw everything, keep it. */
   function commit() {
+    for (let m = 0; m < M; m++) stale.add(m);
     measure(state.moment);
+    stale.delete(state.moment);
     thumbsDirty = true;
     render();
     persist(state.moment);
@@ -1160,7 +1224,8 @@ const MARBLE_JPG = "__MARBLE__";
     else if (key === 'k') { modes[(modes.findIndex((b) => b.mode === state.mode) + 1) % modes.length].el.click(); }
     else if (key === 'm') { many = !many; describeEdit(); }
     else if (key === 'd') { state.tool = state.tool === 'rotate' ? 'move' : 'rotate'; save(); describeEdit(); }
-    else if (key >= '1' && key <= String(M)) { state.moment = Number(key) - 1; render(); save(); }
+    else if (key >= '1' && key <= '9' && keyMoments[Number(key) - 1] !== undefined) { state.moment = keyMoments[Number(key) - 1]; render(); save(); }
+    else if (key === ',' || key === '.') { state.moment = Math.max(0, Math.min(M - 1, state.moment + (key === '.' ? 1 : -1))); render(); save(); }
     else return;
     e.preventDefault();
   });
@@ -1182,8 +1247,8 @@ const MARBLE_JPG = "__MARBLE__";
     const ids = Object.keys(edits[mi]);
     if (!ids.length) return;
     pushUndo(mi, ids);
-    for (const id of ids) { delete edits[mi][id]; replace(mi, indexOf(id)); }
-    for (let p = 0; p < N; p++) replace(mi, p);
+    for (const id of ids) delete edits[mi][id];
+    refreshAll();
     commit();
   });
   document.getElementById('copy').addEventListener('click', async () => {
@@ -1258,8 +1323,8 @@ const MARBLE_JPG = "__MARBLE__";
         edits[mi][id] = { lat: at.lat, lon: at.lon, spin: Number.isFinite(at.spin) ? at.spin : 0 };
       }
     }
-    for (let p = 0; p < N; p++) replace(mi, p);
-    measure(mi);
+    refreshAll();
+    for (let m = 0; m < M; m++) stale.add(m);
   }
   /** Edits this browser kept, for when the page has no store; once the pieces are in. */
   function adoptLocal() {
@@ -1906,7 +1971,7 @@ const MARBLE_JPG = "__MARBLE__";
     cellAge = new Uint8Array(W * H);
     for (let i = 0; i < W * H; i++) cellAge[i] = basePx[i * 4 + 1];
     adoptLocal();
-    for (let mi = 0; mi < M; mi++) measure(mi);
+    for (let mi = 0; mi < M; mi++) stale.add(mi);
     resize();
     render();
     connect();

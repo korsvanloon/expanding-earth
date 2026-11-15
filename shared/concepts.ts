@@ -86,6 +86,12 @@ export interface Placement {
 
 export interface ConceptMoment {
   ma: number
+  /**
+   * A moment laid in its own right. The others, every 15 Ma between them, lie
+   * piece by piece between the nearest laid moments either side until a
+   * reader lays a piece there himself.
+   */
+  key?: boolean
   /** What this globe is meant to show, in a sentence or two. */
   note: string
   /** Pieces left out stay where they are today. */
@@ -740,24 +746,36 @@ export const CONCEPT_JOINS: ConceptJoin[] = [
 ]
 
 export const CONCEPT_MOMENTS: ConceptMoment[] = [
-  { ma: 0, note: 'Vandaag, als maat.', place: {} },
+  { ma: 0, key: true, note: 'Vandaag, als maat.', place: {} },
+  { ma: 15, note: '', place: {} },
+  { ma: 30, note: '', place: {} },
   {
     ma: 45,
+    key: true,
     note: 'Bedoeld: de Atlantische Oceaan nog breed, Australië net los van Antarctica, India tegen Azië.',
     place: {},
   },
+  { ma: 60, note: '', place: {} },
+  { ma: 75, note: '', place: {} },
   {
     ma: 90,
+    key: true,
     note: 'Bedoeld: de Zuid-Atlantische Oceaan smal, de Tasmanzee dicht, Madagaskar net los van India.',
     place: {},
   },
+  { ma: 105, note: '', place: {} },
+  { ma: 120, note: '', place: {} },
   {
     ma: 135,
+    key: true,
     note: 'Bedoeld: Zuid-Amerika tegen Afrika, de Centrale Atlantische Oceaan nog open, India tegen Madagaskar.',
     place: {},
   },
+  { ma: 150, note: '', place: {} },
+  { ma: 165, note: '', place: {} },
   {
     ma: 180,
+    key: true,
     note: 'Bedoeld: bijna alles dicht. Alleen de oudste oceaanbodem, 1% van deze bol, is er al.',
     place: {},
   },

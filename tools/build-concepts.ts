@@ -291,6 +291,7 @@ async function main() {
     const shrink = m.ma === 0 ? 1 : Math.min(1, sphereShare / (continentShare + oceanShare))
     return {
       ma: m.ma,
+      key: Boolean(m.key),
       note: m.note,
       radiusKm,
       shrink,
@@ -332,10 +333,21 @@ async function main() {
         // turned as it was, to be laid from there on the smaller sphere.
         m.place = { ...(ALIGN ? aligned(pieces, base.layouts, today())[base.ma] : base.layouts[base.ma]) }
       }
-    } else if (m.ma > 0) {
+    } else if (m.ma > 0 && !base) {
       settle(m, pieces, piece, joins)
     }
     previous = m.place
+  }
+  // A moment no one laid, with laid moments either side, lies between them:
+  // each piece turned that part of the way from the one to the other.
+  if (base) {
+    const laid = moments.filter((m) => m.ma === 0 || base.layouts[m.ma])
+    for (const m of moments) {
+      if (m.ma === 0 || base.layouts[m.ma]) continue
+      const before = [...laid].reverse().find((x) => x.ma < m.ma)
+      const after = laid.find((x) => x.ma > m.ma)
+      if (before && after) m.place = between(pieces, before, after, m.ma)
+    }
   }
 
   const marble = loadMarble()
@@ -913,6 +925,19 @@ function placementOf(p: PieceInfo, q: M3): Placement {
   const f = frame(up)
   const [lon, lat] = lonLat(up)
   return { lat, lon, spin: Math.atan2(dot(north, f.east), dot(north, f.north)) / DEG }
+}
+
+/** Each piece turned the fraction of the way from one moment's layout to the other's. */
+function between(
+  pieces: PieceInfo[], a: { ma: number; place: Record<string, Placement> },
+  b: { ma: number; place: Record<string, Placement> }, ma: number,
+): Record<string, Placement> {
+  const f = (ma - a.ma) / (b.ma - a.ma)
+  return Object.fromEntries(pieces.map((p) => {
+    const from = pose(p, a.place[p.id])
+    const { axis, angle } = axisAngle(mul(pose(p, b.place[p.id]), transpose(from)))
+    return [p.id, placementOf(p, mul(turnMatrix(axis, angle * f), from))]
+  }))
 }
 
 function axisAngle(q: M3): { axis: V3; angle: number } {
