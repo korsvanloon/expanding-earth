@@ -349,7 +349,7 @@ async function main() {
     console.log(
       `[concepts] ${String(m.ma).padStart(3)} Ma  R ${m.radiusKm.toFixed(0)} km  shrink ${(100 * (1 - m.shrink)).toFixed(1)}%  ` +
         `ocean should be ${(100 * m.oceanLeft).toFixed(1)}%  is ${(100 * stats.gap).toFixed(1)}%  ` +
-        `overlap ${(100 * stats.overlap).toFixed(1)}%  folded ${(100 * stats.folded).toFixed(1)}%`,
+        `overlap ${(100 * stats.overlap).toFixed(1)}%`,
     )
   }
 
@@ -1178,8 +1178,7 @@ function settle(
     })) }, pieces)
     const patches = new Map<number, { p: number; r: number; xs: V3[] }>()
     for (const x of samples) {
-      // Crust stacking in an arc or the Caribbean ladder is allowed to.
-      const hits = piecesAt(x, q, m.k, piece, m.ma).filter((h) => !pieces[h].fold)
+      const hits = piecesAt(x, q, m.k, piece, m.ma)
       if (hits.length < 2) continue
       for (let i = 0; i < hits.length; i++) {
         for (let i2 = i + 1; i2 < hits.length; i2++) {
@@ -1335,7 +1334,6 @@ function drawSheet(
           f.east[2] * x + f.north[2] * y + f.up[2] * z,
         ]
         let hits = 0
-        let folded = false
         let colour: V3 = [20, 34, 60]
         for (let p = 0; p < q.length; p++) {
           if (dot(d, ups[p]) < q[p].cosReach) continue
@@ -1346,12 +1344,11 @@ function drawSheet(
           const c = cy * W + cx
           if (piece[c] !== p + 1 || cellAge[c] <= m.ma) continue
           hits++
-          if (pieces[p].fold) folded = true
           colour = land[c]
             ? [marble[c * 4], marble[c * 4 + 1], marble[c * 4 + 2]]
             : PALETTE[p % PALETTE.length]
         }
-        if (hits > 1) colour = folded ? [150, 110, 210] : [230, 30, 40]
+        if (hits > 1) colour = [230, 30, 40]
         const grid = Math.abs(((lonLat(d)[0] + 360) % 30) - 15) > 14.6 || Math.abs((lonLat(d)[1] + 90) % 30 - 15) > 14.6
         const shade = 0.55 + 0.45 * z
         const g = grid ? 0.7 : 1
@@ -1386,8 +1383,8 @@ let cellAge = new Uint8Array(0)
  * so two continents growing towards each other meet where the floor is
  * youngest -- at the ridge that made it. A priority flood on age does exactly
  * that, with buckets of one million years. Island arcs and the Caribbean
- * ladder take no sea floor: they fold, and a whole ocean riding on one of
- * them would count every overlap of that ocean as folding. Continental scraps
+ * ladder take no sea floor: they are strings of small slats, and a whole
+ * ocean riding on one of them would no longer be one. Continental scraps
  * no outline took go to whichever piece reaches them, as the oldest crust of
  * all. Anything the flood cannot reach past an arc goes to the nearest piece.
  */
@@ -1450,7 +1447,6 @@ function measure(m: MomentInfo, pieces: PieceInfo[], piece: Uint8Array) {
   const N = 200000
   let gap = 0
   let overlap = 0
-  let folded = 0
   const pairs = new Map<string, number>()
   for (let s = 0; s < N; s++) {
     const y = 1 - (2 * (s + 0.5)) / N
@@ -1458,8 +1454,7 @@ function measure(m: MomentInfo, pieces: PieceInfo[], piece: Uint8Array) {
     const a = s * Math.PI * (3 - Math.sqrt(5))
     const hits = piecesAt([r * Math.cos(a), y, r * Math.sin(a)], q, m.k, piece, m.ma)
     if (!hits.length) gap++
-    if (hits.length > 1 && hits.some((h) => pieces[h].fold)) folded++
-    else if (hits.length > 1) {
+    if (hits.length > 1) {
       overlap++
       const key = hits.map((h) => pieces[h].id).join('+')
       pairs.set(key, (pairs.get(key) ?? 0) + 1)
@@ -1467,7 +1462,7 @@ function measure(m: MomentInfo, pieces: PieceInfo[], piece: Uint8Array) {
   }
   const worst = [...pairs].sort((a, b) => b[1] - a[1]).slice(0, 8)
   for (const [key, n] of worst) console.log(`      ${key} ${((100 * n) / N).toFixed(2)}%`)
-  return { gap: gap / N, overlap: overlap / N, folded: folded / N }
+  return { gap: gap / N, overlap: overlap / N }
 }
 
 main().catch((error) => {

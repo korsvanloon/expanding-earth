@@ -236,7 +236,6 @@
         <div class="controls" id="views"></div>
         <div class="legend">
           <div><span class="sw" style="background: repeating-linear-gradient(-45deg, var(--double) 0 3px, transparent 3px 7px)"></span>Dubbel: twee stukken over elkaar, het hoogste land erdoorheen</div>
-          <div><span class="sw" style="background: repeating-linear-gradient(-45deg, #946fd6 0 3px, transparent 3px 7px)"></span>Luxaflex: lamellen die over elkaar schuiven (eilandbogen, de Caribische ladder, Lord Howe, zeebergketens)</div>
           <div><span class="sw" style="background: #0b0d0f; outline: 1px solid var(--rule)"></span>Geen korst: daar was op dit moment nog niets</div>
           <div><span class="sw" style="background: #ffd166"></span>Gekozen stuk, aansluitingen</div>
           <div><span class="sw" style="background: #7fe0d2"></span>Beweging: van het vorige moment naar dit</div>
@@ -523,11 +522,10 @@ const MARBLE_JPG = "__MARBLE__";
   })();
   const stats = new Array(M);
   function measure(mi) {
-    let open = 0, twice = 0, folded = 0;
+    let open = 0, twice = 0;
     for (const x of SAMPLES) {
       const h = piecesAt(x, mi);
       if (!h.length) open++;
-      else if (h.length > 1 && h.some((p) => C.pieces[p].fold)) folded++;
       else if (h.length > 1) twice++;
     }
     const joinPiece = (id) => C.pieces.findIndex((p) => p.id === id);
@@ -537,7 +535,7 @@ const MARBLE_JPG = "__MARBLE__";
       const b = forward(dir(j.b[0], j.b[1]), placed[mi][joinPiece(j.pieceB)], m.k);
       return Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * m.radiusKm - (j.gapKm[m.ma] ?? 0);
     });
-    stats[mi] = { open: open / SAMPLES.length, twice: twice / SAMPLES.length, folded: folded / SAMPLES.length, off };
+    stats[mi] = { open: open / SAMPLES.length, twice: twice / SAMPLES.length, off };
   }
 
   // ---------- state ----------
@@ -552,6 +550,9 @@ const MARBLE_JPG = "__MARBLE__";
   const chosen = new Set();
   /** On a touch screen there is no Ctrl: this makes every tap add or remove. */
   let many = false;
+
+  /** How far in: 1 is the whole globe, 16 a few hundred kilometres across. */
+  const zoom = () => (Number.isFinite(state.zoom) && state.zoom >= 1 ? state.zoom : 1);
 
   // ---------- WebGL ----------
   const canvas = document.getElementById('globe');
@@ -602,7 +603,7 @@ const MARBLE_JPG = "__MARBLE__";
     vec3 d = normalize(uView * vec3(xy, z));
     // Where pieces lie over each other the highest crust shows, land over
     // shelf and mountains over lowland, and the overlap is a wash over it.
-    int hits = 0; vec3 colour = vec3(0.045, 0.05, 0.06); bool folds = false;
+    int hits = 0; vec3 colour = vec3(0.045, 0.05, 0.06);
     float topHeight = -1.0; bool topRim = false; bool chosenRim = false;
     for (int p = 0; p < 128; p++) {
       if (p >= uCount) break;
@@ -622,7 +623,6 @@ const MARBLE_JPG = "__MARBLE__";
       int id = int(tex.r * 255.0 + 0.5);
       if (id != p + 1 || !existsAt(tex)) continue;
       hits++;
-      if (extra.z > 0.5) folds = true;
       bool land = tex.b >= uSeaLevel;
       bool continent = tex.g > 0.999;
       vec3 c;
@@ -659,7 +659,7 @@ const MARBLE_JPG = "__MARBLE__";
       // Thick diagonal stripes with clear ground between them, so what lies
       // underneath can be read and the overlap still be told; a faint wash
       // keeps the patch reading as one.
-      vec3 tint = folds ? vec3(0.55, 0.38, 0.9) : vec3(0.9, 0.1, 0.18);
+      vec3 tint = vec3(0.9, 0.1, 0.18);
       float period = clamp(uRadius / 28.0, 6.0, 26.0);
       float t = mod(gl_FragCoord.x + gl_FragCoord.y, period);
       float w = period * 0.4;
@@ -807,7 +807,7 @@ const MARBLE_JPG = "__MARBLE__";
     thumbs.forEach((t, i) => t.b.setAttribute('aria-pressed', String(i === state.moment)));
     gl.clearColor(0, 0, 0, 0);
     gl.clear(gl.COLOR_BUFFER_BIT);
-    draw(state.moment, canvas.width / 2 * 0.94, canvas.width / 2, canvas.height / 2, true);
+    draw(state.moment, canvas.width / 2 * 0.94 * zoom(), canvas.width / 2, canvas.height / 2, true);
     drawOverlay();
     if (!gesture || gesture.kind === 'view') describe();
   }
@@ -817,7 +817,7 @@ const MARBLE_JPG = "__MARBLE__";
   function drawOverlay() {
     if (!state.joins && !state.motion) { overlay.innerHTML = ''; return; }
     const r = stage.getBoundingClientRect();
-    const R = r.width / 2 * 0.94, cx = r.width / 2, cy = r.height / 2;
+    const R = r.width / 2 * 0.94 * zoom(), cx = r.width / 2, cy = r.height / 2;
     const m = C.moments[state.moment];
     const f = viewFrame();
     const project = (d) => [cx + dot(d, f.east) * R, cy - dot(d, f.north) * R, dot(d, f.up)];
@@ -862,7 +862,6 @@ const MARBLE_JPG = "__MARBLE__";
       ['Van de straal nu', `${fmt(100 * m.radiusKm / C.r0Km)}%`],
       ['Open (hoort 0 te zijn)', `<span class="${st.open > 0.02 ? 'bad' : ''}">${fmt(100 * st.open, 1)}%</span>`],
       ['Dubbel', `<span class="${st.twice > 0.02 ? 'bad' : ''}">${fmt(100 * st.twice, 1)}%</span>`],
-      ['Luxaflex opgevouwen', `${fmt(100 * st.folded, 1)}%`],
       ['Randen teruggekrompen', `${fmt(100 * (1 - m.shrink), 1)}%`],
       ['Door jou verlegd', editedHere ? `${editedHere} ${editedHere === 1 ? 'stuk' : 'stukken'}` : 'niets'],
     ];
@@ -1006,7 +1005,7 @@ const MARBLE_JPG = "__MARBLE__";
   // ---------- interaction ----------
   function pointOn(e, clamp) {
     const r = stage.getBoundingClientRect();
-    const R = r.width / 2 * 0.94;
+    const R = r.width / 2 * 0.94 * zoom();
     let x = (e.clientX - r.left - r.width / 2) / R;
     let y = -(e.clientY - r.top - r.height / 2) / R;
     let rr = x * x + y * y;
@@ -1021,7 +1020,7 @@ const MARBLE_JPG = "__MARBLE__";
   }
   function screenOf(d) {
     const r = stage.getBoundingClientRect();
-    const R = r.width / 2 * 0.94;
+    const R = r.width / 2 * 0.94 * zoom();
     const f = viewFrame();
     return [r.left + r.width / 2 + dot(d, f.east) * R, r.top + r.height / 2 - dot(d, f.north) * R];
   }
@@ -1055,7 +1054,7 @@ const MARBLE_JPG = "__MARBLE__";
     document.getElementById('tip').hidden = true;
     if (gesture.kind === 'view') {
       const r = stage.getBoundingClientRect();
-      const per = 180 / (Math.PI * r.width / 2 * 0.94);
+      const per = 180 / (Math.PI * r.width / 2 * 0.94 * zoom());
       state.lon = gesture.lon - (e.clientX - gesture.x) * per;
       state.lat = Math.max(-89.5, Math.min(89.5, gesture.lat + (e.clientY - gesture.y) * per));
     } else if (gesture.kind === 'move') {
@@ -1100,6 +1099,29 @@ const MARBLE_JPG = "__MARBLE__";
     commit();
   }
   stage.addEventListener('pointerup', end);
+  // Zooming: the scroll wheel or a pinch on the trackpad, towards the pointer,
+  // so the point under it stays where it is.
+  function zoomBy(factor, e) {
+    const before = e ? pointOn(e, false) : null;
+    state.zoom = Math.max(1, Math.min(16, zoom() * factor));
+    if (before) {
+      const after = pointOn(e, false);
+      if (after) {
+        const axisRaw = cross(after, before), sin = Math.hypot(axisRaw[0], axisRaw[1], axisRaw[2]);
+        if (sin > 1e-9) {
+          const centre = turn(dir(state.lon, state.lat), axisRaw.map((v) => v / sin), Math.atan2(sin, dot(after, before)));
+          [state.lon, state.lat] = lonLat(centre);
+          state.lat = Math.max(-89.5, Math.min(89.5, state.lat));
+        }
+      }
+    }
+    zoomLabel();
+    requestRender(); save();
+  }
+  stage.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    zoomBy(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0015)), e);
+  }, { passive: false });
   stage.addEventListener('pointercancel', end);
   stage.addEventListener('pointerleave', () => { document.getElementById('tip').hidden = true; });
 
@@ -1130,6 +1152,9 @@ const MARBLE_JPG = "__MARBLE__";
     const key = e.key.toLowerCase();
     if (key === 'o') { overlapBox.click(); }
     else if (key === 'i') { setIso(!state.iso); }
+    else if (key === '+' || key === '=') { zoomBy(1.5); }
+    else if (key === '-' || key === '_') { zoomBy(1 / 1.5); }
+    else if (key === '0') { zoomBy(1 / 64); }
     else if (key === 'a') { joinsBox.click(); }
     else if (key === 'b') { motionBox.click(); }
     else if (key === 'k') { modes[(modes.findIndex((b) => b.mode === state.mode) + 1) % modes.length].el.click(); }
@@ -1271,8 +1296,17 @@ const MARBLE_JPG = "__MARBLE__";
   }
 
   // ---------- controls ----------
+  const zoomRow = document.createElement('div');
+  zoomRow.className = 'controls';
+  zoomRow.innerHTML = '<button type="button" data-zoom="out" aria-label="Uitzoomen">−</button><button type="button" data-zoom="in" aria-label="Inzoomen">+</button><button type="button" data-zoom="all">Hele bol <kbd>0</kbd></button><span class="keys" id="zoomlabel"></span>';
+  zoomRow.querySelector('[data-zoom="in"]').addEventListener('click', () => zoomBy(1.5));
+  zoomRow.querySelector('[data-zoom="out"]').addEventListener('click', () => zoomBy(1 / 1.5));
+  zoomRow.querySelector('[data-zoom="all"]').addEventListener('click', () => zoomBy(1 / 64));
+  function zoomLabel() { const z = zoom(); document.getElementById('zoomlabel').textContent = z > 1.01 ? `${z.toFixed(1).replace('.', ',')}× ingezoomd · scrollen zoomt` : 'Scrollen zoomt in'; }
   const VIEWS = [['Afrika', 20, 0], ['Azië', 100, 25], ['Stille Oceaan', -170, 0], ["Amerika's", -80, 10], ['Zuidpool', 0, -89.5], ['Noordpool', 0, 89.5]];
   const views = document.getElementById('views');
+  views.before(zoomRow);
+  zoomLabel();
   for (const [label, lon, lat] of VIEWS) {
     const b = document.createElement('button');
     b.type = 'button';
@@ -1662,8 +1696,7 @@ const MARBLE_JPG = "__MARBLE__";
       ${cs.tool === 'glue' && cs.glue !== null ? `<p class="hint">Blijft: <b>${work.list[cs.glue].name}</b>. Klik nu het stuk dat erbij komt; Esc begint opnieuw.</p>` : ''}
       <div class="target">Doel: ${chip}</div>
       <p class="hint">Kies het doel met rechtsklik of <kbd>Alt</kbd>-klik op de kaart, of in de lijst hieronder.</p>
-      ${t >= 0 ? `<div class="row"><input type="text" id="rename" value="${work.list[t].name.replace(/"/g, '&quot;')}" aria-label="Naam van het doel"><button type="button" data-rename>Hernoemen</button></div>
-      <label class="check"><input type="checkbox" id="target-fold" ${work.list[t].fold ? 'checked' : ''}> Luxaflex: mag over andere stukken schuiven</label>` : ''}`;
+      ${t >= 0 ? `<div class="row"><input type="text" id="rename" value="${work.list[t].name.replace(/"/g, '&quot;')}" aria-label="Naam van het doel"><button type="button" data-rename>Hernoemen</button></div>` : ''}`;
     box.querySelectorAll('[data-cuttool]').forEach((b) => b.addEventListener('click', () => setTool(b.dataset.cuttool)));
     const brush = box.querySelector('#brush');
     if (brush) {
@@ -1680,9 +1713,6 @@ const MARBLE_JPG = "__MARBLE__";
       const name = box.querySelector('#rename').value.trim();
       if (name && name !== work.list[t].name) commitGroup([{ t: 'rename', id: work.list[t].id, name }], `${work.list[t].name} heet nu ${name}`);
     });
-    const fold = box.querySelector('#target-fold');
-    if (fold) fold.addEventListener('change', () => commitGroup([{ t: 'fold', id: work.list[t].id, fold: fold.checked }],
-      `${work.list[t].name} ${fold.checked ? 'is nu luxaflex' : 'is geen luxaflex meer'}`));
     const log = document.getElementById('cutlog');
     log.innerHTML = cutGroups.length
       ? cutGroups.slice(-10).reverse().map((g) => `<div>${(g.label || '').replace(/</g, '&lt;')}</div>`).join('')

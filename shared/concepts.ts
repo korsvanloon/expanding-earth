@@ -37,9 +37,9 @@ export interface ConceptPiece {
   /**
    * Luxaflex: a chain of small slats between two pieces that close on each
    * other -- an island arc, the Caribbean folding up like a rope ladder, the
-   * ridges of Lord Howe, a line of seamounts. Where such a piece lies over
-   * another, that is crust being stacked, not an error, and it is counted and
-   * drawn apart from the rest. It takes no sea floor.
+   * ridges of Lord Howe, a line of seamounts. It takes no sea floor. Where it
+   * lies over another piece that counts as double like any other overlap: a
+   * reader had it counted apart for a while and found it hid the misfits.
    */
   fold?: boolean
   /**
