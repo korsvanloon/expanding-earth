@@ -1387,7 +1387,7 @@ const MARBLE_JPG = "__MARBLE__";
   const fabricNote = document.getElementById('fabric-note');
   const MODE_NOTES = {
     3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs.',
-    4: 'Reliëf: de hoogtekaart met schaduw, zeebodem inbegrepen, zodat ruggen, troggen en zeebergketens te zien zijn.',
+    4: 'Reliëf: hoogte en diepte (SRTM15+), de oceaan blauw naar diepte, het land van groen via bruin naar grijs en wit, met lichte schaduw.',
   };
   /**
    * The fabric travels next to the page rather than inside it, so the page
@@ -1398,9 +1398,19 @@ const MARBLE_JPG = "__MARBLE__";
   function wantRelief() {
     if (state.mode !== 4 || relief) return;
     relief = load('relief.jpg').then((image) => {
+      // The height map is 7200 across; a card that takes less gets it scaled
+      // down to what it does take.
+      const most = gl.getParameter(gl.MAX_TEXTURE_SIZE);
+      let source = image;
+      if (image.width > most) {
+        source = document.createElement('canvas');
+        source.width = most; source.height = Math.round(most * image.height / image.width);
+        source.getContext('2d').drawImage(image, 0, 0, source.width, source.height);
+      }
       texture(4, () => {
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, image);
-        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, source);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
         gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
       });
@@ -1493,7 +1503,7 @@ const MARBLE_JPG = "__MARBLE__";
     1: 'Stukken: elk stuk in zijn eigen kleur, de oceaanbodem donkerder.',
     3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs. Waar de witte lijnen knikken, loopt een breukzone.',
     2: 'Fabric: donker waar de korst met rust is gelaten, licht waar hij bewerkt is -- breukzones, suturen, rifts, gebergtewortels.',
-    4: 'Reliëf: de hoogtekaart met schaduw, zeebodem inbegrepen: ruggen, troggen, plateaus en zeebergketens.',
+    4: 'Reliëf: hoogte en diepte (SRTM15+), de oceaan blauw naar diepte, het land van groen via bruin naar grijs en wit: ruggen, troggen, plateaus en zeebergketens.',
   };
   const BG_FILES = { 0: MARBLE_JPG, 2: 'fabric.jpg', 4: 'relief.jpg' };
   const MODE_ORDER = [0, 1, 3, 2, 4];
@@ -1506,17 +1516,24 @@ const MARBLE_JPG = "__MARBLE__";
   let work = cut;
   let workColours = work.list.map((p) => colourOf(p.ci));
   const bgPixels = {};
+  const bgImage = {};
   const bgLoading = {};
+  /**
+   * The photograph and the relief are drawn as pictures under the grid at their
+   * own resolution, and the grid over them is see-through but for its lines;
+   * the fabric is coloured cell by cell, so it is read into the grid instead.
+   */
+  const UNDERLAY = { 0: true, 4: true };
   function cutSay(text, bad) { cutStatus.textContent = text; cutStatus.classList.toggle('bad', Boolean(bad)); }
   const live = (i) => i >= 0 && i < work.list.length && !work.list[i].gone;
   const workIndex = (id) => { const i = work.index.get(id); return i === undefined || !live(i) ? -1 : i; };
   function wantBackground() {
     const name = state.mode;
-    if (!BG_FILES[name] || bgPixels[name] || bgLoading[name]) return;
+    if (!BG_FILES[name] || bgPixels[name] || bgImage[name] || bgLoading[name]) return;
     bgLoading[name] = true;
     cutSay('Achtergrond laden…');
     loadImage(BG_FILES[name]).then((image) => {
-      bgPixels[name] = pixelsOf(image);
+      if (UNDERLAY[name]) bgImage[name] = image; else bgPixels[name] = pixelsOf(image);
       cutSay('');
       compose(); drawMap();
     }, () => { bgLoading[name] = false; cutSay('Deze achtergrond kon niet geladen worden.', true); });
@@ -1536,14 +1553,14 @@ const MARBLE_JPG = "__MARBLE__";
   /** The picture of the grid, or of one box of it, again. */
   function compose(x0 = 0, y0 = 0, x1 = W, y1 = H) {
     const d = layerData.data, own = work.owner;
-    const mode = state.mode, src = bgPixels[mode];
+    const mode = state.mode, src = bgPixels[mode], under = UNDERLAY[mode] && bgImage[mode];
     const target = cs.target ? workIndex(cs.target) : -1;
     const glue = cs.glue !== null ? cs.glue : -1;
     const ya = Math.max(0, y0), yb = Math.min(H, y1);
     for (let y = ya; y < yb; y++) for (let xx = x0; xx < x1; xx++) {
       const x = ((xx % W) + W) % W, c = y * W + x, p = own[c], a = basePx[c * 4 + 1];
       const pc = p >= 0 ? workColours[p] : [38, 42, 48];
-      let r, g, b;
+      let r, g, b, alpha = under ? 0 : 255;
       const land = basePx[c * 4 + 2] >= SEA;
       if (mode === 1) {
         if (land) { r = pc[0]; g = pc[1]; b = pc[2]; }
@@ -1552,22 +1569,26 @@ const MARBLE_JPG = "__MARBLE__";
       } else if (mode === 3) {
         if (a === 255) { r = g = land ? 143 : 113; b = land ? 138 : 115; }
         else [r, g, b] = ageRgb(a);
-      } else if (!src) { r = g = b = 70; }
+      } else if (under) { r = g = b = 0; }
+      else if (!src) { r = g = b = 70; }
       else if (mode === 2) { [r, g, b] = fabricRgb(src[c * 4]); }
       else { r = src[c * 4]; g = src[c * 4 + 1]; b = src[c * 4 + 2]; }
       const cr = y * W + (x + 1) % W, cd = y < H - 1 ? c + W : c;
       if (state.iso && a < 255) {
         const ar = basePx[cr * 4 + 1], ad = basePx[cd * 4 + 1], band = Math.floor(a / ISO);
-        if ((ar < 255 && Math.floor(ar / ISO) !== band) || (ad < 255 && Math.floor(ad / ISO) !== band)) { r = r * 0.15 + 217; g = g * 0.15 + 217; b = b * 0.15 + 217; }
+        if ((ar < 255 && Math.floor(ar / ISO) !== band) || (ad < 255 && Math.floor(ad / ISO) !== band)) {
+          if (under) { r = g = b = 255; alpha = 216; } else { r = r * 0.15 + 217; g = g * 0.15 + 217; b = b * 0.15 + 217; }
+        }
       }
       const pr = own[cr], pd = own[cd];
       if (pr !== p || pd !== p) {
-        if (target >= 0 && (p === target || pr === target || pd === target)) { r = 255; g = 209; b = 102; }
-        else if (glue >= 0 && (p === glue || pr === glue || pd === glue)) { r = 127; g = 224; b = 210; }
+        if (target >= 0 && (p === target || pr === target || pd === target)) { r = 255; g = 209; b = 102; alpha = 255; }
+        else if (glue >= 0 && (p === glue || pr === glue || pd === glue)) { r = 127; g = 224; b = 210; alpha = 255; }
+        else if (under) { r = g = b = 0; alpha = 204; }
         else { r *= 0.2; g *= 0.2; b *= 0.2; }
       }
       const o = c * 4;
-      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = 255;
+      d[o] = r; d[o + 1] = g; d[o + 2] = b; d[o + 3] = alpha;
     }
     // Back into the picture, the box in at most two pieces where it wraps.
     const put = (xa, xb) => { if (xb > xa) lctx.putImageData(layerData, 0, 0, xa, ya, xb - xa, yb - ya); };
@@ -1607,6 +1628,8 @@ const MARBLE_JPG = "__MARBLE__";
     for (let k = -3; k <= 3; k++) {
       const left = r.width / 2 + (-180 + 360 * k - mv.lon) * s;
       if (left > r.width || left + 360 * s < 0) continue;
+      const pic = UNDERLAY[state.mode] && bgImage[state.mode];
+      if (pic) { mctx.imageSmoothingEnabled = true; mctx.drawImage(pic, left, top, 360 * s, 180 * s); mctx.imageSmoothingEnabled = s * 360 / W < 1.5; }
       mctx.drawImage(layer, left, top, 360 * s, 180 * s);
     }
     // The line being cut, and the brush.
