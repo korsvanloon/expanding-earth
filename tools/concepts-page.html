@@ -193,7 +193,7 @@
       <section id="mapviewpanel" hidden>
         <h2>Weergave</h2>
         <div class="seg" role="group" aria-label="Weergave van de kaart" id="mapbg">
-          <button type="button" data-mode="0">Foto</button>
+          <button type="button" data-mode="0">Stress</button>
           <button type="button" data-mode="1">Stukken</button>
           <button type="button" data-mode="3">Leeftijd</button>
           <button type="button" data-mode="2">Fabric</button>
@@ -221,7 +221,7 @@
       <section id="sec-view">
         <h2>Weergave</h2>
         <div class="seg" role="group" aria-label="Kleuren">
-          <button type="button" id="mode-photo" aria-pressed="true" title="K wisselt">Foto</button>
+          <button type="button" id="mode-stress" aria-pressed="true" title="K wisselt">Stress</button>
           <button type="button" id="mode-pieces" aria-pressed="false" title="K wisselt">Stukken</button>
           <button type="button" id="mode-age" aria-pressed="false" title="K wisselt">Leeftijd</button>
           <button type="button" id="mode-fabric" aria-pressed="false" title="K wisselt">Fabric</button>
@@ -632,6 +632,15 @@ const MARBLE_JPG = "__MARBLE__";
     for (int i = 0; i < 7; i++) if (a < at[i + 1]) return mix(col[i], col[i + 1], (a - at[i]) / (at[i + 1] - at[i]));
     return col[7];
   }
+  // How far a piece is pulled out of shape where it lies on the smaller globe:
+  // pale where it keeps its shape, through teal and blue to violet where the
+  // shortening along its rim, and the stretching across it, pass a half.
+  vec3 strainRamp(float e) {
+    const float at[5] = float[5](0.0, 0.03, 0.1, 0.25, 0.5);
+    const vec3 col[5] = vec3[5](vec3(0.94, 0.94, 0.91), vec3(0.72, 0.87, 0.82), vec3(0.36, 0.66, 0.74), vec3(0.22, 0.38, 0.64), vec3(0.25, 0.14, 0.42));
+    for (int i = 0; i < 4; i++) if (e < at[i + 1]) return mix(col[i], col[i + 1], (e - at[i]) / (at[i + 1] - at[i]));
+    return col[4];
+  }
   int idAt(ivec2 c) { vec4 t = texelFetch(uPieces, c, 0); return existsAt(t) ? int(t.r * 255.0 + 0.5) : 0; }
   void main() {
     vec2 xy = (gl_FragCoord.xy - uCentre) / uRadius;
@@ -664,12 +673,23 @@ const MARBLE_JPG = "__MARBLE__";
       bool land = tex.b >= uSeaLevel;
       bool continent = tex.g > 0.999;
       vec3 c;
-      if (uMode == 0 || uMode == 2 || uMode == 4) {
-        // The photograph, the fabric or the relief everywhere, sea floor
-        // included, read where the point really lies rather than at the
-        // centre of its cell.
+      if (uMode == 0) {
+        // The piece keeps its area, so a point is shortened along the circle
+        // about the piece's centre by as much as it is stretched across it.
+        // The colour is how much; the rings, every 5 degrees from the centre
+        // as the piece lies today, run the way it is shortened.
+        float t = back < 1e-4 ? 1.0 : sin(dist) / (uK * sin(back));
+        c = strainRamp(1.0 / max(t, 1e-3) - 1.0);
+        if (!land) c *= 0.84;
+        float ring = back / (5.0 * PI / 180.0);
+        float px = t / (uRadius * max(z, 0.15) * (5.0 * PI / 180.0));
+        float line = 1.0 - smoothstep(0.3 * px, 0.9 * px, abs(fract(ring + 0.5) - 0.5));
+        c = mix(c, vec3(0.13, 0.15, 0.19), 0.4 * line);
+      } else if (uMode == 2 || uMode == 4) {
+        // The fabric or the relief everywhere, sea floor included, read where
+        // the point really lies rather than at the centre of its cell.
         vec2 uv = vec2(atan(-q.z, q.x) / (2.0 * PI) + 0.5, acos(clamp(q.y, -1.0, 1.0)) / PI);
-        c = uMode == 0 ? texture(uMarble, uv).rgb : uMode == 2 ? fabricRamp(uv) : texture(uRelief, uv).rgb;
+        c = uMode == 2 ? fabricRamp(uv) : texture(uRelief, uv).rgb;
       } else if (uMode == 3) {
         c = continent ? (land ? vec3(0.56, 0.56, 0.54) : vec3(0.44, 0.45, 0.45)) : ageRamp(tex.g * 255.0);
       } else {
@@ -1382,10 +1402,11 @@ const MARBLE_JPG = "__MARBLE__";
     b.addEventListener('click', () => { state.lon = lon; state.lat = lat; render(); save(); });
     views.append(b);
   }
-  const modes = [['mode-photo', 0], ['mode-pieces', 1], ['mode-age', 3], ['mode-fabric', 2], ['mode-relief', 4]]
+  const modes = [['mode-stress', 0], ['mode-pieces', 1], ['mode-age', 3], ['mode-fabric', 2], ['mode-relief', 4]]
     .map(([id, mode]) => ({ el: document.getElementById(id), mode }));
   const fabricNote = document.getElementById('fabric-note');
   const MODE_NOTES = {
+    0: 'Stress: hoe ver elk stuk op deze kleinere bol uit vorm getrokken wordt. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel niets, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). De ringen liggen om de 5 graden van het middelpunt.',
     3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs.',
     4: 'Reliëf: hoogte en diepte (SRTM15+), de oceaan blauw naar diepte, het land van groen via bruin naar grijs en wit, met lichte schaduw.',
   };
@@ -1499,13 +1520,13 @@ const MARBLE_JPG = "__MARBLE__";
   const cutStatus = document.getElementById('cutstatus');
   const ISO = 30;
   const BG_NOTES = {
-    0: 'Foto: Blue Marble.',
+    0: 'Stress: hoe ver elk stuk op de kleinere bol uit vorm getrokken wordt, op het gekozen moment. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel geen vervorming, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). Grijs: korst die toen nog niet bestond.',
     1: 'Stukken: elk stuk in zijn eigen kleur, de oceaanbodem donkerder.',
     3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs. Waar de witte lijnen knikken, loopt een breukzone.',
     2: 'Fabric: donker waar de korst met rust is gelaten, licht waar hij bewerkt is -- breukzones, suturen, rifts, gebergtewortels.',
     4: 'Reliëf: hoogte en diepte (SRTM15+), de oceaan blauw naar diepte, het land van groen via bruin naar grijs en wit: ruggen, troggen, plateaus en zeebergketens.',
   };
-  const BG_FILES = { 0: MARBLE_JPG, 2: 'fabric.jpg', 4: 'relief.jpg' };
+  const BG_FILES = { 2: 'fabric.jpg', 4: 'relief.jpg' };
   const MODE_ORDER = [0, 1, 3, 2, 4];
   const SEA = C.seaLevel & 0xfc;
   const cs = {
@@ -1519,11 +1540,10 @@ const MARBLE_JPG = "__MARBLE__";
   const bgImage = {};
   const bgLoading = {};
   /**
-   * The photograph and the relief are drawn as pictures under the grid at their
-   * own resolution, and the grid over them is see-through but for its lines;
+   * The relief is drawn as a picture under the grid at its own resolution, and the grid over them is see-through but for its lines;
    * the fabric is coloured cell by cell, so it is read into the grid instead.
    */
-  const UNDERLAY = { 0: true, 4: true };
+  const UNDERLAY = { 4: true };
   function cutSay(text, bad) { cutStatus.textContent = text; cutStatus.classList.toggle('bad', Boolean(bad)); }
   const live = (i) => i >= 0 && i < work.list.length && !work.list[i].gone;
   const workIndex = (id) => { const i = work.index.get(id); return i === undefined || !live(i) ? -1 : i; };
@@ -1544,6 +1564,13 @@ const MARBLE_JPG = "__MARBLE__";
     for (let i = 0; i < 7; i++) if (a < AGE_AT[i + 1]) { const t = (a - AGE_AT[i]) / (AGE_AT[i + 1] - AGE_AT[i]); return AGE_RGB[i].map((v, k) => v + (AGE_RGB[i + 1][k] - v) * t); }
     return AGE_RGB[7];
   };
+  const STRAIN_AT = [0, 0.03, 0.1, 0.25, 0.5];
+  const STRAIN_RGB = [[240, 240, 232], [184, 222, 209], [92, 168, 189], [56, 97, 163], [64, 36, 107]];
+  const strainRgb = (e) => {
+    for (let i = 0; i < 4; i++) if (e < STRAIN_AT[i + 1]) { const t = (e - STRAIN_AT[i]) / (STRAIN_AT[i + 1] - STRAIN_AT[i]); return STRAIN_RGB[i].map((v, k) => v + (STRAIN_RGB[i + 1][k] - v) * t); }
+    return STRAIN_RGB[4];
+  };
+  let composedAt = -1;
   const fabricRgb = (v) => {
     if (v < 1) return [51, 51, 56];
     const t = Math.min(1, (v - 1) / 254), q = [0.09, 0.11, 0.16], m = [0.29, 0.42, 0.55], b = [0.97, 0.87, 0.62];
@@ -1557,6 +1584,14 @@ const MARBLE_JPG = "__MARBLE__";
     const target = cs.target ? workIndex(cs.target) : -1;
     const glue = cs.glue !== null ? cs.glue : -1;
     const ya = Math.max(0, y0), yb = Math.min(H, y1);
+    // Stress: the angle from each cell to its piece's centre, at the moment shown.
+    const moment = C.moments[state.moment], kk = moment.k, STEP = 5 * DEG;
+    const centres = mode === 0 ? work.list.map((q) => dir(q.lon, q.lat)) : null;
+    const angle = (c, q) => {
+      const k = centres[q], x = c % W, y = (c / W) | 0;
+      return Math.acos(Math.max(-1, Math.min(1, k[0] * cosLat[y] * cosLon[x] + k[1] * sinLat[y] - k[2] * cosLat[y] * sinLon[x])));
+    };
+    if (mode === 0) composedAt = state.moment;
     for (let y = ya; y < yb; y++) for (let xx = x0; xx < x1; xx++) {
       const x = ((xx % W) + W) % W, c = y * W + x, p = own[c], a = basePx[c * 4 + 1];
       const pc = p >= 0 ? workColours[p] : [38, 42, 48];
@@ -1569,6 +1604,17 @@ const MARBLE_JPG = "__MARBLE__";
       } else if (mode === 3) {
         if (a === 255) { r = g = land ? 143 : 113; b = land ? 138 : 115; }
         else [r, g, b] = ageRgb(a);
+      } else if (mode === 0) {
+        if (p < 0 || (a !== 255 && a <= moment.ma)) { r = g = b = 70; }
+        else {
+          const th = angle(c, p);
+          const back = 2 * Math.asin(Math.min(1, kk * Math.sin(th / 2)));
+          const t = th < 1e-4 ? 1 : Math.sin(back) / (kk * Math.sin(th));
+          [r, g, b] = strainRgb(1 / Math.max(t, 1e-3) - 1).map((v) => (land ? v : v * 0.84));
+          const band = Math.floor(th / STEP);
+          const cr2 = y * W + (x + 1) % W, cd2 = y < H - 1 ? c + W : c;
+          if ((own[cr2] === p && Math.floor(angle(cr2, p) / STEP) !== band) || (own[cd2] === p && Math.floor(angle(cd2, p) / STEP) !== band)) { r = r * 0.5 + 17; g = g * 0.5 + 19; b = b * 0.5 + 24; }
+        }
       } else if (under) { r = g = b = 0; }
       else if (!src) { r = g = b = 70; }
       else if (mode === 2) { [r, g, b] = fabricRgb(src[c * 4]); }
@@ -1619,6 +1665,7 @@ const MARBLE_JPG = "__MARBLE__";
   function requestMap() { if (mapPending) return; mapPending = true; requestAnimationFrame(() => { mapPending = false; drawMap(); }); }
   function drawMap() {
     if (state.view !== 'map') return;
+    if (state.mode === 0 && composedAt !== state.moment) compose();
     const r = mapBox(), dpr = mapCanvas.width / Math.max(1, r.width), s = perDegree();
     mctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     mctx.fillStyle = '#0b0d0f';
