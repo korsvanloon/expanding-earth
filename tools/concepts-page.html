@@ -1518,10 +1518,13 @@ const CRUST_B64 = "__CRUST__";
       box.innerHTML = `<p class="hint">Klik een stuk op de globe of in de lijst om het te kiezen; <kbd>Ctrl</kbd>-klik voegt er een toe of haalt het eruit. Sleep om te verplaatsen; <kbd>Shift</kbd>-slepen draait. Fijn werk: pijltjes verplaatsen, <kbd>[</kbd> <kbd>]</kbd> draaien, <kbd>Esc</kbd> laat los.</p>
         <div class="controls">${manyButton}</div>
         <div class="controls">
+          <button type="button" data-snap-all title="Elk stuk schuift tot 300 km en een paar graden naar zijn buren toe, allemaal tegelijk">Alles aanschuiven</button>
           <button type="button" data-give-all title="Elk stuk blijft waar je het legt; zijn rand gaat naar wat er tegenover ligt">Alle randen laten meegeven</button>
           ${zoneSet.size ? '<button type="button" data-stiff-all>Alles weer star</button>' : ''}
-        </div>`;
+        </div>
+        ${snapAllNote ? `<p class="hint">${snapAllNote}</p>` : ''}`;
       box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
+      box.querySelector('[data-snap-all]').addEventListener('click', snapAll);
       box.querySelector('[data-give-all]').addEventListener('click', () => setZones(C.pieces.filter((p) => !zoneSet.has(p.id)).map((p) => [p.id, true])));
       const stiffAll = box.querySelector('[data-stiff-all]');
       if (stiffAll) stiffAll.addEventListener('click', () => setZones([...zoneSet].map((id) => [id, false])));
@@ -1583,7 +1586,7 @@ const CRUST_B64 = "__CRUST__";
 
   // ---------- editing ----------
   const indexOf = (id) => indexOfId.get(id);
-  function choose(list) { chosen.clear(); for (const p of list) chosen.add(p); markChosen(); }
+  function choose(list) { snapAllNote = ''; chosen.clear(); for (const p of list) chosen.add(p); markChosen(); }
   function toggle(p) { if (chosen.has(p)) chosen.delete(p); else chosen.add(p); markChosen(); }
 
   /** One entry per gesture, however many pieces it moved. */
@@ -1868,6 +1871,123 @@ const CRUST_B64 = "__CRUST__";
     snapNote = { key, text: `Aangeschoven: ${fmt(Math.acos(Math.max(-1, Math.min(1, dot(moved, g.centre)))) * m.radiusKm)} km verschoven en ${fmt(Math.abs(dot(axis, moved)) * angle / DEG, 1)}° gedraaid; rondom ligt nu ${fmt(Math.round((before - bestCost) * area / 1000) * 1000)} km² minder open of dubbel.` };
     commit();
   }
+
+  /**
+   * Every piece at once, each by its own turn: each point of a piece's rim
+   * goes half way towards the nearest rim of another piece (a cell short of
+   * it, or a cell back out of it) and the turn that brings its points closest
+   * is taken, all pieces in the same round; fifteen rounds, the reach
+   * narrowing from 500 km. Central Africa stays put, so the globe as a whole
+   * does not drift, and no piece goes further than 300 km. Kept only when
+   * less ground is open or double, counted over the whole globe.
+   */
+  function snapAll() {
+    const t0 = performance.now(), mi = state.moment, m = C.moments[mi], k = m.k, ma = m.ma;
+    const poses = C.pieces.map((_, p) => rigidOf(mi, p));
+    const cellAt = (v) => { const [lon, lat] = lonLat(v); return Math.min(H - 1, Math.floor((90 - lat) / 180 * H)) * W + Math.min(W - 1, Math.floor((lon + 180) / 360 * W)); };
+    const back = (Q) => [Q[0], -Q[1], -Q[2], -Q[3]];
+    /** Whether a point lies on a piece's crust, with the piece turned by Q. */
+    const onCrust = (v, p, Q) => {
+      const q = poses[p], d = qApply(back(Q), v);
+      if (dot(d, q.there.up) < q.cosReach) return false;
+      const c = cellAt(lookBack(d, q, k));
+      return cut.cells[c] === p + 1 && ageOf(c) > ma;
+    };
+    if (!SCATTER) {
+      SCATTER = new Float32Array(SCATTER_N * 3);
+      for (let i = 0; i < SCATTER_N; i++) {
+        const y = 1 - 2 * (i + 0.5) / SCATTER_N, r = Math.sqrt(1 - y * y), a = i * Math.PI * (3 - Math.sqrt(5));
+        SCATTER[i * 3] = r * Math.cos(a); SCATTER[i * 3 + 1] = y; SCATTER[i * 3 + 2] = r * Math.sin(a);
+      }
+    }
+    /** Open and double points over the whole globe, one in ten of the scatter. */
+    const cover = (Qs) => {
+      let bad = 0;
+      for (let i = 0; i < SCATTER_N; i += 10) {
+        const d = [SCATTER[i * 3], SCATTER[i * 3 + 1], SCATTER[i * 3 + 2]];
+        let n = 0;
+        for (let p = 0; p < N && n < 2; p++) if (onCrust(d, p, Qs[p])) n++;
+        if (n !== 1) bad++;
+      }
+      return bad;
+    };
+    // The rim of each piece's crust at this moment, a few hundred points a piece.
+    const rims = C.pieces.map(() => []);
+    for (let y = 1; y < H - 1; y++) for (let x = (y & 1); x < W; x += 2) {
+      const c = y * W + x, id = cut.cells[c];
+      if (!id || ageOf(c) <= ma) continue;
+      const l = y * W + (x + W - 1) % W, r = y * W + (x + 1) % W;
+      if (cut.cells[l] !== id || ageOf(l) <= ma || cut.cells[r] !== id || ageOf(r) <= ma || cut.cells[c - W] !== id || ageOf(c - W) <= ma || cut.cells[c + W] !== id || ageOf(c + W) <= ma) rims[id - 1].push(c);
+    }
+    const base = rims.map((cells, p) => {
+      const step = Math.max(1, Math.ceil(cells.length / 300)), out = [];
+      for (let i = 0; i < cells.length; i += step) {
+        const c = cells[i], x = c % W, y = (c - x) / W;
+        out.push(forward([cosLat[y] * cosLon[x], sinLat[y], -cosLat[y] * sinLon[x]], poses[p], k));
+      }
+      return out;
+    });
+    const slack = SEAM_SHORT * (2 * Math.PI / W) * k, margin = 300 / m.radiusKm;
+    const anchor = indexOfId.has('nubia') ? indexOf('nubia') : -1;
+    const Qs = C.pieces.map(() => [1, 0, 0, 0]);
+    let reach = SEAM_KM / m.radiusKm;
+    for (let round = 0; round < 15; round++) {
+      const size = Math.max(4, Math.min(128, Math.floor(2 / reach))), bins = new Map();
+      const boxOf = (v) => [0, 1, 2].map((i) => Math.min(size - 1, Math.floor((v[i] + 1) / 2 * size)));
+      const moved = base.map((pts, p) => pts.map((v) => qApply(Qs[p], v)));
+      moved.forEach((pts, p) => pts.forEach((v, i) => {
+        const [bx, by, bz] = boxOf(v), key = (bx * size + by) * size + bz;
+        let b = bins.get(key);
+        if (!b) bins.set(key, b = []);
+        b.push(p, i);
+      }));
+      const lim = reach * reach, next = Qs.slice();
+      for (let p = 0; p < N; p++) {
+        if (p === anchor) continue;
+        const a = [], b = [];
+        for (const v of moved[p]) {
+          const [bx, by, bz] = boxOf(v);
+          let best = lim, bp = -1, bi = -1;
+          for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+            const bb = bins.get(((bx + dx) * size + by + dy) * size + bz + dz);
+            if (!bb) continue;
+            for (let j = 0; j < bb.length; j += 2) {
+              if (bb[j] === p) continue;
+              const o = moved[bb[j]][bb[j + 1]], ex = o[0] - v[0], ey = o[1] - v[1], ez = o[2] - v[2], d2 = ex * ex + ey * ey + ez * ez;
+              if (d2 < best) { best = d2; bp = bb[j]; bi = bb[j + 1]; }
+            }
+          }
+          if (bp < 0) continue;
+          const o = moved[bp][bi], ex = v[0] - o[0], ey = v[1] - o[1], ez = v[2] - o[2], l = Math.hypot(ex, ey, ez) || 1e-9;
+          const s = (onCrust(v, bp, Qs[bp]) ? -slack : slack) / l, h = bp === anchor ? 1 : 0.5;
+          const t = [o[0] + ex * s, o[1] + ey * s, o[2] + ez * s];
+          a.push(v[0], v[1], v[2]);
+          b.push(...unit([v[0] + (t[0] - v[0]) * h, v[1] + (t[1] - v[1]) * h, v[2] + (t[2] - v[2]) * h]));
+        }
+        if (a.length < 30) continue;
+        let q = qMul(bestTurn(a, b), Qs[p]);
+        if (q[0] < 0) q = q.map((x) => -x);
+        if (2 * Math.acos(Math.min(1, q[0])) <= margin) next[p] = q;
+      }
+      for (let p = 0; p < N; p++) Qs[p] = next[p];
+      reach = Math.max(6 * slack, reach * 0.85);
+    }
+    const before = cover(C.pieces.map(() => [1, 0, 0, 0])), after = cover(Qs);
+    const secs = fmt((performance.now() - t0) / 1000, 1);
+    if (after >= before) { say(`Alles aanschuiven: zo ligt het al het best (${secs} s).`); return; }
+    const ids = [];
+    C.pieces.forEach((piece, p) => { if (Qs[p][0] < 1 - 1e-12) ids.push(piece.id); });
+    pushUndo(mi, ids);
+    for (const id of ids) {
+      const Q = Qs[indexOf(id)], h = headingOf(placementOf(mi, id));
+      put(mi, id, fromHeading(qApply(Q, h.up), qApply(Q, h.h)));
+    }
+    const area = 4 * Math.PI * m.radiusKm * m.radiusKm / (SCATTER_N / 10);
+    snapAllNote = `Alles aangeschoven in ${secs} s: ${ids.length} stukken verlegd; op de hele bol ligt ${fmt(Math.round((before - after) * area / 1000) * 1000)} km² minder open of dubbel. Ongedaan maken zet alles in één keer terug.`;
+    commit();
+    describeEdit();
+  }
+  let snapAllNote = '';
 
   // ---------- interaction ----------
   function pointOn(e, clamp) {
