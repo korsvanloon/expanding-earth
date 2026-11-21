@@ -974,6 +974,7 @@ const MARBLE_JPG = "__MARBLE__";
       const p = [...chosen][0];
       const at = placementOf(state.moment, ids[0]);
       head = `<div class="name">${C.pieces[p].name}<small>${mine ? 'door jou verlegd' : 'berekend'}</small></div>
+        <p class="hint">Klik het nog eens, of druk <kbd>Esc</kbd>, om het los te laten en de bol weer te draaien.</p>
         <div class="coords">midden ${fmt(at.lat, 1)}°, ${fmt(at.lon, 1)}° · gedraaid ${fmt(at.spin || 0, 1)}°</div>`;
     } else {
       head = `<div class="name">${chosen.size} stukken<small>${mine} door jou verlegd</small></div>
@@ -994,7 +995,7 @@ const MARBLE_JPG = "__MARBLE__";
       <div class="controls">
         ${manyButton}
         <button type="button" data-reset>Terug naar berekend</button>
-        <button type="button" data-drop>Loslaten</button>
+        <button type="button" data-drop>Loslaten <kbd>Esc</kbd></button>
       </div>`;
     box.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => { state.tool = b.dataset.tool; save(); describeEdit(); }));
     box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
@@ -1173,6 +1174,9 @@ const MARBLE_JPG = "__MARBLE__";
       lastClick = { x: g.x, y: g.y, key, step, moment: state.moment };
       const pick = stack.length ? stack[step % stack.length] : -1;
       if (g.additive) { if (pick >= 0) toggle(pick); }
+      // A click on what is already chosen lets go of it; clicking the same
+      // spot again where pieces lie over each other still goes down the stack.
+      else if (pick >= 0 && chosen.has(pick) && (stack.length === 1 || !again)) { choose([]); lastClick = null; }
       else choose(pick >= 0 ? [pick] : []);
       render();
       return;
@@ -1231,6 +1235,8 @@ const MARBLE_JPG = "__MARBLE__";
     if (!e.ctrlKey && !e.metaKey && !e.altKey && e.key.toLowerCase() === 'e') { setView(state.view === 'map' ? 'globe' : 'map'); e.preventDefault(); return; }
     if (state.view === 'map') { if (mapKey(e)) e.preventDefault(); return; }
     if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'z') { e.preventDefault(); undo(); return; }
+    // Esc lets go wherever the focus is, not only on the globe.
+    if (e.key === 'Escape' && e.target !== stage) { if (chosen.size) { choose([]); render(); e.preventDefault(); } return; }
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     // One key for every switch on the page.
     const key = e.key.toLowerCase();
