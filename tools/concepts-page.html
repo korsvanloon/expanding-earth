@@ -125,6 +125,7 @@
   .edit .name small { font: 500 13px var(--data); color: var(--muted); margin-left: 6px; letter-spacing: 0; }
   .edit .coords { font: 13px var(--data); color: var(--muted); font-variant-numeric: tabular-nums; }
   .edit .hint { font-size: 14px; color: var(--muted); margin: 0; }
+  .edit .hint.warn { color: var(--double); }
   .keys { font-size: 14px; color: var(--muted); }
   label.check kbd, .keys kbd, .controls kbd, .seg kbd { font: 11px var(--data); border: 1px solid var(--rule); border-bottom-width: 2px; border-radius: 3px; padding: 0 4px; color: var(--muted); background: var(--ground); }
   .seg button[aria-pressed="true"] kbd, .controls button[aria-pressed="true"] kbd { color: var(--surface); background: transparent; border-color: currentColor; }
@@ -260,6 +261,7 @@
 const CONCEPTS = /*CONCEPTS*/null;
 const PIECES_PNG = "__PIECES__";
 const MARBLE_JPG = "__MARBLE__";
+const CRUST_B64 = "__CRUST__";
 </script>
 <script>
 (async () => {
@@ -506,17 +508,26 @@ const MARBLE_JPG = "__MARBLE__";
     const [lon, lat] = lonLat(centre);
     return { lat, lon, spin: Math.atan2(dot(v, f.east), dot(v, f.north)) / DEG };
   }
+  /** The stretch zones as built, by piece, and the moments at which they have yet to be laid again. */
+  let zoneList = [];
+  const zoneOf = new Map();
+  const zoneDirty = new Set();
   const placed = C.moments.map(() => new Array(N));
-  function placeOne(mi, p) {
+  function rigidPlace(mi, p) {
     const piece = C.pieces[p];
     const at = placementOf(mi, piece.id);
     const reach = 2 * Math.asin(Math.min(1, C.moments[mi].k * Math.sin(piece.reach / 2)));
-    placed[mi][p] = {
+    return {
       home: frame(dir(piece.lon, piece.lat)),
       there: frame(dir(at.lon, at.lat)),
       spin: (at.spin || 0) * DEG,
       cosReach: Math.cos(reach),
     };
+  }
+  /** A piece as it lies by its own placement; a zone is laid over that once its neighbours lie. */
+  function placeOne(mi, p) {
+    placed[mi][p] = rigidPlace(mi, p);
+    if (zoneList.length) zoneDirty.add(mi);
   }
   for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) placeOne(mi, p);
 
@@ -531,6 +542,318 @@ const MARBLE_JPG = "__MARBLE__";
     const bearing = Math.atan2(dot(p, q.home.east), dot(p, q.home.north));
     return from(q.there, 2 * Math.asin(Math.min(1, k * Math.sin(dist / 2))), bearing + q.spin);
   }
+
+  // ---------- stretch zones ----------
+  // A piece made a zone has no place of its own. Each of its edges lies where
+  // the neighbour it is joined to today lies, and what is between is spread
+  // from edge to edge like a sheet of rubber: the mountain belts, which take
+  // up what the rigid pieces around them cannot.
+  const REK_G = 192, REK_MAX = 4, REK_RING = 2, NORMAL_CRUST_KM = 38;
+  /** Crust thickness in half kilometres on a one-degree grid (ECM1), row 0 in the north. */
+  const CRUST = CRUST_B64.startsWith('__') ? null : Uint8Array.from(atob(CRUST_B64), (ch) => ch.charCodeAt(0));
+  const cellDir = (c) => { const x = c % W, y = (c / W) | 0; return [cosLat[y] * cosLon[x], sinLat[y], -cosLat[y] * sinLon[x]]; };
+  const ageOf = (c) => basePx[c * 4 + 1];
+  function turnOf(v, a, b, c) {
+    const ux = v[b * 3] - v[a * 3], uy = v[b * 3 + 1] - v[a * 3 + 1], uz = v[b * 3 + 2] - v[a * 3 + 2];
+    const wx = v[c * 3] - v[a * 3], wy = v[c * 3 + 1] - v[a * 3 + 1], wz = v[c * 3 + 2] - v[a * 3 + 2];
+    return (uy * wz - uz * wy) * v[a * 3] + (uz * wx - ux * wz) * v[a * 3 + 1] + (ux * wy - uy * wx) * v[a * 3 + 2];
+  }
+  function area3(v, a, b, c) {
+    const ux = v[b * 3] - v[a * 3], uy = v[b * 3 + 1] - v[a * 3 + 1], uz = v[b * 3 + 2] - v[a * 3 + 2];
+    const wx = v[c * 3] - v[a * 3], wy = v[c * 3 + 1] - v[a * 3 + 1], wz = v[c * 3 + 2] - v[a * 3 + 2];
+    return 0.5 * Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx);
+  }
+  /** What does not change while the cut stays as it is. */
+  function makeZone(p) {
+    // The zone's cells, then a ring of cells around them, so that the picture
+    // of the zone reaches a little past its own edge and no seam shows.
+    const local = new Map(), cells = [];
+    for (let c = 0; c < W * H; c++) if (cut.cells[c] === p + 1) { local.set(c, cells.length); cells.push(c); }
+    const nz = cells.length;
+    const near = (c) => {
+      const x = c % W, y = (c / W) | 0, out = [];
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+        if (!dx && !dy) continue;
+        const yy = y + dy;
+        if (yy >= 0 && yy < H) out.push(yy * W + (x + dx + W) % W);
+      }
+      return out;
+    };
+    /** For a ring cell, the zone cell it takes its weights from. */
+    const from = [];
+    let edge = cells.slice();
+    for (let r = 0; r < REK_RING; r++) {
+      const next = [];
+      for (const c of edge) for (const m of near(c)) if (!local.has(m)) {
+        const li = local.get(c);
+        local.set(m, cells.length); cells.push(m); next.push(m);
+        from.push(li < nz ? li : from[li - nz]);
+      }
+      edge = next;
+    }
+    const n = cells.length;
+    const dirs = new Float64Array(n * 3);
+    cells.forEach((c, i) => dirs.set(cellDir(c), i * 3));
+    // Every other piece a zone cell touches, with the pairs of cells that touch.
+    const met = new Map();
+    for (let i = 0; i < nz; i++) for (const m of near(cells[i])) {
+      const q = cut.cells[m] - 1;
+      if (q < 0 || q === p) continue;
+      if (!met.has(q)) met.set(q, { p: q, pairs: [] });
+      met.get(q).pairs.push([i, m]);
+    }
+    const neighbours = [...met.values()].filter((b) => b.pairs.length >= 8).sort((a, b) => b.pairs.length - a.pairs.length);
+    // Each cell as each neighbour's own frame sees it.
+    for (const b of neighbours) {
+      const h = frame(dir(C.pieces[b.p].lon, C.pieces[b.p].lat));
+      b.sinHalf = new Float32Array(n); b.bearing = new Float32Array(n);
+      for (let i = 0; i < n; i++) {
+        const v = [dirs[i * 3], dirs[i * 3 + 1], dirs[i * 3 + 2]];
+        b.sinHalf[i] = Math.sin(Math.acos(Math.max(-1, Math.min(1, dot(v, h.up)))) / 2);
+        b.bearing[i] = Math.atan2(dot(v, h.east), dot(v, h.north));
+      }
+    }
+    // Triangles between the centres of neighbouring cells.
+    const tris = [];
+    for (let i = 0; i < n; i++) {
+      const c = cells[i], x = c % W, y = (c / W) | 0;
+      if (y + 1 >= H) continue;
+      const b = local.get(y * W + (x + 1) % W), d = local.get((y + 1) * W + x), e = local.get((y + 1) * W + (x + 1) % W);
+      if (b !== undefined && d !== undefined && e !== undefined) tris.push(i, d, b, b, d, e);
+      else if (b !== undefined && d !== undefined) tris.push(i, d, b);
+      else if (b !== undefined && e !== undefined) tris.push(i, e, b);
+      else if (d !== undefined && e !== undefined) tris.push(i, d, e);
+    }
+    const triArea = new Float32Array(tris.length / 3), triOwn = new Uint8Array(tris.length / 3);
+    let ownToday = 0;
+    for (let t = 0; t < triArea.length; t++) {
+      const a = tris[t * 3], b = tris[t * 3 + 1], c = tris[t * 3 + 2];
+      triArea[t] = area3(dirs, a, b, c);
+      if (a < nz && b < nz && c < nz) { triOwn[t] = 1; ownToday += triArea[t]; }
+    }
+    // The cells of the zone around each cell of the zone.
+    const around = new Int32Array(nz * 8).fill(-1);
+    for (let a = 0; a < nz; a++) {
+      let s = 0;
+      for (const m of near(cells[a])) { const j = local.get(m); if (j !== undefined && j < nz) around[a * 8 + s++] = j; }
+    }
+    // How thick the crust is here: what it comes to when it is spread out to an ordinary thickness.
+    let thick = 0, weight = 0;
+    if (CRUST) for (let i = 0; i < nz; i += 3) {
+      const c = cells[i], y = (c / W) | 0, x = c % W;
+      const km = CRUST[Math.min(179, Math.floor(y * 180 / H)) * 360 + Math.min(359, Math.floor(x * 360 / W))] / 2;
+      if (km > 0) { thick += km * cosLat[y]; weight += cosLat[y]; }
+    }
+    const crustKm = weight ? thick / weight : 0;
+    return { p, id: C.pieces[p].id, loose: new Set(), sig: '', cells, nz, n, local, from, dirs, neighbours, tris: Int32Array.from(tris), triArea, triOwn, ownToday, around,
+      crustKm, allowed: Math.max(1, crustKm / NORMAL_CRUST_KM), weights: new Map() };
+  }
+  /**
+   * How much of each neighbour every cell follows at a moment. A neighbour
+   * pulls only along the edge where its crust exists then, and not at all
+   * when that edge is let loose or the neighbour is a zone itself. A cell on
+   * such an edge follows that neighbour alone; between the edges the pull is
+   * evened out, each cell the mean of the cells around it.
+   */
+  function zoneWeights(z, mi) {
+    const ma = C.moments[mi].ma;
+    const live = z.neighbours.map((b) => (z.loose.has(C.pieces[b.p].id) || zoneOf.has(b.p)) ? [] : b.pairs.filter(([, m]) => ageOf(m) > ma));
+    const key = live.map((l) => l.length).join(',');
+    if (z.weights.has(key)) return z.weights.get(key);
+    const used = z.neighbours.map((b, i) => i).filter((i) => live[i].length >= 8);
+    const nz = z.nz, pinned = new Uint8Array(nz);
+    const w = used.map((i) => {
+      // First the distance to this neighbour's edge, over the zone's own cells.
+      const d = new Float32Array(nz).fill(1e9);
+      for (const [cell] of live[i]) { d[cell] = 0; pinned[cell] = 1; }
+      for (let pass = 0; pass < 12; pass++) {
+        let changed = false;
+        for (let s = 0; s < 2; s++) for (let k = 0; k < nz; k++) {
+          const a = s ? nz - 1 - k : k;
+          let best = d[a];
+          for (let e = 0; e < 8; e++) { const j = z.around[a * 8 + e]; if (j < 0) break; if (d[j] + 1 < best) best = d[j] + 1; }
+          if (best < d[a]) { d[a] = best; changed = true; }
+        }
+        if (!changed) break;
+      }
+      return d;
+    });
+    for (let a = 0; a < nz; a++) {
+      let zero = 0, sum = 0;
+      for (let u = 0; u < used.length; u++) if (w[u][a] === 0) zero++;
+      for (let u = 0; u < used.length; u++) {
+        const v = zero ? (w[u][a] === 0 ? 1 / zero : 0) : 1 / (w[u][a] * w[u][a]);
+        w[u][a] = v; sum += v;
+      }
+      if (sum > 0) for (let u = 0; u < used.length; u++) w[u][a] /= sum;
+    }
+    const sweeps = Math.max(10, Math.min(160, Math.floor(1.5e8 / (nz * 8 * Math.max(1, used.length)))));
+    for (let u = 0; u < used.length; u++) {
+      const f = w[u];
+      for (let it = 0; it < sweeps; it++) for (let k = 0; k < nz; k++) {
+        const a = it & 1 ? nz - 1 - k : k;
+        if (pinned[a]) continue;
+        let sum = 0, cnt = 0;
+        for (let e = 0; e < 8; e++) { const j = z.around[a * 8 + e]; if (j < 0) break; sum += f[j]; cnt++; }
+        if (cnt) f[a] += 1.8 * (sum / cnt - f[a]);
+      }
+    }
+    const full = used.map(() => new Float32Array(z.n));
+    for (let a = 0; a < nz; a++) {
+      let sum = 0;
+      for (let u = 0; u < used.length; u++) { if (w[u][a] < 0) w[u][a] = 0; sum += w[u][a]; }
+      for (let u = 0; u < used.length; u++) full[u][a] = sum > 0 ? w[u][a] / sum : 1 / used.length;
+    }
+    for (let r = nz; r < z.n; r++) for (let u = 0; u < used.length; u++) full[u][r] = full[u][z.from[r - nz]];
+    const out = { used, w: full };
+    z.weights.set(key, out);
+    return out;
+  }
+  /** The longest and the shortest a triangle has become, against a rigid piece at this moment. */
+  function stretches(v0, v1, a, b, c, k) {
+    const e = (v, i, j) => [v[j * 3] - v[i * 3], v[j * 3 + 1] - v[i * 3 + 1], v[j * 3 + 2] - v[i * 3 + 2]];
+    const flat = (u, w) => { const lu = Math.hypot(u[0], u[1], u[2]), x = dot(u, w) / lu; return [lu, x, Math.sqrt(Math.max(0, dot(w, w) - x * x))]; };
+    const [a0, b0, c0] = flat(e(v0, a, b), e(v0, a, c)), [a1, b1, c1] = flat(e(v1, a, b), e(v1, a, c));
+    if (a0 < 1e-12 || c0 < 1e-12) return [1, 1];
+    const j11 = a1 / a0, j12 = (b1 - j11 * b0) / c0, j22 = c1 / c0;
+    const sq = j11 * j11 + j12 * j12 + j22 * j22, det = Math.abs(j11 * j22);
+    const root = Math.sqrt(Math.max(0, sq * sq / 4 - det * det));
+    return [Math.sqrt(sq / 2 + root) / k, Math.sqrt(Math.max(0, sq / 2 - root)) / k];
+  }
+  /**
+   * A zone at a moment: where every cell lies, and the picture that finds
+   * today's ground again from a point of the smaller sphere -- the zone seen
+   * from its own middle, angle out and bearing round, each texel today's
+   * direction of what lies there and how much its ground has grown. Null when
+   * no neighbour holds it, and it lies as an ordinary piece.
+   */
+  function layZone(z, mi) {
+    const { used, w } = zoneWeights(z, mi);
+    if (!used.length) return null;
+    const k = C.moments[mi].k, n = z.n;
+    const pos = new Float64Array(n * 3);
+    used.forEach((ni, u) => {
+      const b = z.neighbours[ni], q = placed[mi][b.p], t = q.there, wu = w[u];
+      for (let i = 0; i < n; i++) {
+        const wi = wu[i];
+        if (wi < 1e-4) continue;
+        const th = 2 * Math.asin(Math.min(1, k * b.sinHalf[i])), s = Math.sin(th), cu = Math.cos(th);
+        const br = b.bearing[i] + q.spin, cn = Math.cos(br) * s, ce = Math.sin(br) * s;
+        pos[i * 3] += wi * (t.up[0] * cu + t.north[0] * cn + t.east[0] * ce);
+        pos[i * 3 + 1] += wi * (t.up[1] * cu + t.north[1] * cn + t.east[1] * ce);
+        pos[i * 3 + 2] += wi * (t.up[2] * cu + t.north[2] * cn + t.east[2] * ce);
+      }
+    });
+    const sum = [0, 0, 0];
+    for (let i = 0; i < n; i++) {
+      const l = Math.hypot(pos[i * 3], pos[i * 3 + 1], pos[i * 3 + 2]) || 1;
+      pos[i * 3] /= l; pos[i * 3 + 1] /= l; pos[i * 3 + 2] /= l;
+      if (i < z.nz) { sum[0] += pos[i * 3]; sum[1] += pos[i * 3 + 1]; sum[2] += pos[i * 3 + 2]; }
+    }
+    if (Math.hypot(sum[0], sum[1], sum[2]) < 1e-9) return null;
+    const there = frame(unit(sum));
+    let far = 0;
+    const px = new Float32Array(n * 2), ang = new Float32Array(n), brg = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      const x = pos[i * 3], y = pos[i * 3 + 1], zz = pos[i * 3 + 2];
+      ang[i] = Math.acos(Math.max(-1, Math.min(1, x * there.up[0] + y * there.up[1] + zz * there.up[2])));
+      brg[i] = Math.atan2(x * there.east[0] + y * there.east[1] + zz * there.east[2], x * there.north[0] + y * there.north[1] + zz * there.north[2]);
+      if (ang[i] > far) far = ang[i];
+    }
+    const reach = Math.min(Math.PI * 0.98, far * 1.02 + 0.01), G = REK_G;
+    for (let i = 0; i < n; i++) {
+      const r = ang[i] / reach;
+      px[i * 2] = (0.5 + 0.5 * r * Math.sin(brg[i])) * G - 0.5; px[i * 2 + 1] = (0.5 + 0.5 * r * Math.cos(brg[i])) * G - 0.5;
+    }
+    const grid = new Float32Array(G * G * 4);
+    const k2 = k * k, T = z.tris;
+    let own = 0, was = 0, folded = 0, long = 0, short = 0;
+    // How much the ground has grown at each cell: the mean over the triangles that meet there.
+    const gainAt = new Float32Array(n), count = new Uint8Array(n);
+    for (let t = 0; t < T.length / 3; t++) {
+      const a = T[t * 3], b = T[t * 3 + 1], c = T[t * 3 + 2];
+      const now = area3(pos, a, b, c), gain = now / (z.triArea[t] * k2);
+      if (count[a] < 250) { gainAt[a] += gain; count[a]++; }
+      if (count[b] < 250) { gainAt[b] += gain; count[b]++; }
+      if (count[c] < 250) { gainAt[c] += gain; count[c]++; }
+      if (!z.triOwn[t]) continue;
+      own += now; was += z.triArea[t] * k2;
+      // A triangle that has come to turn the other way round has folded over.
+      if (turnOf(pos, a, b, c) * turnOf(z.dirs, a, b, c) < 0) folded += z.triArea[t];
+      const [s1, s2] = stretches(z.dirs, pos, a, b, c, k);
+      long += s1 * z.triArea[t]; short += s2 * z.triArea[t];
+    }
+    for (let i = 0; i < n; i++) gainAt[i] = count[i] ? gainAt[i] / count[i] : 1;
+    for (let t = 0; t < T.length / 3; t++) {
+      const a = T[t * 3], b = T[t * 3 + 1], c = T[t * 3 + 2];
+      const ax = px[a * 2], ay = px[a * 2 + 1], bx = px[b * 2], by = px[b * 2 + 1], cx = px[c * 2], cy = px[c * 2 + 1];
+      const det = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay);
+      if (Math.abs(det) < 1e-9) continue;
+      const x0 = Math.max(0, Math.ceil(Math.min(ax, bx, cx))), x1 = Math.min(G - 1, Math.floor(Math.max(ax, bx, cx)));
+      const y0 = Math.max(0, Math.ceil(Math.min(ay, by, cy))), y1 = Math.min(G - 1, Math.floor(Math.max(ay, by, cy)));
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const wa = ((bx - x) * (cy - y) - (cx - x) * (by - y)) / det, wb = ((cx - x) * (ay - y) - (ax - x) * (cy - y)) / det, wc = 1 - wa - wb;
+        if (wa < -1e-4 || wb < -1e-4 || wc < -1e-4) continue;
+        const o = (y * G + x) * 4;
+        const vx = wa * z.dirs[a * 3] + wb * z.dirs[b * 3] + wc * z.dirs[c * 3];
+        const vy = wa * z.dirs[a * 3 + 1] + wb * z.dirs[b * 3 + 1] + wc * z.dirs[c * 3 + 1];
+        const vz = wa * z.dirs[a * 3 + 2] + wb * z.dirs[b * 3 + 2] + wc * z.dirs[c * 3 + 2];
+        const l = Math.hypot(vx, vy, vz);
+        grid[o] = vx / l; grid[o + 1] = vy / l; grid[o + 2] = vz / l; grid[o + 3] = wa * gainAt[a] + wb * gainAt[b] + wc * gainAt[c];
+      }
+    }
+    return { home: frame(dir(C.pieces[z.p].lon, C.pieces[z.p].lat)), there, spin: 0, reach, cosReach: Math.cos(reach), grid, zone: z, used, w, gainAt,
+      stats: { gain: own / was, folded: folded / z.ownToday, long: long / z.ownToday, short: short / z.ownToday } };
+  }
+  /** Growth of the ground at the point a zone was last asked about. */
+  let zoneGain = 1;
+  /** Today's direction of the point of a zone that lies at d, or null where the zone does not reach. */
+  function sampleZone(q, d) {
+    const cu = dot(d, q.there.up);
+    if (cu < q.cosReach) return null;
+    const r = Math.acos(Math.max(-1, Math.min(1, cu))) / q.reach, b = Math.atan2(dot(d, q.there.east), dot(d, q.there.north)), G = REK_G;
+    const gx = (0.5 + 0.5 * r * Math.sin(b)) * G - 0.5, gy = (0.5 + 0.5 * r * Math.cos(b)) * G - 0.5;
+    const x0 = Math.floor(gx), y0 = Math.floor(gy), fx = gx - x0, fy = gy - y0;
+    let vx = 0, vy = 0, vz = 0, va = 0;
+    for (let j = 0; j < 2; j++) for (let i = 0; i < 2; i++) {
+      const x = Math.max(0, Math.min(G - 1, x0 + i)), y = Math.max(0, Math.min(G - 1, y0 + j)), o = (y * G + x) * 4;
+      const wt = (i ? fx : 1 - fx) * (j ? fy : 1 - fy);
+      vx += wt * q.grid[o]; vy += wt * q.grid[o + 1]; vz += wt * q.grid[o + 2]; va += wt * q.grid[o + 3];
+    }
+    const l = Math.hypot(vx, vy, vz);
+    if (l < 0.5) return null;
+    zoneGain = va / l;
+    return [vx / l, vy / l, vz / l];
+  }
+  /** Today's point under a point of the smaller sphere, by one piece: rigid, or a zone. */
+  const backOf = (d, q, k) => (q.grid ? sampleZone(q, d) : lookBack(d, q, k));
+  /** A point of today carried to a moment by its piece: rigid, or a zone. */
+  function carryOf(v, mi, p) {
+    const q = placed[mi][p], k = C.moments[mi].k;
+    if (!q.grid) return forward(v, q, k);
+    const [lon, lat] = lonLat(v);
+    const i = q.zone.local.get(Math.min(H - 1, Math.floor((90 - lat) / 180 * H)) * W + Math.min(W - 1, Math.floor((lon + 180) / 360 * W)));
+    if (i === undefined) return forward(v, rigidPlace(mi, p), k);
+    const out = [0, 0, 0];
+    q.used.forEach((ni, u) => {
+      const f = forward(v, placed[mi][q.zone.neighbours[ni].p], k), wi = q.w[u][i];
+      out[0] += wi * f[0]; out[1] += wi * f[1]; out[2] += wi * f[2];
+    });
+    return unit(out);
+  }
+  /** Lay the zones again at a moment whose pieces have moved. */
+  function settleZones(mi) {
+    if (!zoneDirty.has(mi)) return;
+    zoneDirty.delete(mi);
+    for (const z of zoneList) {
+      placed[mi][z.p] = layZone(z, mi) || rigidPlace(mi, z.p);
+      packRow(mi, z.p);
+      uploadRow(mi, z.p);
+      if (placed[mi][z.p].grid) uploadZone(z.slot, mi, placed[mi][z.p].grid);
+    }
+    if (mi === state.moment) composedAt = -1;
+  }
+
   let pieceCells = null;
   /** Age of each cell's crust in whole Ma, 255 for continent. */
   let cellAge = null;
@@ -538,9 +861,12 @@ const MARBLE_JPG = "__MARBLE__";
   function piecesAt(d, mi) {
     const out = [];
     const k = C.moments[mi].k;
+    settleZones(mi);
     placed[mi].forEach((q, p) => {
       if (dot(d, q.there.up) < q.cosReach) return;
-      const [lon, lat] = lonLat(lookBack(d, q, k));
+      const back = backOf(d, q, k);
+      if (!back) return;
+      const [lon, lat] = lonLat(back);
       const cx = Math.min(W - 1, Math.floor((lon + 180) / 360 * W));
       const cy = Math.min(H - 1, Math.floor((90 - lat) / 180 * H));
       const c = cy * W + cx;
@@ -560,6 +886,7 @@ const MARBLE_JPG = "__MARBLE__";
   })();
   const stats = new Array(M);
   function measure(mi) {
+    settleZones(mi);
     let open = 0, twice = 0;
     for (const x of SAMPLES) {
       const h = piecesAt(x, mi);
@@ -569,8 +896,8 @@ const MARBLE_JPG = "__MARBLE__";
     const joinPiece = (id) => C.pieces.findIndex((p) => p.id === id);
     const m = C.moments[mi];
     const off = C.joins.map((j) => {
-      const a = forward(dir(j.a[0], j.a[1]), placed[mi][joinPiece(j.pieceA)], m.k);
-      const b = forward(dir(j.b[0], j.b[1]), placed[mi][joinPiece(j.pieceB)], m.k);
+      const a = carryOf(dir(j.a[0], j.a[1]), mi, joinPiece(j.pieceA));
+      const b = carryOf(dir(j.b[0], j.b[1]), mi, joinPiece(j.pieceB));
       return Math.acos(Math.max(-1, Math.min(1, dot(a, b)))) * m.radiusKm - (j.gapKm[m.ma] ?? 0);
     });
     stats[mi] = { open: open / SAMPLES.length, twice: twice / SAMPLES.length, off };
@@ -598,7 +925,8 @@ const MARBLE_JPG = "__MARBLE__";
   const VERT = `#version 300 es
   in vec2 aPos; void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
   const FRAG = `#version 300 es
-  precision highp float; precision highp int; precision highp sampler2D;
+  precision highp float; precision highp int; precision highp sampler2D; precision highp sampler2DArray;
+  uniform sampler2DArray uRek; uniform int uZone[${REK_MAX}];
   uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData; uniform sampler2D uFabric; uniform sampler2D uRelief;
   uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap; uniform int uIso;
   uniform float uMa; uniform float uSeaLevel;
@@ -641,7 +969,86 @@ const MARBLE_JPG = "__MARBLE__";
     for (int i = 0; i < 4; i++) if (e < at[i + 1]) return mix(col[i], col[i + 1], (e - at[i]) / (at[i + 1] - at[i]));
     return col[4];
   }
+  // A stretch zone's ground: paler than pale where it keeps its size, through
+  // yellow and orange to rust where it has grown to twice and more; pink to
+  // purple where it has shrunk instead.
+  vec3 growRamp(float e) {
+    const float at[5] = float[5](0.0, 0.25, 0.5, 1.0, 1.5);
+    const vec3 col[5] = vec3[5](vec3(0.94, 0.94, 0.91), vec3(0.98, 0.85, 0.55), vec3(0.93, 0.60, 0.30), vec3(0.70, 0.30, 0.16), vec3(0.42, 0.16, 0.10));
+    for (int i = 0; i < 4; i++) if (e < at[i + 1]) return mix(col[i], col[i + 1], (e - at[i]) / (at[i + 1] - at[i]));
+    return col[4];
+  }
+  vec3 shrinkRamp(float e) {
+    const float at[4] = float[4](0.0, 0.25, 0.5, 1.0);
+    const vec3 col[4] = vec3[4](vec3(0.94, 0.94, 0.91), vec3(0.93, 0.72, 0.86), vec3(0.82, 0.42, 0.72), vec3(0.55, 0.18, 0.52));
+    for (int i = 0; i < 3; i++) if (e < at[i + 1]) return mix(col[i], col[i + 1], (e - at[i]) / (at[i + 1] - at[i]));
+    return col[3];
+  }
+  // The picture of a zone at a point of it, between its four nearest texels.
+  vec4 rekAt(int layer, vec2 uv) {
+    vec2 g = uv * ${REK_G}.0 - 0.5, f = fract(g);
+    ivec2 a = clamp(ivec2(floor(g)), ivec2(0), ivec2(${REK_G - 1})), b = clamp(ivec2(floor(g)) + 1, ivec2(0), ivec2(${REK_G - 1}));
+    return mix(mix(texelFetch(uRek, ivec3(a.x, a.y, layer), 0), texelFetch(uRek, ivec3(b.x, a.y, layer), 0), f.x),
+      mix(texelFetch(uRek, ivec3(a.x, b.y, layer), 0), texelFetch(uRek, ivec3(b.x, b.y, layer), 0), f.x), f.y);
+  }
   int idAt(ivec2 c) { vec4 t = texelFetch(uPieces, c, 0); return existsAt(t) ? int(t.r * 255.0 + 0.5) : 0; }
+  // What the pieces leave at one point of the globe, gathered piece by piece.
+  int hits; vec3 colour; float topHeight; bool topRim; bool chosenRim; float depth;
+  // One piece at the point: q is today's ground it shows there, back and dist
+  // the angles from its centre today and on this globe, gain how much a
+  // stretch zone's ground has grown (below zero for a rigid piece).
+  void lay(int p, vec3 q, float back, float dist, float gain, bool picked) {
+    ivec2 cell = cellOf(q);
+    vec4 tex = texelFetch(uPieces, cell, 0);
+    int id = int(tex.r * 255.0 + 0.5);
+    if (id != p + 1 || !existsAt(tex)) return;
+    hits++;
+    bool land = tex.b >= uSeaLevel;
+    bool continent = tex.g > 0.999;
+    vec3 c;
+    if (uMode == 0 && gain >= 0.0) {
+      c = gain >= 1.0 ? growRamp(gain - 1.0) : shrinkRamp(1.0 / max(gain, 0.05) - 1.0);
+      if (!land) c *= 0.84;
+    } else if (uMode == 0) {
+      // The piece keeps its area, so a point is shortened along the circle
+      // about the piece's centre by as much as it is stretched across it.
+      // The colour is how much; the rings, every 5 degrees from the centre
+      // as the piece lies today, run the way it is shortened.
+      float t = back < 1e-4 ? 1.0 : sin(dist) / (uK * sin(back));
+      c = strainRamp(1.0 / max(t, 1e-3) - 1.0);
+      if (!land) c *= 0.84;
+      float ring = back / (5.0 * PI / 180.0);
+      float px = t / (uRadius * max(depth, 0.15) * (5.0 * PI / 180.0));
+      float line = 1.0 - smoothstep(0.3 * px, 0.9 * px, abs(fract(ring + 0.5) - 0.5));
+      c = mix(c, vec3(0.13, 0.15, 0.19), 0.4 * line);
+    } else if (uMode == 2 || uMode == 4) {
+      // The fabric or the relief everywhere, sea floor included, read where
+      // the point really lies rather than at the centre of its cell.
+      vec2 uv = vec2(atan(-q.z, q.x) / (2.0 * PI) + 0.5, acos(clamp(q.y, -1.0, 1.0)) / PI);
+      c = uMode == 2 ? fabricRamp(uv) : texture(uRelief, uv).rgb;
+    } else if (uMode == 3) {
+      c = continent ? (land ? vec3(0.56, 0.56, 0.54) : vec3(0.44, 0.45, 0.45)) : ageRamp(tex.g * 255.0);
+    } else {
+      c = uColours[p];
+      if (!land) c = continent ? mix(c, vec3(0.92), 0.35) : mix(c, vec3(0.16, 0.2, 0.28), 0.55);
+    }
+    if (uIso == 1 && !continent) {
+      // A white line every 30 Ma, over any view.
+      vec4 tr = texelFetch(uPieces, ivec2((cell.x + 1) % ${W}, cell.y), 0);
+      vec4 td = texelFetch(uPieces, ivec2(cell.x, min(cell.y + 1, ${H - 1})), 0);
+      float band = floor(tex.g * 255.0 / 30.0);
+      if ((tr.g < 0.999 && floor(tr.g * 255.0 / 30.0) != band) || (td.g < 0.999 && floor(td.g * 255.0 / 30.0) != band)) c = mix(c, vec3(1.0), 0.85);
+    }
+    bool rim = idAt(ivec2((cell.x + 1) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 1}) % ${W}, cell.y)) != id
+      || idAt(ivec2(cell.x, max(cell.y - 1, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 1, ${H - 1}))) != id;
+    if (uShowChosen == 1 && picked) {
+      bool wide = idAt(ivec2((cell.x + 2) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 2}) % ${W}, cell.y)) != id
+        || idAt(ivec2(cell.x, max(cell.y - 2, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 2, ${H - 1}))) != id;
+      if (rim || wide) chosenRim = true;
+      else c = mix(c, vec3(1.0, 0.82, 0.4), 0.12);
+    }
+    if (tex.b > topHeight) { topHeight = tex.b; colour = c; topRim = rim; }
+  }
   void main() {
     vec2 xy = (gl_FragCoord.xy - uCentre) / uRadius;
     float rr = dot(xy, xy);
@@ -650,68 +1057,36 @@ const MARBLE_JPG = "__MARBLE__";
     vec3 d = normalize(uView * vec3(xy, z));
     // Where pieces lie over each other the highest crust shows, land over
     // shelf and mountains over lowland, and the overlap is a wash over it.
-    int hits = 0; vec3 colour = vec3(0.045, 0.05, 0.06);
-    float topHeight = -1.0; bool topRim = false; bool chosenRim = false;
+    hits = 0; colour = vec3(0.045, 0.05, 0.06);
+    topHeight = -1.0; topRim = false; chosenRim = false; depth = z;
     for (int p = 0; p < 128; p++) {
       if (p >= uCount) break;
       vec3 tu = fetch(p, 2).xyz;
       vec4 extra = fetch(p, 6);
       float cu = dot(d, tu);
-      if (cu < extra.x) continue;
+      if (cu < extra.x || extra.z > 0.5) continue;
       vec3 te = fetch(p, 0).xyz, tn = fetch(p, 1).xyz;
       vec3 he = fetch(p, 3).xyz, hn = fetch(p, 4).xyz, hu = fetch(p, 5).xyz;
       float dist = acos(clamp(cu, -1.0, 1.0));
       float bearing = atan(dot(d, te), dot(d, tn)) - extra.y;
       float back = 2.0 * asin(min(1.0, sin(dist * 0.5) / uK));
-      float s = sin(back);
-      vec3 q = hu * cos(back) + (hn * cos(bearing) + he * sin(bearing)) * s;
-      ivec2 cell = cellOf(q);
-      vec4 tex = texelFetch(uPieces, cell, 0);
-      int id = int(tex.r * 255.0 + 0.5);
-      if (id != p + 1 || !existsAt(tex)) continue;
-      hits++;
-      bool land = tex.b >= uSeaLevel;
-      bool continent = tex.g > 0.999;
-      vec3 c;
-      if (uMode == 0) {
-        // The piece keeps its area, so a point is shortened along the circle
-        // about the piece's centre by as much as it is stretched across it.
-        // The colour is how much; the rings, every 5 degrees from the centre
-        // as the piece lies today, run the way it is shortened.
-        float t = back < 1e-4 ? 1.0 : sin(dist) / (uK * sin(back));
-        c = strainRamp(1.0 / max(t, 1e-3) - 1.0);
-        if (!land) c *= 0.84;
-        float ring = back / (5.0 * PI / 180.0);
-        float px = t / (uRadius * max(z, 0.15) * (5.0 * PI / 180.0));
-        float line = 1.0 - smoothstep(0.3 * px, 0.9 * px, abs(fract(ring + 0.5) - 0.5));
-        c = mix(c, vec3(0.13, 0.15, 0.19), 0.4 * line);
-      } else if (uMode == 2 || uMode == 4) {
-        // The fabric or the relief everywhere, sea floor included, read where
-        // the point really lies rather than at the centre of its cell.
-        vec2 uv = vec2(atan(-q.z, q.x) / (2.0 * PI) + 0.5, acos(clamp(q.y, -1.0, 1.0)) / PI);
-        c = uMode == 2 ? fabricRamp(uv) : texture(uRelief, uv).rgb;
-      } else if (uMode == 3) {
-        c = continent ? (land ? vec3(0.56, 0.56, 0.54) : vec3(0.44, 0.45, 0.45)) : ageRamp(tex.g * 255.0);
-      } else {
-        c = uColours[p];
-        if (!land) c = continent ? mix(c, vec3(0.92), 0.35) : mix(c, vec3(0.16, 0.2, 0.28), 0.55);
-      }
-      if (uIso == 1 && !continent) {
-        // A white line every 30 Ma, over any view.
-        vec4 tr = texelFetch(uPieces, ivec2((cell.x + 1) % ${W}, cell.y), 0);
-        vec4 td = texelFetch(uPieces, ivec2(cell.x, min(cell.y + 1, ${H - 1})), 0);
-        float band = floor(tex.g * 255.0 / 30.0);
-        if ((tr.g < 0.999 && floor(tr.g * 255.0 / 30.0) != band) || (td.g < 0.999 && floor(td.g * 255.0 / 30.0) != band)) c = mix(c, vec3(1.0), 0.85);
-      }
-      bool rim = idAt(ivec2((cell.x + 1) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 1}) % ${W}, cell.y)) != id
-        || idAt(ivec2(cell.x, max(cell.y - 1, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 1, ${H - 1}))) != id;
-      if (uShowChosen == 1 && extra.w > 0.5) {
-        bool wide = idAt(ivec2((cell.x + 2) % ${W}, cell.y)) != id || idAt(ivec2((cell.x + ${W - 2}) % ${W}, cell.y)) != id
-          || idAt(ivec2(cell.x, max(cell.y - 2, 0))) != id || idAt(ivec2(cell.x, min(cell.y + 2, ${H - 1}))) != id;
-        if (rim || wide) chosenRim = true;
-        else c = mix(c, vec3(1.0, 0.82, 0.4), 0.12);
-      }
-      if (tex.b > topHeight) { topHeight = tex.b; colour = c; topRim = rim; }
+      lay(p, hu * cos(back) + (hn * cos(bearing) + he * sin(bearing)) * sin(back), back, dist, -1.0, extra.w > 0.5);
+    }
+    // A stretch zone has no one turn that carries it: its picture, seen from
+    // its own middle, says what ground of today lies at each point.
+    for (int s = 0; s < ${REK_MAX}; s++) {
+      int p = uZone[s];
+      if (p < 0) continue;
+      vec3 tu = fetch(p, 2).xyz;
+      vec4 extra = fetch(p, 6);
+      float cu = dot(d, tu);
+      if (cu < extra.x || extra.z < 0.5) continue;
+      float dist = acos(clamp(cu, -1.0, 1.0));
+      float bearing = atan(dot(d, fetch(p, 0).xyz), dot(d, fetch(p, 1).xyz));
+      vec4 m = rekAt(s * ${M} + uMoment, 0.5 + 0.5 * (dist / acos(clamp(extra.x, -1.0, 1.0))) * vec2(sin(bearing), cos(bearing)));
+      float sure = length(m.xyz);
+      if (sure < 0.5) continue;
+      lay(p, m.xyz / sure, 0.0, dist, m.a / sure, extra.w > 0.5);
     }
     if (hits > 1 && uShowOverlap == 1) {
       // Thick diagonal stripes with clear ground between them, so what lies
@@ -764,7 +1139,7 @@ const MARBLE_JPG = "__MARBLE__";
     const put = (c, v) => data.set([v[0], v[1], v[2], v[3] || 0], row + c * 4);
     put(0, q.there.east); put(1, q.there.north); put(2, q.there.up);
     put(3, q.home.east); put(4, q.home.north); put(5, q.home.up);
-    put(6, [q.cosReach, q.spin, C.pieces[p].fold ? 1 : 0, chosen.has(p) ? 1 : 0]);
+    put(6, [q.cosReach, q.spin, q.grid ? q.zone.slot + 1 : 0, chosen.has(p) ? 1 : 0]);
   }
   for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) packRow(mi, p);
   function texture(unitIndex, setup) {
@@ -779,14 +1154,31 @@ const MARBLE_JPG = "__MARBLE__";
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   });
-  /** A piece has moved: its frame, its texels, and nothing else. */
-  function replace(mi, p) {
-    placeOne(mi, p);
-    packRow(mi, p);
+  // The zones' pictures: one layer per zone per moment.
+  const rekTexture = gl.createTexture();
+  gl.activeTexture(gl.TEXTURE5);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY, rekTexture);
+  gl.texStorage3D(gl.TEXTURE_2D_ARRAY, 1, gl.RGBA32F, REK_G, REK_G, REK_MAX * M);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D_ARRAY, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  function uploadZone(slot, mi, grid) {
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY, rekTexture);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY, 0, 0, 0, slot * M + mi, REK_G, REK_G, 1, gl.RGBA, gl.FLOAT, grid);
+  }
+  function uploadRow(mi, p) {
     const row = mi * N + p;
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, 8, 1, gl.RGBA, gl.FLOAT, data.subarray(row * 32, row * 32 + 32));
+  }
+  /** A piece has moved: its frame, its texels, and nothing else. */
+  function replace(mi, p) {
+    placeOne(mi, p);
+    packRow(mi, p);
+    uploadRow(mi, p);
   }
   function uploadAll() {
     gl.activeTexture(gl.TEXTURE2);
@@ -800,7 +1192,7 @@ const MARBLE_JPG = "__MARBLE__";
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 8, N * M, gl.RGBA, gl.FLOAT, data);
   }
-  gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2); gl.uniform1i(U('uFabric'), 3); gl.uniform1i(U('uRelief'), 4);
+  gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2); gl.uniform1i(U('uFabric'), 3); gl.uniform1i(U('uRelief'), 4); gl.uniform1i(U('uRek'), 5);
   gl.uniform1i(U('uCount'), N);
   gl.uniform3fv(U('uColours'), new Float32Array(Array.from({ length: 128 }, (_, i) => COLOURS[i % COLOURS.length].map((c) => c / 255)).flat()));
 
@@ -811,6 +1203,7 @@ const MARBLE_JPG = "__MARBLE__";
   function draw(mi, globeRadius, cx, cy, showChosen) {
     const f = viewFrame();
     gl.uniform1i(U('uMoment'), mi);
+    gl.uniform1iv(U('uZone'), Int32Array.from({ length: REK_MAX }, (_, i) => (zoneList[i] ? zoneList[i].p : -1)));
     gl.uniform1f(U('uK'), C.moments[mi].k);
     gl.uniform1i(U('uMode'), state.mode);
     gl.uniform1i(U('uShowChosen'), showChosen ? 1 : 0);
@@ -856,6 +1249,8 @@ const MARBLE_JPG = "__MARBLE__";
   function render() {
     if (!pieceCells || state.view === 'map' || !canvas.width || !canvas.height) return;
     gl.viewport(0, 0, canvas.width, canvas.height);
+    if (thumbsDirty) for (let mi = 0; mi < M; mi++) settleZones(mi);
+    settleZones(state.moment);
     if (thumbsDirty) {
       // Drawn into a corner of the big canvas and copied out, one context for all.
       thumbs.forEach((t, i) => {
@@ -903,8 +1298,8 @@ const MARBLE_JPG = "__MARBLE__";
     if (state.joins) for (const j of C.joins) {
       const pa = C.pieces.findIndex((p) => p.id === j.pieceA);
       const pb = C.pieces.findIndex((p) => p.id === j.pieceB);
-      const A = project(forward(dir(j.a[0], j.a[1]), placed[state.moment][pa], m.k));
-      const B = project(forward(dir(j.b[0], j.b[1]), placed[state.moment][pb], m.k));
+      const A = project(carryOf(dir(j.a[0], j.a[1]), state.moment, pa));
+      const B = project(carryOf(dir(j.b[0], j.b[1]), state.moment, pb));
       if (A[2] < 0 && B[2] < 0) continue;
       const op = A[2] < 0 || B[2] < 0 ? 0.35 : 1;
       svg += `<line x1="${A[0]}" y1="${A[1]}" x2="${B[0]}" y2="${B[1]}" stroke="#ffd166" stroke-width="1.6" opacity="${op}"></line>`;
@@ -958,6 +1353,30 @@ const MARBLE_JPG = "__MARBLE__";
     });
   }
 
+  /** What the panel says about a zone at the moment shown, and the switches for its edges. */
+  function zonePanel(z) {
+    const q = placed[state.moment][z.p];
+    const times = (v) => '×' + fmt(v, 2);
+    let figures;
+    if (!q.grid) figures = '<p class="hint">Geen buur houdt haar op dit moment vast: ze ligt hier als een gewoon stuk.</p>';
+    else {
+      const st = q.stats, warn = [];
+      if (st.folded > 0.02) warn.push(`Vouwt over ${fmt(100 * st.folded)}% dubbel: twee buren liggen te ver uit elkaar gedraaid. Leg een buur terug of laat een rand los.`);
+      if (st.gain > z.allowed * 1.05) warn.push('Meer rek dan de korst toelaat.');
+      if (st.gain < 0.9) warn.push('Ze wordt samengeperst; terug in de tijd hoort een gebergte te rekken.');
+      figures = `<div class="coords">grond ${times(st.gain)} · langste rek ${times(st.long)} · kortste ${times(st.short)}</div>` +
+        (z.crustKm ? `<div class="coords">korst ${fmt(z.crustKm)} km dik; uitgestreken tot ${NORMAL_CRUST_KM} km geeft dat ${times(z.allowed)}</div>` : '') +
+        warn.map((t) => `<p class="hint warn">${t}</p>`).join('');
+    }
+    const edges = z.neighbours.map((b) => {
+      const id = C.pieces[b.p].id, other = zoneOf.has(b.p);
+      return `<button type="button" data-edge="${id}" aria-pressed="${!z.loose.has(id) && !other}"${other ? ' disabled title="Zelf een rekzone"' : ''}>${C.pieces[b.p].name}</button>`;
+    }).join('');
+    return `${figures}
+      <p class="hint">Randen: ingekleurd zit de rand vast aan die buur; anders glijdt de buur erlangs.</p>
+      <div class="controls">${edges}</div>`;
+  }
+
   function describeEdit() {
     const box = document.getElementById('edit');
     const manyButton = `<button type="button" data-many aria-pressed="${many}">Meerdere kiezen <kbd>M</kbd></button>`;
@@ -970,6 +1389,28 @@ const MARBLE_JPG = "__MARBLE__";
     const ids = [...chosen].map((p) => C.pieces[p].id);
     const mine = ids.filter((id) => edits[state.moment][id]).length;
     let head;
+    const zone = chosen.size === 1 ? zoneOf.get([...chosen][0]) : null;
+    if (zone) {
+      // A zone is not laid by hand: the panel shows how far it is stretched and which edges hold.
+      settleZones(state.moment);
+      box.innerHTML = `<div class="name">${C.pieces[zone.p].name}<small>rekzone</small></div>
+        <p class="hint">Een rekzone leg je niet zelf: elke rand volgt de buur waar ze vandaag aan vastzit, en ertussen rekt ze mee.</p>
+        ${zonePanel(zone)}
+        <div class="controls">
+          ${manyButton}
+          <button type="button" data-zone-off>Weer een star stuk</button>
+          <button type="button" data-drop>Loslaten <kbd>Esc</kbd></button>
+        </div>`;
+      box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
+      box.querySelector('[data-drop]').addEventListener('click', () => { choose([]); render(); });
+      box.querySelector('[data-zone-off]').addEventListener('click', () => setZone(zone.id, null));
+      box.querySelectorAll('[data-edge]').forEach((b) => b.addEventListener('click', () => {
+        const loose = new Set(zone.loose);
+        if (loose.has(b.dataset.edge)) loose.delete(b.dataset.edge); else loose.add(b.dataset.edge);
+        setZone(zone.id, { loose: [...loose] });
+      }));
+      return;
+    }
     if (chosen.size === 1) {
       const p = [...chosen][0];
       const at = placementOf(state.moment, ids[0]);
@@ -996,7 +1437,10 @@ const MARBLE_JPG = "__MARBLE__";
         ${manyButton}
         <button type="button" data-reset>Terug naar berekend</button>
         <button type="button" data-drop>Loslaten <kbd>Esc</kbd></button>
-      </div>`;
+      </div>
+      ${chosen.size === 1 ? '<div class="controls"><button type="button" data-zone-on title="Het stuk krijgt geen eigen plek meer: het rekt mee tussen zijn buren">Maak rekzone</button></div>' : ''}`;
+    const zoneOn = box.querySelector('[data-zone-on]');
+    if (zoneOn) zoneOn.addEventListener('click', () => setZone(ids[0], { loose: [] }));
     box.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => { state.tool = b.dataset.tool; save(); describeEdit(); }));
     box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
     box.querySelectorAll('[data-spin]').forEach((b) => b.addEventListener('click', () => {
@@ -1068,13 +1512,14 @@ const MARBLE_JPG = "__MARBLE__";
   /** The chosen pieces as they lie now, ready to be turned together. */
   function group() {
     const mi = state.moment;
-    const items = [...chosen].map((p) => {
+    // A zone is not laid by hand: it stays out of what is moved.
+    const items = [...chosen].filter((p) => !zoneOf.has(p)).map((p) => {
       const id = C.pieces[p].id;
       return { id, before: edits[mi][id], ...headingOf(placementOf(mi, id)), share: C.pieces[p].share };
     });
     const sum = [0, 0, 0];
     for (const it of items) for (let i = 0; i < 3; i++) sum[i] += it.up[i] * it.share;
-    return { items, centre: unit(sum) };
+    return { items, centre: items.length ? unit(sum) : [0, 0, 1] };
   }
   /** Turn every piece of a group about one axis through the centre of the Earth. */
   function turnGroup(g, axis, angle) {
@@ -1119,7 +1564,7 @@ const MARBLE_JPG = "__MARBLE__";
     const under = d ? piecesAt(d, state.moment) : [];
     const additive = e.ctrlKey || e.metaKey || many;
     gesture = { x: e.clientX, y: e.clientY, moved: false, under, additive: additive || e.shiftKey };
-    if (under.some((p) => chosen.has(p)) && !additive) {
+    if (under.some((p) => chosen.has(p)) && !additive && [...chosen].some((p) => !zoneOf.has(p))) {
       const g = group();
       gesture.kind = e.shiftKey || e.altKey || state.tool === 'rotate' ? 'rotate' : 'move';
       gesture.group = g;
@@ -1302,9 +1747,9 @@ const MARBLE_JPG = "__MARBLE__";
     const stack = under.slice().reverse();
     tip.innerHTML = (stack.length
       ? stack.map((p) => {
-        const [blon, blat] = lonLat(lookBack(d, placed[mi][p], C.moments[mi].k));
+        const [blon, blat] = lonLat(backOf(d, placed[mi][p], C.moments[mi].k) || d);
         const c = Math.min(H - 1, Math.floor((90 - blat) / 180 * H)) * W + Math.min(W - 1, Math.floor((blon + 180) / 360 * W));
-        const floor = cellAge[c] < 255 ? ` · oceaanbodem van ${cellAge[c]} Ma` : '';
+        const floor = (cellAge[c] < 255 ? ` · oceaanbodem van ${cellAge[c]} Ma` : '') + (placed[mi][p].grid ? ` · rekzone, grond ×${fmt(zoneGain, 2)}` : '');
         return `${chosen.has(p) ? '● ' : ''}<b>${C.pieces[p].name}</b> <span class="num">vandaag ${fmt(blat, 1)}°, ${fmt(blon, 1)}°${floor}</span>`;
       }).join('<br>')
       : '<b>Oceaan</b>') +
@@ -1353,8 +1798,57 @@ const MARBLE_JPG = "__MARBLE__";
     refreshAll();
     for (let m = 0; m < M; m++) stale.add(m);
   }
+  // ---------- which pieces are zones ----------
+  /** Pieces the reader has made a zone, by id, each with the neighbours whose edge is let loose. */
+  const zoneSet = new Map();
+  const zoneBuilt = new Map();
+  let zoneWrites = 0;
+  /** Build the zones again from the list, and lay every moment anew. */
+  function buildZones() {
+    zoneList = [];
+    zoneOf.clear();
+    const ids = [...zoneSet.keys()].filter((id) => indexOfId.has(id)).slice(0, REK_MAX);
+    for (const id of ids) {
+      const p = indexOfId.get(id);
+      const z = zoneBuilt.get(id) || makeZone(p);
+      zoneBuilt.set(id, z);
+      z.slot = zoneList.length;
+      const loose = (zoneSet.get(id).loose || []).slice().sort();
+      const sig = loose.join(',') + '|' + ids.join(',');
+      if (sig !== z.sig) { z.sig = sig; z.loose = new Set(loose); z.weights.clear(); }
+      zoneList.push(z);
+      zoneOf.set(p, z);
+    }
+    refreshAll();
+    for (let m = 0; m < M; m++) { zoneDirty.add(m); stale.add(m); }
+    thumbsDirty = true;
+  }
+  /** Make a piece a zone, change which of its edges hold, or make it rigid again (cfg null). */
+  function setZone(id, cfg) {
+    if (cfg) {
+      if (!zoneSet.has(id) && zoneSet.size >= REK_MAX) { say(`Er kunnen ${REK_MAX} rekzones tegelijk zijn.`, true); return; }
+      zoneSet.set(id, cfg);
+    } else zoneSet.delete(id);
+    buildZones();
+    render();
+    try { localStorage.setItem('concept-zones', JSON.stringify(Object.fromEntries([...zoneSet].map(([k, v]) => [k, { loose: v.loose || [] }])))); } catch (e) {}
+    if (!db) { say('Bewaard in deze browser.'); return; }
+    zoneWrites++;
+    say('Opslaan…');
+    const doc = db.doc('zones/' + id);
+    Promise.resolve(cfg ? doc.set({ loose: cfg.loose || [], at: new Date().toISOString() }) : doc.delete())
+      .then(() => say('Opgeslagen.'), (e) => say('Rekzone niet opgeslagen: ' + (e && e.message ? e.message : 'onbekende fout'), true))
+      .finally(() => { zoneWrites--; });
+  }
   /** Edits this browser kept, for when the page has no store; once the pieces are in. */
   function adoptLocal() {
+    try {
+      const kept = JSON.parse(localStorage.getItem('concept-zones') || 'null');
+      if (kept && typeof kept === 'object') {
+        for (const [id, v] of Object.entries(kept)) zoneSet.set(id, { loose: Array.isArray(v && v.loose) ? v.loose : [] });
+        if (zoneSet.size) buildZones();
+      }
+    } catch (e) { /* nothing kept */ }
     try {
       // An array is the old way, by position, from when there were five moments:
       // read by today's positions it puts one moment's layout on another.
@@ -1387,6 +1881,21 @@ const MARBLE_JPG = "__MARBLE__";
       render();
       if (!unsaved.size) say('Opgeslagen bij de pagina; Claude kan je wijzigingen lezen.');
     }, (e) => say('Opslag niet bereikbaar: ' + (e && e.message ? e.message : '') , true));
+    // The zones are kept one document each, zones/<piece>, so that whoever
+    // reads the store sees which pieces stretch and which of their edges hold.
+    try {
+      db.collection('zones').onSnapshot((snap) => {
+        if (zoneWrites || gesture) return;
+        const next = new Map();
+        for (const doc of snap.docs) { const body = doc.data() || {}; next.set(doc.id, { loose: Array.isArray(body.loose) ? body.loose : [] }); }
+        const same = next.size === zoneSet.size && [...next].every(([id, v]) => zoneSet.has(id) && (zoneSet.get(id).loose || []).slice().sort().join() === v.loose.slice().sort().join());
+        if (same) return;
+        zoneSet.clear();
+        for (const [id, v] of next) zoneSet.set(id, v);
+        buildZones();
+        render();
+      }, () => { /* the zones stay as this browser has them */ });
+    } catch (e) { /* no zones in the store */ }
   }
 
   // ---------- controls ----------
@@ -1412,7 +1921,7 @@ const MARBLE_JPG = "__MARBLE__";
     .map(([id, mode]) => ({ el: document.getElementById(id), mode }));
   const fabricNote = document.getElementById('fabric-note');
   const MODE_NOTES = {
-    0: 'Stress: hoe ver elk stuk op deze kleinere bol uit vorm getrokken wordt. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel niets, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). De ringen liggen om de 5 graden van het middelpunt.',
+    0: 'Stress: hoe ver elk stuk op deze kleinere bol uit vorm getrokken wordt. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel niets, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). De ringen liggen om de 5 graden van het middelpunt. Een rekzone houdt haar oppervlak niet: daar is de kleur hoeveel de grond gegroeid is, van licht via geel en oranje naar roestbruin (twee keer zo groot en meer), en roze tot paars waar ze juist krimpt.',
     3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs.',
     4: 'Reliëf: hoogte en diepte (SRTM15+), de oceaan blauw naar diepte, het land van groen via bruin naar grijs en wit, met lichte schaduw.',
   };
@@ -1526,7 +2035,7 @@ const MARBLE_JPG = "__MARBLE__";
   const cutStatus = document.getElementById('cutstatus');
   const ISO = 30;
   const BG_NOTES = {
-    0: 'Stress: hoe ver elk stuk op de kleinere bol uit vorm getrokken wordt, op het gekozen moment. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel geen vervorming, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). Grijs: korst die toen nog niet bestond.',
+    0: 'Stress: hoe ver elk stuk op de kleinere bol uit vorm getrokken wordt, op het gekozen moment. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel geen vervorming, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). Grijs: korst die toen nog niet bestond. Een rekzone houdt haar oppervlak niet: daar is de kleur hoeveel de grond gegroeid is, van licht via geel en oranje naar roestbruin (twee keer zo groot en meer), en roze tot paars waar ze juist krimpt.',
     1: 'Stukken: elk stuk in zijn eigen kleur, de oceaanbodem donkerder.',
     3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs. Waar de witte lijnen knikken, loopt een breukzone.',
     2: 'Fabric: donker waar de korst met rust is gelaten, licht waar hij bewerkt is -- breukzones, suturen, rifts, gebergtewortels.',
@@ -1577,6 +2086,19 @@ const MARBLE_JPG = "__MARBLE__";
     return STRAIN_RGB[4];
   };
   let composedAt = -1;
+  const GROW_AT = [0, 0.25, 0.5, 1, 1.5], GROW_RGB = [[240, 240, 232], [250, 217, 140], [237, 153, 77], [179, 77, 41], [107, 41, 26]];
+  const SHRINK_AT = [0, 0.25, 0.5, 1], SHRINK_RGB = [[240, 240, 232], [237, 184, 219], [209, 107, 184], [140, 46, 133]];
+  const rampRgb = (at, rgb, e) => {
+    for (let i = 0; i < at.length - 1; i++) if (e < at[i + 1]) { const t = (e - at[i]) / (at[i + 1] - at[i]); return rgb[i].map((v, k) => v + (rgb[i + 1][k] - v) * t); }
+    return rgb[rgb.length - 1];
+  };
+  /** How much the ground of a zone's cell has grown at the moment shown; -1 for any other cell. */
+  function zoneCellGain(c) {
+    const z = zoneOf.get(cut.cells[c] - 1);
+    if (!z) return -1;
+    const q = placed[state.moment][z.p], i = z.local.get(c);
+    return q.grid && i !== undefined ? q.gainAt[i] : -1;
+  }
   const fabricRgb = (v) => {
     if (v < 1) return [51, 51, 56];
     const t = Math.min(1, (v - 1) / 254), q = [0.09, 0.11, 0.16], m = [0.29, 0.42, 0.55], b = [0.97, 0.87, 0.62];
@@ -1597,7 +2119,7 @@ const MARBLE_JPG = "__MARBLE__";
       const k = centres[q], x = c % W, y = (c / W) | 0;
       return Math.acos(Math.max(-1, Math.min(1, k[0] * cosLat[y] * cosLon[x] + k[1] * sinLat[y] - k[2] * cosLat[y] * sinLon[x])));
     };
-    if (mode === 0) composedAt = state.moment;
+    if (mode === 0) { settleZones(state.moment); composedAt = state.moment; }
     for (let y = ya; y < yb; y++) for (let xx = x0; xx < x1; xx++) {
       const x = ((xx % W) + W) % W, c = y * W + x, p = own[c], a = basePx[c * 4 + 1];
       const pc = p >= 0 ? workColours[p] : [38, 42, 48];
@@ -1613,13 +2135,18 @@ const MARBLE_JPG = "__MARBLE__";
       } else if (mode === 0) {
         if (p < 0 || (a !== 255 && a <= moment.ma)) { r = g = b = 70; }
         else {
-          const th = angle(c, p);
-          const back = 2 * Math.asin(Math.min(1, kk * Math.sin(th / 2)));
-          const t = th < 1e-4 ? 1 : Math.sin(back) / (kk * Math.sin(th));
-          [r, g, b] = strainRgb(1 / Math.max(t, 1e-3) - 1).map((v) => (land ? v : v * 0.84));
-          const band = Math.floor(th / STEP);
-          const cr2 = y * W + (x + 1) % W, cd2 = y < H - 1 ? c + W : c;
-          if ((own[cr2] === p && Math.floor(angle(cr2, p) / STEP) !== band) || (own[cd2] === p && Math.floor(angle(cd2, p) / STEP) !== band)) { r = r * 0.5 + 17; g = g * 0.5 + 19; b = b * 0.5 + 24; }
+          const grown = zoneList.length ? zoneCellGain(c) : -1;
+          if (grown >= 0) {
+            [r, g, b] = (grown >= 1 ? rampRgb(GROW_AT, GROW_RGB, grown - 1) : rampRgb(SHRINK_AT, SHRINK_RGB, 1 / Math.max(grown, 0.05) - 1)).map((v) => (land ? v : v * 0.84));
+          } else {
+            const th = angle(c, p);
+            const back = 2 * Math.asin(Math.min(1, kk * Math.sin(th / 2)));
+            const t = th < 1e-4 ? 1 : Math.sin(back) / (kk * Math.sin(th));
+            [r, g, b] = strainRgb(1 / Math.max(t, 1e-3) - 1).map((v) => (land ? v : v * 0.84));
+            const band = Math.floor(th / STEP);
+            const cr2 = y * W + (x + 1) % W, cd2 = y < H - 1 ? c + W : c;
+            if ((own[cr2] === p && Math.floor(angle(cr2, p) / STEP) !== band) || (own[cd2] === p && Math.floor(angle(cd2, p) / STEP) !== band)) { r = r * 0.5 + 17; g = g * 0.5 + 19; b = b * 0.5 + 24; }
+          }
         }
       } else if (under) { r = g = b = 0; }
       else if (!src) { r = g = b = 70; }

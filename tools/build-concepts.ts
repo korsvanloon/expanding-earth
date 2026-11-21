@@ -414,6 +414,7 @@ async function main() {
       .replace('/*CONCEPTS*/null', readFileSync(resolve(OUT, 'concepts.json'), 'utf8'))
       .replace('__PIECES__', dataUri('pieces.png', 'image/png'))
       .replace('__MARBLE__', dataUri('marble.jpg', 'image/jpeg'))
+      .replace('__CRUST__', crustBase64())
     writeFileSync(resolve(OUT, 'index.html'), page)
   }
   console.log(`[concepts] wrote ${OUT}`)
@@ -727,6 +728,21 @@ function loadMarble(width = W, height = H): Uint8Array {
  * reached, so it is left out of every average and kept only where nothing else
  * fell in the cell. Null when `pnpm data` has not made it here.
  */
+/**
+ * Crust thickness for the page's stretch zones: ECM1 on its one-degree grid,
+ * row 0 in the north, a byte a cell in half kilometres. A zone may grow by as
+ * much as its crust is thicker than ordinary crust.
+ */
+function crustBase64(): string {
+  const file = resolve(ROOT, 'data-src/ecm1.bin')
+  if (!existsSync(file)) return ''
+  const raw = readFileSync(file)
+  const n = raw.readUInt32LE(0) * raw.readUInt32LE(4)
+  const out = Buffer.alloc(n)
+  for (let i = 0; i < n; i++) out[i] = Math.max(0, Math.min(255, Math.round(raw.readFloatLE(8 + i * 4) * 2)))
+  return out.toString('base64')
+}
+
 function loadFabric(width: number, height: number): Uint8Array | null {
   const file = resolve(ROOT, 'public/data/fabric.jpg')
   if (!existsSync(file)) return null
