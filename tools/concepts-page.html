@@ -232,6 +232,7 @@
         <p class="note" id="fabric-note" hidden>Crustal fabric: hoe snel de verticale zwaartekrachtgradiënt verandert. Donker waar de korst met rust is gelaten, licht waar hij bewerkt is: breukzones, suturen, gefaalde rifts, gebergtewortels. Grijs is waar de altimetrie niet kwam. Op ruim de halve resolutie van de site.</p>
         <label class="check"><input type="checkbox" id="show-iso"> Witte leeftijdslijnen, om de 30 Ma <kbd>I</kbd></label>
         <label class="check"><input type="checkbox" id="show-overlap" checked> Overlap arceren <kbd>O</kbd></label>
+        <label class="check" title="Bij stukken waarvan de randen meegeven: waar de rand lag voordat hij meegaf"><input type="checkbox" id="show-outline"> Oorspronkelijke randen tonen <kbd>R</kbd></label>
         <label class="check"><input type="checkbox" id="show-joins"> Aansluitingen tonen <kbd>A</kbd></label>
         <label class="check"><input type="checkbox" id="show-motion"> Beweging sinds het vorige moment tonen <kbd>B</kbd></label>
         <span class="keys">Moment kiezen: <kbd>1</kbd>–<kbd>5</kbd> voor 0, 45, 90, 135 en 180 Ma; <kbd>,</kbd> <kbd>.</kbd> een stap van 15 Ma</span>
@@ -537,7 +538,6 @@ const CRUST_B64 = "__CRUST__";
       for (const z of zoneList) {
         if (z.dirty) continue;
         if (z.p === p) z.dirty = true;
-        else if (!z.keep) z.dirty = z.neighbours.some((b) => b.p === p);
         else {
           // An edge that gives reaches a seam's width past the piece's own rim.
           const q = rigidOf(mi, z.p), far = Math.acos(q.cosReach) + seam;
@@ -561,15 +561,12 @@ const CRUST_B64 = "__CRUST__";
     return from(q.there, 2 * Math.asin(Math.min(1, k * Math.sin(dist / 2))), bearing + q.spin);
   }
 
-  // ---------- stretch zones ----------
-  // Two kinds of piece give where the rigid ones cannot. A zone that hangs has
-  // no place of its own: each of its edges lies where the neighbour it is
-  // joined to today lies, and the ground between is spread from edge to edge
-  // like a sheet of rubber -- a mountain belt. A piece with edges that give is
-  // laid by hand like any other, and then its edge goes to meet whatever lies
-  // across from it at that moment, crust of today's neighbour or not: half way
-  // when that piece gives as well, all the way when it is rigid. The shift
-  // dies away into the piece, so a seam is closed and the middle stays put.
+  // ---------- edges that give ----------
+  // A piece whose edges give is laid by hand like any other, and then its
+  // edge goes to meet whatever lies across from it at that moment, crust of
+  // today's neighbour or not: half way when that piece gives as well, all the
+  // way when it is rigid. The shift dies away into the piece, so a seam is
+  // closed and the middle stays put.
   const REK_G = 128, REK_MAX = 127, REK_RING = 2, NORMAL_CRUST_KM = 38;
   /** How wide a gap or an overlap an edge that gives will still close, km on the globe of the moment. */
   const SEAM_KM = 500;
@@ -592,33 +589,6 @@ const CRUST_B64 = "__CRUST__";
     return 0.5 * Math.hypot(uy * wz - uz * wy, uz * wx - ux * wz, ux * wy - uy * wx);
   }
   const NEAR = [[-1, -1], [0, -1], [1, -1], [-1, 0], [1, 0], [-1, 1], [0, 1], [1, 1]];
-  /** Steps over a zone's own cells from the cells marked zero, eight ways. */
-  function stepsFrom(z, d) {
-    const nz = z.nz, around = z.around, cells = z.cells, id = z.p + 1, owner = cut.cells;
-    for (let pass = 0; pass < 16; pass++) {
-      let changed = false;
-      for (let s = 0; s < 2; s++) for (let k = 0; k < nz; k++) {
-        const a = s ? nz - 1 - k : k;
-        let best = d[a];
-        if (around) for (let e = 0; e < 8; e++) { const j = around[a * 8 + e]; if (j < 0) break; if (d[j] + 1 < best) best = d[j] + 1; }
-        else {
-          // A zone that keeps its place can be very large: its neighbours are looked up, not kept.
-          const c = cells[a], x = c % W, y = (c - x) / W, xl = (x + W - 1) % W, xr = (x + 1) % W;
-          for (let dy = -1; dy <= 1; dy++) {
-            const yy = y + dy;
-            if (yy < 0 || yy >= H) continue;
-            const row = yy * W;
-            let m = row + xl; if (owner[m] === id && d[zoneCell[m]] + 1 < best) best = d[zoneCell[m]] + 1;
-            m = row + xr; if (owner[m] === id && d[zoneCell[m]] + 1 < best) best = d[zoneCell[m]] + 1;
-            if (dy) { m = row + x; if (owner[m] === id && d[zoneCell[m]] + 1 < best) best = d[zoneCell[m]] + 1; }
-          }
-        }
-        if (best < d[a]) { d[a] = best; changed = true; }
-      }
-      if (!changed) break;
-    }
-    return d;
-  }
   /** A piece's cells as its own frame sees them: what carries them on any globe without a sine taken. */
   function seenFrom(p, dirs, n) {
     const h = frame(dir(C.pieces[p].lon, C.pieces[p].lat));
@@ -632,41 +602,31 @@ const CRUST_B64 = "__CRUST__";
     }
     return { sinHalf, cosB, sinB };
   }
-  /** What does not change while the cut stays as it is. A zone that keeps its place is meshed coarser the larger it is. */
-  function makeZone(p, keep) {
+  /** What does not change while the cut stays as it is. A large piece is meshed coarser. */
+  function makeZone(p) {
     const cells = [];
     for (let c = 0; c < W * H; c++) if (cut.cells[c] === p + 1) cells.push(c);
     const nz = cells.length;
     if (!zoneCell) zoneCell = new Int32Array(W * H).fill(-1);
     cells.forEach((c, i) => { zoneCell[c] = i; });
     const mine = (c) => (cut.cells[c] === p + 1 ? zoneCell[c] : -1);
-    // The cells of the zone around each cell of the zone, and every other
-    // piece a cell touches, as pairs of (cell of the zone, cell of the other).
-    const around = keep ? null : new Int32Array(nz * 8).fill(-1), met = new Map();
-    const rim = new Float32Array(nz).fill(1e9);
+    // The cells on the rim of the piece.
+    const rim = new Uint8Array(nz);
     for (let a = 0; a < nz; a++) {
       const c = cells[a], x = c % W, y = (c / W) | 0;
-      let s = 0;
       for (const [dx, dy] of NEAR) {
         const yy = y + dy;
-        if (yy < 0 || yy >= H) { rim[a] = 0; continue; }
-        const m = yy * W + (x + dx + W) % W, j = mine(m);
-        if (j >= 0) { if (around) around[a * 8 + s++] = j; continue; }
-        rim[a] = 0;
-        const q = cut.cells[m] - 1;
-        if (q < 0 || keep) continue;
-        if (!met.has(q)) met.set(q, []);
-        met.get(q).push(a, m);
+        if (yy < 0 || yy >= H || mine(yy * W + (x + dx + W) % W) < 0) { rim[a] = 1; break; }
       }
     }
-    const z = { p, id: C.pieces[p].id, keep, loose: new Set(), cells, nz, around };
-    const stride = keep ? (nz > 24000 ? 4 : nz > 6000 ? 2 : 1) : 1;
+    const z = { p, id: C.pieces[p].id, cells, nz };
+    const stride = nz > 24000 ? 4 : nz > 6000 ? 2 : 1;
     // A ring of cells around the zone, each with the zone cell it is nearest
     // and how many steps out it lies, so that the picture of the zone reaches
     // past its own edge and no seam shows.
     const ring = new Map();
     let edge = [];
-    for (let a = 0; a < nz; a++) if (rim[a] === 0) edge.push(cells[a]);
+    for (let a = 0; a < nz; a++) if (rim[a]) edge.push(cells[a]);
     for (let r = 1; r <= REK_RING + stride; r++) {
       const next = [];
       for (const c of edge) {
@@ -683,7 +643,7 @@ const CRUST_B64 = "__CRUST__";
       edge = next;
     }
     // The mesh: the corners of every square of the lattice that holds a cell of the zone or of its inner ring.
-    const vertOf = new Map(), vCell = [], vFrom = [], vOut = [], vOwn = [];
+    const vertOf = new Map(), vCell = [], vOwn = [];
     const corner = (lx, ly) => {
       if (ly < 0 || ly >= H) return -1;
       const c = ly * W + ((lx % W) + W) % W;
@@ -692,7 +652,7 @@ const CRUST_B64 = "__CRUST__";
       const zi = mine(c), r = zi < 0 ? ring.get(c) : null;
       if (zi < 0 && !r) return -1;
       v = vCell.length;
-      vertOf.set(c, v); vCell.push(c); vFrom.push(zi >= 0 ? zi : r.from); vOut.push(zi >= 0 ? 0 : r.out); vOwn.push(zi >= 0 ? 1 : 0);
+      vertOf.set(c, v); vCell.push(c); vOwn.push(zi >= 0 ? 1 : 0);
       return v;
     };
     const squares = new Set(), tris = [];
@@ -708,8 +668,6 @@ const CRUST_B64 = "__CRUST__";
     const n = vCell.length;
     const dirs = new Float64Array(n * 3);
     for (let i = 0; i < n; i++) { const c = vCell[i], x = c % W, y = (c / W) | 0; dirs[i * 3] = cosLat[y] * cosLon[x]; dirs[i * 3 + 1] = sinLat[y]; dirs[i * 3 + 2] = -cosLat[y] * sinLon[x]; }
-    const neighbours = [...met].filter(([, pairs]) => pairs.length >= 16).sort((a, b) => b[1].length - a[1].length)
-      .map(([q, pairs]) => ({ p: q, pairs: Int32Array.from(pairs), seen: seenFrom(q, dirs, n) }));
     const triArea = new Float32Array(tris.length / 3), triOwn = new Uint8Array(tris.length / 3);
     let ownToday = 0;
     for (let t = 0; t < triArea.length; t++) {
@@ -725,55 +683,8 @@ const CRUST_B64 = "__CRUST__";
       if (km > 0) { thick += km * cosLat[y]; weight += cosLat[y]; }
     }
     const crustKm = weight ? thick / weight : 0;
-    return Object.assign(z, { stride, n, vertOf, vFrom: Int32Array.from(vFrom), vOut: Float32Array.from(vOut), dirs, neighbours, self: seenFrom(p, dirs, n),
-      tris: Int32Array.from(tris), triArea, triOwn, ownToday, crustKm, allowed: Math.max(1, crustKm / NORMAL_CRUST_KM), weights: new Map(), dirty: true });
-  }
-  /**
-   * How much of each neighbour every corner of a hanging zone's mesh follows
-   * at a moment. A neighbour pulls only along the edge where the crust on both
-   * sides exists then, and not at all when that edge is let loose or the
-   * neighbour hangs itself. A cell on such an edge follows that neighbour
-   * alone; between the edges the pull is evened out, each cell the mean of
-   * the cells around it.
-   */
-  function zoneWeights(z, mi) {
-    const ma = C.moments[mi].ma, nz = z.nz;
-    const live = z.neighbours.map((b) => {
-      const out = [], other = zoneOf.get(b.p);
-      if (!z.loose.has(C.pieces[b.p].id) && !(other && !other.keep)) for (let i = 0; i < b.pairs.length; i += 2) if (ageOf(b.pairs[i + 1]) > ma && ageOf(z.cells[b.pairs[i]]) > ma) out.push(b.pairs[i]);
-      return out;
-    });
-    const key = live.map((l) => l.length).join(',');
-    if (z.weights.has(key)) return z.weights.get(key);
-    const used = z.neighbours.map((b, i) => i).filter((i) => live[i].length >= 16);
-    const steps = used.map((i) => { const d = new Float32Array(nz).fill(1e9); for (const a of live[i]) d[a] = 0; return stepsFrom(z, d); });
-    const pinned = new Uint8Array(nz);
-    for (const d of steps) for (let a = 0; a < nz; a++) if (d[a] === 0) pinned[a] = 1;
-    for (let a = 0; a < nz; a++) {
-      let zero = 0, sum = 0;
-      for (let u = 0; u < used.length; u++) if (steps[u][a] === 0) zero++;
-      for (let u = 0; u < used.length; u++) {
-        const v = zero ? (steps[u][a] === 0 ? 1 / zero : 0) : 1 / (steps[u][a] * steps[u][a]);
-        steps[u][a] = v; sum += v;
-      }
-      if (sum > 0) for (let u = 0; u < used.length; u++) steps[u][a] /= sum;
-    }
-    const sweeps = Math.max(10, Math.min(160, Math.floor(1.5e8 / (nz * 8 * Math.max(1, used.length)))));
-    for (const f of steps) for (let it = 0; it < sweeps; it++) for (let k = 0; k < nz; k++) {
-      const a = it & 1 ? nz - 1 - k : k;
-      if (pinned[a]) continue;
-      let sum = 0, cnt = 0;
-      for (let e = 0; e < 8; e++) { const j = z.around[a * 8 + e]; if (j < 0) break; sum += f[j]; cnt++; }
-      if (cnt) f[a] += 1.8 * (sum / cnt - f[a]);
-    }
-    for (let a = 0; a < nz; a++) {
-      let sum = 0;
-      for (const f of steps) { if (f[a] < 0) f[a] = 0; sum += f[a]; }
-      for (const f of steps) f[a] = sum > 0 ? f[a] / sum : 1 / used.length;
-    }
-    const out = { handles: used.map((i) => z.neighbours[i]), w: steps.map((f) => { const full = new Float32Array(z.n); for (let v = 0; v < z.n; v++) full[v] = f[z.vFrom[v]]; return full; }) };
-    z.weights.set(key, out);
-    return out;
+    return Object.assign(z, { stride, n, vertOf, dirs, self: seenFrom(p, dirs, n),
+      tris: Int32Array.from(tris), triArea, triOwn, ownToday, crustKm, allowed: Math.max(1, crustKm / NORMAL_CRUST_KM), dirty: true });
   }
 
   // The edges of the moment shown: for every piece, a thinned row of the cells
@@ -818,7 +729,6 @@ const CRUST_B64 = "__CRUST__";
     const reach = SEAM_KM / C.moments[mi].radiusKm, size = Math.max(4, Math.min(64, Math.floor(2 / reach)));
     const bins = new Map();
     for (let p = 0; p < N; p++) {
-      if (zoneOf.has(p) && !zoneOf.get(p).keep) continue;
       seamPlace(mi, p);
       const at = seams.at[p];
       for (let i = 0; i < at.length; i += 3) {
@@ -891,25 +801,6 @@ const CRUST_B64 = "__CRUST__";
     }
     return pos;
   }
-  /** Where the corners of a hanging zone's mesh lie at a moment: each the mean of where its neighbours would carry it. Null when none holds it. */
-  function hangPositions(z, mi) {
-    const { handles, w } = zoneWeights(z, mi);
-    if (!handles.length) return null;
-    const k = C.moments[mi].k, n = z.n, pos = new Float64Array(n * 3);
-    handles.forEach((h, u) => {
-      const q = rigidOf(mi, h.p), t = q.there, cs = Math.cos(q.spin), sn = Math.sin(q.spin), wu = w[u], seen = h.seen;
-      for (let i = 0; i < n; i++) {
-        const wi = wu[i];
-        if (wi < 1e-4) continue;
-        const half = Math.min(1, k * seen.sinHalf[i]), sinT = 2 * half * Math.sqrt(1 - half * half), cosT = 1 - 2 * half * half;
-        const cn = (seen.cosB[i] * cs - seen.sinB[i] * sn) * sinT, ce = (seen.sinB[i] * cs + seen.cosB[i] * sn) * sinT;
-        pos[i * 3] += wi * (t.up[0] * cosT + t.north[0] * cn + t.east[0] * ce);
-        pos[i * 3 + 1] += wi * (t.up[1] * cosT + t.north[1] * cn + t.east[1] * ce);
-        pos[i * 3 + 2] += wi * (t.up[2] * cosT + t.north[2] * cn + t.east[2] * ce);
-      }
-    });
-    return pos;
-  }
   /**
    * A zone at a moment: where every corner of its mesh lies, and the picture
    * that finds today's ground again from a point of the smaller sphere -- the
@@ -918,7 +809,7 @@ const CRUST_B64 = "__CRUST__";
    * Null when nothing holds or moves it, and it lies as an ordinary piece.
    */
   function layZone(z, mi, rigid) {
-    const pos = z.keep ? givePositions(z, mi, rigid) : hangPositions(z, mi);
+    const pos = givePositions(z, mi, rigid);
     if (!pos) return null;
     const k = C.moments[mi].k, n = z.n;
     const sum = [0, 0, 0];
@@ -1053,7 +944,7 @@ const CRUST_B64 = "__CRUST__";
       for (const z of zoneList) z.dirty = true;
     }
     let any = false;
-    if (zoneList.some((z) => z.keep && z.dirty)) seamIndex(now);
+    if (zoneList.some((z) => z.dirty)) seamIndex(now);
     for (const z of zoneList) {
       if (!z.dirty) continue;
       z.dirty = false; any = true;
@@ -1138,7 +1029,7 @@ const CRUST_B64 = "__CRUST__";
   in vec2 aPos; void main() { gl_Position = vec4(aPos, 0.0, 1.0); }`;
   const FRAG = `#version 300 es
   precision highp float; precision highp int; precision highp sampler2D; precision highp sampler2DArray;
-  uniform sampler2DArray uRek; uniform int uZone[${REK_MAX}];
+  uniform sampler2DArray uRek; uniform int uZone[${REK_MAX}]; uniform int uOutline;
   uniform sampler2D uMarble; uniform sampler2D uPieces; uniform sampler2D uData; uniform sampler2D uFabric; uniform sampler2D uRelief;
   uniform int uMoment; uniform int uCount; uniform float uK; uniform int uMode; uniform int uShowChosen; uniform int uShowOverlap; uniform int uIso;
   uniform float uMa; uniform float uSeaLevel;
@@ -1300,6 +1191,24 @@ const CRUST_B64 = "__CRUST__";
       if (sure < 0.5) continue;
       lay(p, m.xyz / sure, 0.0, dist, m.a / sure, extra.w > 0.5);
     }
+    // Where a piece whose edges give would have its rim had they not given:
+    // the piece as its own placement lays it, drawn as a line over the rest.
+    bool outline = false;
+    if (uOutline == 1) for (int s = 0; s < ${REK_MAX}; s++) {
+      int p = uZone[s];
+      if (p < 0) break;
+      vec4 rx = fetch(p, 10);
+      float cu = dot(d, fetch(p, 9).xyz);
+      if (cu < rx.x) continue;
+      float dist = acos(clamp(cu, -1.0, 1.0));
+      float bearing = atan(dot(d, fetch(p, 7).xyz), dot(d, fetch(p, 8).xyz)) - rx.y;
+      float back = 2.0 * asin(min(1.0, sin(dist * 0.5) / uK));
+      vec3 q = fetch(p, 5).xyz * cos(back) + (fetch(p, 4).xyz * cos(bearing) + fetch(p, 3).xyz * sin(bearing)) * sin(back);
+      ivec2 cell = cellOf(q);
+      if (idAt(cell) != p + 1) continue;
+      if (idAt(ivec2((cell.x + 1) % ${W}, cell.y)) != p + 1 || idAt(ivec2((cell.x + ${W - 1}) % ${W}, cell.y)) != p + 1
+        || idAt(ivec2(cell.x, max(cell.y - 1, 0))) != p + 1 || idAt(ivec2(cell.x, min(cell.y + 1, ${H - 1}))) != p + 1) { outline = true; break; }
+    }
     if (hits > 1 && uShowOverlap == 1) {
       // Thick diagonal stripes with clear ground between them, so what lies
       // underneath can be read and the overlap still be told; a faint wash
@@ -1313,6 +1222,7 @@ const CRUST_B64 = "__CRUST__";
     }
     else if (topRim) colour *= 0.55;
     if (chosenRim) colour = vec3(1.0, 0.82, 0.4);
+    if (outline) colour = vec3(0.1, 0.95, 1.0);
     if (hits == 0) {
       float lon = atan(-d.z, d.x) / PI * 180.0, lat = asin(clamp(d.y, -1.0, 1.0)) / PI * 180.0;
       float gx = abs(mod(lon + 180.0, 30.0) - 15.0), gy = abs(mod(lat + 90.0, 30.0) - 15.0);
@@ -1343,15 +1253,19 @@ const CRUST_B64 = "__CRUST__";
   gl.enable(gl.BLEND);
   gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
 
-  // Placement data: 8 texels per piece per moment.
-  const data = new Float32Array(32 * N * M);
+  // Placement data: 12 texels per piece per moment; 7 to 10 the piece as its
+  // own placement lays it, which for a piece whose edges give is its outline before they give.
+  const TEXELS = 12;
+  const data = new Float32Array(TEXELS * 4 * N * M);
   function packRow(mi, p) {
     const q = placed[mi][p];
-    const row = (mi * N + p) * 32;
+    const row = (mi * N + p) * TEXELS * 4;
     const put = (c, v) => data.set([v[0], v[1], v[2], v[3] || 0], row + c * 4);
     put(0, q.there.east); put(1, q.there.north); put(2, q.there.up);
     put(3, q.home.east); put(4, q.home.north); put(5, q.home.up);
     put(6, [q.cosReach, q.spin, q.grid ? q.zone.slot + 1 : 0, chosen.has(p) ? 1 : 0]);
+    const r = q.rigid || q;
+    put(7, r.there.east); put(8, r.there.north); put(9, r.there.up); put(10, [r.cosReach, r.spin, 0, 0]);
   }
   for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) packRow(mi, p);
   function texture(unitIndex, setup) {
@@ -1362,7 +1276,7 @@ const CRUST_B64 = "__CRUST__";
     return t;
   }
   const dataTexture = texture(2, () => {
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, 8, N * M, 0, gl.RGBA, gl.FLOAT, data);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, TEXELS, N * M, 0, gl.RGBA, gl.FLOAT, data);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
   });
@@ -1384,7 +1298,7 @@ const CRUST_B64 = "__CRUST__";
     const row = mi * N + p;
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, 8, 1, gl.RGBA, gl.FLOAT, data.subarray(row * 32, row * 32 + 32));
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, TEXELS, 1, gl.RGBA, gl.FLOAT, data.subarray(row * TEXELS * 4, (row + 1) * TEXELS * 4));
   }
   /** A piece has moved: its frame, its texels, and nothing else. */
   function replace(mi, p) {
@@ -1395,14 +1309,14 @@ const CRUST_B64 = "__CRUST__";
   function uploadAll() {
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 8, N * M, gl.RGBA, gl.FLOAT, data);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TEXELS, N * M, gl.RGBA, gl.FLOAT, data);
   }
   /** The chosen pieces changed: mark them in every moment's texels. */
   function markChosen() {
-    for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) data[(mi * N + p) * 32 + 27] = chosen.has(p) ? 1 : 0;
+    for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) data[(mi * N + p) * TEXELS * 4 + 27] = chosen.has(p) ? 1 : 0;
     gl.activeTexture(gl.TEXTURE2);
     gl.bindTexture(gl.TEXTURE_2D, dataTexture);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, 8, N * M, gl.RGBA, gl.FLOAT, data);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, TEXELS, N * M, gl.RGBA, gl.FLOAT, data);
   }
   gl.uniform1i(U('uMarble'), 0); gl.uniform1i(U('uPieces'), 1); gl.uniform1i(U('uData'), 2); gl.uniform1i(U('uFabric'), 3); gl.uniform1i(U('uRelief'), 4); gl.uniform1i(U('uRek'), 5);
   gl.uniform1i(U('uCount'), N);
@@ -1421,6 +1335,7 @@ const CRUST_B64 = "__CRUST__";
     gl.uniform1i(U('uShowChosen'), showChosen ? 1 : 0);
     gl.uniform1i(U('uShowOverlap'), state.overlap ? 1 : 0);
     gl.uniform1i(U('uIso'), state.iso ? 1 : 0);
+    gl.uniform1i(U('uOutline'), state.outline ? 1 : 0);
     gl.uniform1f(U('uMa'), C.moments[mi].ma);
     gl.uniform1f(U('uSeaLevel'), (C.seaLevel & 0xfc) / 255);
     gl.uniformMatrix3fv(U('uView'), false, new Float32Array([...f.east, ...f.north, ...f.up]));
@@ -1564,48 +1479,36 @@ const CRUST_B64 = "__CRUST__";
     });
   }
 
-  /** What the panel says about a zone at the moment shown, and for one that hangs the switches for its edges. */
+  /** What the panel says about a piece whose edges give, at the moment shown. */
   function zonePanel(z) {
     const q = placed[state.moment][z.p];
     const times = (v) => '×' + fmt(v, 2);
     let figures;
-    if (!q.grid) {
-      figures = `<p class="hint">${z.keep ? 'Geen rand ligt op dit moment binnen bereik van een ander stuk: het ligt hier als een gewoon stuk.'
-        : 'Geen buur houdt haar op dit moment vast: ze ligt hier als een gewoon stuk.'}</p>`;
-    } else {
+    if (!q.grid) figures = '<p class="hint">Geen rand ligt op dit moment binnen bereik van een ander stuk: het ligt hier als een gewoon stuk.</p>';
+    else {
       const st = q.stats, more = zoneStretch(q), warn = [];
-      if (st.folded > 0.02) warn.push(z.keep ? `Vouwt over ${fmt(100 * st.folded)}% dubbel: een rand moet te ver. Leg het stuk dichter tegen zijn buren.`
-        : `Vouwt over ${fmt(100 * st.folded)}% dubbel: twee buren liggen te ver uit elkaar gedraaid. Leg een buur terug of laat een rand los.`);
-      if (!z.keep && st.gain > z.allowed * 1.05) warn.push('Meer rek dan de korst toelaat.');
-      if (!z.keep && st.gain < 0.9) warn.push('Ze wordt samengeperst; terug in de tijd hoort een gebergte te rekken.');
+      // Thick crust is a mountain belt: how far it may grow is how far it can be spread out.
+      const thick = z.crustKm > NORMAL_CRUST_KM + 2;
+      if (st.folded > 0.02) warn.push(`Vouwt over ${fmt(100 * st.folded)}% dubbel: een rand moet te ver. Leg het stuk dichter tegen zijn buren.`);
+      if (thick && st.gain > z.allowed * 1.05) warn.push('Meer rek dan de korst toelaat.');
       figures = `<div class="coords">grond ${times(st.gain)} · langste rek ${times(more.long)} · kortste ${times(more.short)}</div>` +
-        (!z.keep && z.crustKm ? `<div class="coords">korst ${fmt(z.crustKm)} km dik; uitgestreken tot ${NORMAL_CRUST_KM} km geeft dat ${times(z.allowed)}</div>` : '') +
+        (thick ? `<div class="coords">korst ${fmt(z.crustKm)} km dik; uitgestreken tot ${NORMAL_CRUST_KM} km geeft dat ${times(z.allowed)}</div>` : '') +
         warn.map((t) => `<p class="hint warn">${t}</p>`).join('');
     }
-    if (z.keep) return `<p class="hint">De randen geven mee: elke rand gaat naar wat er op dit moment tegenover ligt, tot ${fmt(SEAM_KM)} km ver.</p>${figures}`;
-    const edges = z.neighbours.map((b) => {
-      const id = C.pieces[b.p].id, other = zoneOf.get(b.p), hangs = other && !other.keep;
-      return `<button type="button" data-edge="${id}" aria-pressed="${!z.loose.has(id) && !hangs}"${hangs ? ' disabled title="Zelf een rekzone"' : ''}>${C.pieces[b.p].name}</button>`;
-    }).join('');
-    return `${figures}
-      <p class="hint">Randen: ingekleurd zit de rand vast aan die buur; anders glijdt de buur erlangs.</p>
-      <div class="controls">${edges}</div>`;
+    return `<p class="hint">De randen geven mee: elke rand gaat naar wat er op dit moment tegenover ligt, tot ${fmt(SEAM_KM)} km ver.</p>${figures}`;
   }
-  /** The buttons that make the chosen pieces give, hang or rigid again, and what they do. */
+  /** The buttons that make the chosen pieces give, or rigid again, and what they do. */
   function zoneButtons(box, ids) {
-    const kind = (id) => { const z = zoneOf.get(indexOf(id)); return z ? (z.keep ? 'give' : 'hang') : 'rigid'; };
-    const rigid = ids.filter((id) => kind(id) === 'rigid'), give = ids.filter((id) => kind(id) === 'give');
+    const rigid = ids.filter((id) => !zoneOf.has(indexOf(id))), give = ids.filter((id) => zoneOf.has(indexOf(id)));
     const row = document.createElement('div');
     row.className = 'controls';
     row.innerHTML = (rigid.length ? `<button type="button" data-give title="Het stuk blijft waar je het legt; zijn rand gaat naar wat er tegenover ligt">Laat de randen meegeven</button>` : '') +
-      (give.length ? `<button type="button" data-stiff>Randen weer star</button>` : '') +
-      (ids.length === 1 && rigid.length ? `<button type="button" data-zone-on title="Het stuk krijgt geen eigen plek meer: het rekt mee tussen zijn buren">Maak rekzone</button>` : '');
+      (give.length ? `<button type="button" data-stiff>Randen weer star</button>` : '');
     if (!row.innerHTML) return;
     box.append(row);
     const on = (sel, fn) => { const b = row.querySelector(sel); if (b) b.addEventListener('click', fn); };
-    on('[data-give]', () => setZones(rigid.map((id) => [id, { keep: true, loose: [] }])));
-    on('[data-stiff]', () => setZones(give.map((id) => [id, null])));
-    on('[data-zone-on]', () => setZone(ids[0], { keep: false, loose: [] }));
+    on('[data-give]', () => setZones(rigid.map((id) => [id, true])));
+    on('[data-stiff]', () => setZones(give.map((id) => [id, false])));
   }
 
   function describeEdit() {
@@ -1619,9 +1522,9 @@ const CRUST_B64 = "__CRUST__";
           ${zoneSet.size ? '<button type="button" data-stiff-all>Alles weer star</button>' : ''}
         </div>`;
       box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
-      box.querySelector('[data-give-all]').addEventListener('click', () => setZones(C.pieces.filter((p) => !zoneSet.has(p.id)).map((p) => [p.id, { keep: true, loose: [] }])));
+      box.querySelector('[data-give-all]').addEventListener('click', () => setZones(C.pieces.filter((p) => !zoneSet.has(p.id)).map((p) => [p.id, true])));
       const stiffAll = box.querySelector('[data-stiff-all]');
-      if (stiffAll) stiffAll.addEventListener('click', () => setZones([...zoneSet.keys()].map((id) => [id, null])));
+      if (stiffAll) stiffAll.addEventListener('click', () => setZones([...zoneSet].map((id) => [id, false])));
       return;
     }
     const ids = [...chosen].map((p) => C.pieces[p].id);
@@ -1629,27 +1532,6 @@ const CRUST_B64 = "__CRUST__";
     let head;
     settleZones();
     const only = chosen.size === 1 ? zoneOf.get([...chosen][0]) : null;
-    const zone = only && !only.keep ? only : null;
-    if (zone) {
-      // A zone that hangs is not laid by hand: the panel shows how far it is stretched and which edges hold.
-      box.innerHTML = `<div class="name">${C.pieces[zone.p].name}<small>rekzone</small></div>
-        <p class="hint">Een rekzone leg je niet zelf: elke rand volgt de buur waar ze vandaag aan vastzit, en ertussen rekt ze mee.</p>
-        ${zonePanel(zone)}
-        <div class="controls">
-          ${manyButton}
-          <button type="button" data-zone-off>Weer een star stuk</button>
-          <button type="button" data-drop>Loslaten <kbd>Esc</kbd></button>
-        </div>`;
-      box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
-      box.querySelector('[data-drop]').addEventListener('click', () => { choose([]); render(); });
-      box.querySelector('[data-zone-off]').addEventListener('click', () => setZone(zone.id, null));
-      box.querySelectorAll('[data-edge]').forEach((b) => b.addEventListener('click', () => {
-        const loose = new Set(zone.loose);
-        if (loose.has(b.dataset.edge)) loose.delete(b.dataset.edge); else loose.add(b.dataset.edge);
-        setZone(zone.id, { keep: false, loose: [...loose] });
-      }));
-      return;
-    }
     if (chosen.size === 1) {
       const p = [...chosen][0];
       const at = placementOf(state.moment, ids[0]);
@@ -1750,8 +1632,7 @@ const CRUST_B64 = "__CRUST__";
   /** The chosen pieces as they lie now, ready to be turned together. */
   function group() {
     const mi = state.moment;
-    // A zone that hangs is not laid by hand: it stays out of what is moved.
-    const items = [...chosen].filter((p) => !(zoneOf.has(p) && !zoneOf.get(p).keep)).map((p) => {
+    const items = [...chosen].map((p) => {
       const id = C.pieces[p].id;
       return { id, before: edits[mi][id], ...headingOf(placementOf(mi, id)), share: C.pieces[p].share };
     });
@@ -1802,7 +1683,7 @@ const CRUST_B64 = "__CRUST__";
     const under = d ? piecesAt(d, state.moment) : [];
     const additive = e.ctrlKey || e.metaKey || many;
     gesture = { x: e.clientX, y: e.clientY, moved: false, under, additive: additive || e.shiftKey };
-    if (under.some((p) => chosen.has(p)) && !additive && [...chosen].some((p) => !(zoneOf.has(p) && !zoneOf.get(p).keep))) {
+    if (under.some((p) => chosen.has(p)) && !additive) {
       const g = group();
       gesture.kind = e.shiftKey || e.altKey || state.tool === 'rotate' ? 'rotate' : 'move';
       gesture.group = g;
@@ -1924,6 +1805,7 @@ const CRUST_B64 = "__CRUST__";
     // One key for every switch on the page.
     const key = e.key.toLowerCase();
     if (key === 'o') { overlapBox.click(); }
+    else if (key === 'r') { outlineBox.click(); }
     else if (key === 'i') { setIso(!state.iso); }
     else if (key === '+' || key === '=') { zoomBy(1.5); }
     else if (key === '-' || key === '_') { zoomBy(1 / 1.5); }
@@ -1987,7 +1869,7 @@ const CRUST_B64 = "__CRUST__";
       ? stack.map((p) => {
         const [blon, blat] = lonLat(backOf(d, placed[mi][p], C.moments[mi].k) || d);
         const c = Math.min(H - 1, Math.floor((90 - blat) / 180 * H)) * W + Math.min(W - 1, Math.floor((blon + 180) / 360 * W));
-        const floor = (cellAge[c] < 255 ? ` · oceaanbodem van ${cellAge[c]} Ma` : '') + (placed[mi][p].grid ? ` · ${placed[mi][p].zone.keep ? 'rand geeft mee' : 'rekzone'}, grond ×${fmt(zoneGain, 2)}` : '');
+        const floor = (cellAge[c] < 255 ? ` · oceaanbodem van ${cellAge[c]} Ma` : '') + (placed[mi][p].grid ? ` · rand geeft mee, grond ×${fmt(zoneGain, 2)}` : '');
         return `${chosen.has(p) ? '● ' : ''}<b>${C.pieces[p].name}</b> <span class="num">vandaag ${fmt(blat, 1)}°, ${fmt(blon, 1)}°${floor}</span>`;
       }).join('<br>')
       : '<b>Oceaan</b>') +
@@ -2036,9 +1918,9 @@ const CRUST_B64 = "__CRUST__";
     refreshAll();
     for (let m = 0; m < M; m++) stale.add(m);
   }
-  // ---------- which pieces are zones ----------
-  /** Pieces the reader has made a zone, by id: whether it keeps its place, and for one that hangs the neighbours let loose. */
-  const zoneSet = new Map();
+  // ---------- which pieces give ----------
+  /** The ids of the pieces whose edges give. */
+  const zoneSet = new Set();
   const zoneBuilt = new Map();
   let zoneWrites = 0;
   /** Build the zones again from the list, and lay the moment shown anew. */
@@ -2047,17 +1929,12 @@ const CRUST_B64 = "__CRUST__";
     zoneMoment = -1;
     zoneList = [];
     zoneOf.clear();
-    const ids = [...zoneSet.keys()].filter((id) => indexOfId.has(id)).slice(0, REK_MAX);
-    const all = ids.map((id) => id + (zoneSet.get(id).keep ? '+' : '-')).join(',');
-    for (const id of ids) {
-      const p = indexOfId.get(id), cfg = zoneSet.get(id), key = id + (cfg.keep ? '+' : '-');
-      const z = zoneBuilt.get(key) || makeZone(p, Boolean(cfg.keep));
-      zoneBuilt.set(key, z);
+    for (const id of [...zoneSet].filter((x) => indexOfId.has(x)).slice(0, REK_MAX)) {
+      const p = indexOfId.get(id);
+      const z = zoneBuilt.get(id) || makeZone(p);
+      zoneBuilt.set(id, z);
       z.slot = zoneList.length;
       z.dirty = true;
-      const loose = (cfg.loose || []).slice().sort();
-      const sig = loose.join(',') + '|' + all;
-      if (sig !== z.sig) { z.sig = sig; z.loose = new Set(loose); z.weights.clear(); }
       zoneList.push(z);
       zoneOf.set(p, z);
     }
@@ -2067,36 +1944,37 @@ const CRUST_B64 = "__CRUST__";
     for (let m = 0; m < M; m++) stale.add(m);
     thumbsDirty = true;
   }
-  /** Make pieces zones, change them, or make them rigid again: a list of [id, cfg], cfg null for rigid. */
+  const keepZones = () => { try { localStorage.setItem('concept-zones', JSON.stringify([...zoneSet])); } catch (e) {} };
+  /** Let the edges of pieces give, or make them rigid again: a list of [id, gives]. */
   function setZones(changes) {
     let room = REK_MAX - zoneSet.size;
     const done = [];
-    for (const [id, cfg] of changes) {
-      if (cfg && !zoneSet.has(id) && room-- <= 0) { say(`Er kunnen ${REK_MAX} stukken tegelijk rekken.`, true); break; }
-      if (cfg) zoneSet.set(id, cfg); else if (!zoneSet.delete(id)) continue;
-      done.push([id, cfg]);
+    for (const [id, gives] of changes) {
+      if (gives && !zoneSet.has(id) && room-- <= 0) { say(`Er kunnen ${REK_MAX} stukken tegelijk meegeven.`, true); break; }
+      if (gives ? zoneSet.has(id) : !zoneSet.has(id)) continue;
+      if (gives) zoneSet.add(id); else zoneSet.delete(id);
+      done.push([id, gives]);
     }
     if (!done.length) return;
     buildZones();
     render();
-    try { localStorage.setItem('concept-zones', JSON.stringify(Object.fromEntries([...zoneSet].map(([k, v]) => [k, { keep: Boolean(v.keep), loose: v.loose || [] }])))); } catch (e) {}
+    keepZones();
     if (!db) { say('Bewaard in deze browser.'); return; }
     zoneWrites++;
     say('Opslaan…');
     const at = new Date().toISOString();
-    Promise.all(done.map(([id, cfg]) => (cfg ? db.doc('zones/' + id).set({ keep: Boolean(cfg.keep), loose: cfg.loose || [], at }) : db.doc('zones/' + id).delete())))
-      .then(() => say('Opgeslagen.'), (e) => say('Rekken niet opgeslagen: ' + (e && e.message ? e.message : 'onbekende fout'), true))
+    Promise.all(done.map(([id, gives]) => (gives ? db.doc('zones/' + id).set({ at }) : db.doc('zones/' + id).delete())))
+      .then(() => say('Opgeslagen.'), (e) => say('Niet opgeslagen: ' + (e && e.message ? e.message : 'onbekende fout'), true))
       .finally(() => { zoneWrites--; });
   }
-  const setZone = (id, cfg) => setZones([[id, cfg]]);
   /** Edits this browser kept, for when the page has no store; once the pieces are in. */
   function adoptLocal() {
     try {
+      // A list of ids; an object by id is how it was kept when there were two kinds.
       const kept = JSON.parse(localStorage.getItem('concept-zones') || 'null');
-      if (kept && typeof kept === 'object') {
-        for (const [id, v] of Object.entries(kept)) zoneSet.set(id, { keep: Boolean(v && v.keep), loose: Array.isArray(v && v.loose) ? v.loose : [] });
-        if (zoneSet.size) buildZones();
-      }
+      const ids = Array.isArray(kept) ? kept : kept && typeof kept === 'object' ? Object.keys(kept) : [];
+      for (const id of ids) zoneSet.add(String(id));
+      if (zoneSet.size) buildZones();
     } catch (e) { /* nothing kept */ }
     try {
       // An array is the old way, by position, from when there were five moments:
@@ -2130,20 +2008,30 @@ const CRUST_B64 = "__CRUST__";
       render();
       if (!unsaved.size) say('Opgeslagen bij de pagina; Claude kan je wijzigingen lezen.');
     }, (e) => say('Opslag niet bereikbaar: ' + (e && e.message ? e.message : '') , true));
-    // The zones are kept one document each, zones/<piece>, so that whoever
-    // reads the store sees which pieces stretch and which of their edges hold.
+    // The pieces that give are kept one document each, zones/<piece>, so that
+    // whoever reads the store sees which they are. A document from when a
+    // piece could also hang between its neighbours says so; such a piece gives
+    // now, and its document is written again without it.
     try {
       db.collection('zones').onSnapshot((snap) => {
         if (zoneWrites || gesture) return;
-        const next = new Map();
-        for (const doc of snap.docs) { const body = doc.data() || {}; next.set(doc.id, { keep: Boolean(body.keep), loose: Array.isArray(body.loose) ? body.loose : [] }); }
-        const same = next.size === zoneSet.size && [...next].every(([id, v]) => zoneSet.has(id) && Boolean(zoneSet.get(id).keep) === v.keep && (zoneSet.get(id).loose || []).slice().sort().join() === v.loose.slice().sort().join());
-        if (same) return;
+        const next = new Set(), old = [];
+        for (const doc of snap.docs) {
+          next.add(doc.id);
+          const body = doc.data() || {};
+          if ('keep' in body || 'loose' in body) old.push(doc.id);
+        }
+        if (old.length) {
+          const at = new Date().toISOString();
+          Promise.all(old.map((id) => db.doc('zones/' + id).set({ at }))).catch(() => { /* read as giving either way */ });
+        }
+        if (next.size === zoneSet.size && [...next].every((id) => zoneSet.has(id))) return;
         zoneSet.clear();
-        for (const [id, v] of next) zoneSet.set(id, v);
+        for (const id of next) zoneSet.add(id);
         buildZones();
+        keepZones();
         render();
-      }, () => { /* the zones stay as this browser has them */ });
+      }, () => { /* the pieces stay as this browser has them */ });
     } catch (e) { /* no zones in the store */ }
   }
 
@@ -2170,7 +2058,7 @@ const CRUST_B64 = "__CRUST__";
     .map(([id, mode]) => ({ el: document.getElementById(id), mode }));
   const fabricNote = document.getElementById('fabric-note');
   const MODE_NOTES = {
-    0: 'Stress: hoe ver elk stuk op deze kleinere bol uit vorm getrokken wordt. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel niets, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). De ringen liggen om de 5 graden van het middelpunt. Een rekzone, of een stuk waarvan de randen meegeven, houdt zijn oppervlak niet: daar is de kleur hoeveel de grond gegroeid is, van licht via geel en oranje naar roestbruin (twee keer zo groot en meer), en roze tot paars waar ze juist krimpt.',
+    0: 'Stress: hoe ver elk stuk op deze kleinere bol uit vorm getrokken wordt. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel niets, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). De ringen liggen om de 5 graden van het middelpunt. Een stuk waarvan de randen meegeven houdt zijn oppervlak niet: daar is de kleur hoeveel de grond gegroeid is, van licht via geel en oranje naar roestbruin (twee keer zo groot en meer), en roze tot paars waar ze juist krimpt.',
     3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs.',
     4: 'Reliëf: hoogte en diepte (SRTM15+), de oceaan blauw naar diepte, het land van groen via bruin naar grijs en wit, met lichte schaduw.',
   };
@@ -2240,6 +2128,9 @@ const CRUST_B64 = "__CRUST__";
   const overlapBox = document.getElementById('show-overlap');
   overlapBox.checked = state.overlap;
   overlapBox.addEventListener('change', () => { state.overlap = overlapBox.checked; thumbsDirty = true; render(); save(); });
+  const outlineBox = document.getElementById('show-outline');
+  outlineBox.checked = Boolean(state.outline);
+  outlineBox.addEventListener('change', () => { state.outline = outlineBox.checked; render(); save(); });
   const motionBox = document.getElementById('show-motion');
   motionBox.checked = state.motion;
   motionBox.addEventListener('change', () => { state.motion = motionBox.checked; render(); save(); });
@@ -2284,7 +2175,7 @@ const CRUST_B64 = "__CRUST__";
   const cutStatus = document.getElementById('cutstatus');
   const ISO = 30;
   const BG_NOTES = {
-    0: 'Stress: hoe ver elk stuk op de kleinere bol uit vorm getrokken wordt, op het gekozen moment. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel geen vervorming, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). Grijs: korst die toen nog niet bestond. Een rekzone, of een stuk waarvan de randen meegeven, houdt zijn oppervlak niet: daar is de kleur hoeveel de grond gegroeid is, van licht via geel en oranje naar roestbruin (twee keer zo groot en meer), en roze tot paars waar ze juist krimpt.',
+    0: 'Stress: hoe ver elk stuk op de kleinere bol uit vorm getrokken wordt, op het gekozen moment. Een stuk houdt zijn oppervlak, dus waar het langs de ringen rond zijn middelpunt korter wordt, wordt het er dwars op even veel langer. Licht: vrijwel geen vervorming, via groenblauw (10%) en blauw (25%) naar paars (50% en meer). Grijs: korst die toen nog niet bestond. Een stuk waarvan de randen meegeven houdt zijn oppervlak niet: daar is de kleur hoeveel de grond gegroeid is, van licht via geel en oranje naar roestbruin (twee keer zo groot en meer), en roze tot paars waar ze juist krimpt.',
     1: 'Stukken: elk stuk in zijn eigen kleur, de oceaanbodem donkerder.',
     3: 'Leeftijd: de oceaanbodem van rood bij de rug, via geel en groen, naar blauw en paars voor het oudste; continenten grijs. Waar de witte lijnen knikken, loopt een breukzone.',
     2: 'Fabric: donker waar de korst met rust is gelaten, licht waar hij bewerkt is -- breukzones, suturen, rifts, gebergtewortels.',
