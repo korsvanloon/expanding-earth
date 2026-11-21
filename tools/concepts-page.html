@@ -1556,9 +1556,11 @@ const CRUST_B64 = "__CRUST__";
       </div>
       <div class="controls">
         ${manyButton}
+        <button type="button" data-snap title="Zoekt binnen een kleine marge de plek en draaiing met het minste gat en de minste overlap tegen de buren">Schuif aan <kbd>S</kbd></button>
         <button type="button" data-reset>Terug naar berekend</button>
         <button type="button" data-drop>Loslaten <kbd>Esc</kbd></button>
       </div>
+      ${snapNote && snapNote.key === ids.join() ? `<p class="hint">${snapNote.text}</p>` : ''}
       ${only ? zonePanel(only) : ''}`;
     zoneButtons(box, ids);
     box.querySelectorAll('[data-tool]').forEach((b) => b.addEventListener('click', () => { state.tool = b.dataset.tool; save(); describeEdit(); }));
@@ -1576,6 +1578,7 @@ const CRUST_B64 = "__CRUST__";
       commit();
     });
     box.querySelector('[data-drop]').addEventListener('click', () => { choose([]); render(); });
+    box.querySelector('[data-snap]').addEventListener('click', snapGroup);
   }
 
   // ---------- editing ----------
@@ -1649,6 +1652,221 @@ const CRUST_B64 = "__CRUST__";
     const g = group();
     pushUndo(state.moment, g.items.map((it) => it.id));
     turnGroup(g, g.centre, -degrees * DEG);
+  }
+
+  // ---------- schuif aan ----------
+  // The chosen pieces laid where they fit best against the pieces around
+  // them, within a small margin. Each point of their rim is matched to the
+  // nearest rim of another piece, a cell short of it -- or a cell back out of
+  // it where the two lie over each other -- and so is each point of those
+  // rims nearby to the nearest point of theirs; the one turn of the sphere
+  // that brings all the pairs closest is taken, and again, with the pairs
+  // found anew and the reach narrowed, until it holds still. A rim with
+  // nothing within reach across from it does not pull.
+  const qMul = (a, b) => [a[0] * b[0] - a[1] * b[1] - a[2] * b[2] - a[3] * b[3], a[0] * b[1] + a[1] * b[0] + a[2] * b[3] - a[3] * b[2],
+    a[0] * b[2] - a[1] * b[3] + a[2] * b[0] + a[3] * b[1], a[0] * b[3] + a[1] * b[2] - a[2] * b[1] + a[3] * b[0]];
+  function qApply(q, v) {
+    const [w, x, y, z] = q, tx = 2 * (y * v[2] - z * v[1]), ty = 2 * (z * v[0] - x * v[2]), tz = 2 * (x * v[1] - y * v[0]);
+    return [v[0] + w * tx + y * tz - z * ty, v[1] + w * ty + z * tx - x * tz, v[2] + w * tz + x * ty - y * tx];
+  }
+  /** The eigenvector of the largest eigenvalue of a symmetric 4x4 matrix (Jacobi). */
+  function topEigen(A) {
+    const a = A.map((r) => r.slice()), v = [0, 1, 2, 3].map((i) => [0, 1, 2, 3].map((j) => (i === j ? 1 : 0)));
+    for (let sweep = 0; sweep < 50; sweep++) {
+      let off = 0;
+      for (let i = 0; i < 4; i++) for (let j = i + 1; j < 4; j++) off += a[i][j] * a[i][j];
+      if (off < 1e-22) break;
+      for (let p = 0; p < 4; p++) for (let q = p + 1; q < 4; q++) {
+        if (Math.abs(a[p][q]) < 1e-30) continue;
+        const th = (a[q][q] - a[p][p]) / (2 * a[p][q]), t = Math.sign(th || 1) / (Math.abs(th) + Math.sqrt(th * th + 1));
+        const c = 1 / Math.sqrt(t * t + 1), sn = t * c;
+        for (let r = 0; r < 4; r++) { const x = a[r][p], y = a[r][q]; a[r][p] = c * x - sn * y; a[r][q] = sn * x + c * y; }
+        for (let r = 0; r < 4; r++) { const x = a[p][r], y = a[q][r]; a[p][r] = c * x - sn * y; a[q][r] = sn * x + c * y; }
+        for (let r = 0; r < 4; r++) { const x = v[r][p], y = v[r][q]; v[r][p] = c * x - sn * y; v[r][q] = sn * x + c * y; }
+      }
+    }
+    let best = 0;
+    for (let i = 1; i < 4; i++) if (a[i][i] > a[best][best]) best = i;
+    const e = [v[0][best], v[1][best], v[2][best], v[3][best]], l = Math.hypot(...e);
+    return e.map((x) => x / l);
+  }
+  /** The turn [w, x, y, z] that brings the points a closest to the points b (Horn). */
+  function bestTurn(a, b) {
+    let xx = 0, xy = 0, xz = 0, yx = 0, yy = 0, yz = 0, zx = 0, zy = 0, zz = 0;
+    for (let i = 0; i < a.length; i += 3) {
+      xx += a[i] * b[i]; xy += a[i] * b[i + 1]; xz += a[i] * b[i + 2];
+      yx += a[i + 1] * b[i]; yy += a[i + 1] * b[i + 1]; yz += a[i + 1] * b[i + 2];
+      zx += a[i + 2] * b[i]; zy += a[i + 2] * b[i + 1]; zz += a[i + 2] * b[i + 2];
+    }
+    return topEigen([
+      [xx + yy + zz, yz - zy, zx - xz, xy - yx],
+      [yz - zy, xx - yy - zz, xy + yx, zx + xz],
+      [zx - xz, xy + yx, -xx + yy - zz, yz + zy],
+      [xy - yx, zx + xz, yz + zy, -xx - yy + zz],
+    ]);
+  }
+  /** How far the moves of the last "schuif aan" went, said under the pieces it moved. */
+  let snapNote = null;
+  /** Points spread evenly over the sphere, about 50 km apart on today's: where the fit is judged. */
+  const SCATTER_N = 200000;
+  let SCATTER = null;
+  function snapGroup() {
+    const mi = state.moment, g = group();
+    if (!g.items.length) return;
+    const m = C.moments[mi], k = m.k, ma = m.ma;
+    const mine = new Set(g.items.map((it) => indexOf(it.id)));
+    seamIndex(mi);
+    const size = seams.size, bins = seams.bins, box = (v) => [0, 1, 2].map((i) => Math.min(size - 1, Math.floor((v[i] + 1) / 2 * size)));
+    const reach = SEAM_KM / m.radiusKm, slack = SEAM_SHORT * (2 * Math.PI / W) * k;
+    // The chosen rims as their placement lays them.
+    let src = [];
+    for (const p of mine) { seamPlace(mi, p); const at = seams.at[p]; for (let i = 0; i < at.length; i++) src.push(at[i]); }
+    // A few hundred points of rim are enough to find the turn.
+    const every = Math.max(1, Math.ceil(src.length / 3 / 500));
+    if (every > 1) src = src.filter((_, i) => Math.floor(i / 3) % every === 0);
+    const n = src.length / 3;
+    if (!n) return;
+    // The rims of other pieces near them, once: the margin is small.
+    const near = [], seen = new Set();
+    for (let i = 0; i < n; i++) {
+      const [bx, by, bz] = box([src[i * 3], src[i * 3 + 1], src[i * 3 + 2]]);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const key = ((bx + dx) * size + (by + dy)) * size + (bz + dz), b = bins.get(key);
+        if (!b || seen.has(key)) continue;
+        seen.add(key);
+        for (let j = 0; j < b.length; j += 2) if (!mine.has(b[j])) near.push(b[j], b[j + 1]);
+      }
+    }
+    if (near.length > 4000) { const step = Math.ceil(near.length / 4000); for (let j = 0, o = 0; ; j += 2 * step, o += 2) { if (j >= near.length) { near.length = o; break; } near[o] = near[j]; near[o + 1] = near[j + 1]; } }
+    const pointOf = (j) => { const o = seams.at[near[j]], i = near[j + 1]; return [o[i], o[i + 1], o[i + 2]]; };
+    /** Whether a point lies on another piece's crust at this moment. */
+    const onCrust = (v, q) => {
+      const [lon, lat] = lonLat(lookBack(v, rigidOf(mi, q), k));
+      const c = Math.min(H - 1, Math.floor((90 - lat) / 180 * H)) * W + Math.min(W - 1, Math.floor((lon + 180) / 360 * W));
+      return cut.cells[c] === q + 1 && ageOf(c) > ma;
+    };
+    /** Where a chosen point should go to meet a point of another piece's rim: a cell short of it, or a cell back out of it. */
+    const meet = (v, o, q) => {
+      const ex = v[0] - o[0], ey = v[1] - o[1], ez = v[2] - o[2], l = Math.hypot(ex, ey, ez) || 1e-9;
+      const s = (onCrust(v, q) ? -slack : slack) / l;
+      return unit([o[0] + ex * s, o[1] + ey * s, o[2] + ez * s]);
+    };
+    /** The pairs at a turn of the group, within a reach: chosen points and where they should go. */
+    function pairs(Q, within) {
+      const lim = within * within, a = [], b = [];
+      const moved = [];
+      for (let i = 0; i < n; i++) moved.push(qApply(Q, [src[i * 3], src[i * 3 + 1], src[i * 3 + 2]]));
+      // Each chosen point to the nearest other rim.
+      for (const v of moved) {
+        let best = lim, bj = -1;
+        for (let j = 0; j < near.length; j += 2) {
+          const o = seams.at[near[j]], i = near[j + 1], ex = o[i] - v[0], ey = o[i + 1] - v[1], ez = o[i + 2] - v[2], d2 = ex * ex + ey * ey + ez * ez;
+          if (d2 < best) { best = d2; bj = j; }
+        }
+        if (bj >= 0) { a.push(...v); b.push(...meet(v, pointOf(bj), near[bj])); }
+      }
+      // Each other rim point to the nearest chosen point.
+      for (let j = 0; j < near.length; j += 2) {
+        const o = pointOf(j);
+        let best = lim, bi = -1;
+        for (let i = 0; i < n; i++) { const v = moved[i], ex = o[0] - v[0], ey = o[1] - v[1], ez = o[2] - v[2], d2 = ex * ex + ey * ey + ez * ez; if (d2 < best) { best = d2; bi = i; } }
+        if (bi >= 0) { a.push(...moved[bi]); b.push(...meet(moved[bi], o, near[j])); }
+      }
+      return { a, b };
+    }
+    // What decides: how much ground around the pieces is open or lies
+    // double, on a fixed scatter of points, with the other pieces as they lie.
+    const cosGroup = Math.cos(Math.min(Math.PI, [...mine].reduce((far, p) => {
+      const q = rigidOf(mi, p);
+      return Math.max(far, Math.acos(Math.max(-1, Math.min(1, dot(q.there.up, g.centre)))) + Math.acos(q.cosReach));
+    }, 0) + reach + 1200 / m.radiusKm));
+    if (!SCATTER) {
+      SCATTER = new Float32Array(SCATTER_N * 3);
+      for (let i = 0; i < SCATTER_N; i++) {
+        const y = 1 - 2 * (i + 0.5) / SCATTER_N, r = Math.sqrt(1 - y * y), a = i * Math.PI * (3 - Math.sqrt(5));
+        SCATTER[i * 3] = r * Math.cos(a); SCATTER[i * 3 + 1] = y; SCATTER[i * 3 + 2] = r * Math.sin(a);
+      }
+    }
+    const probe = [], others = [];
+    const rigidNow = C.pieces.map((_, p) => rigidOf(mi, p));
+    for (let i = 0; i < SCATTER_N; i++) {
+      const d = [SCATTER[i * 3], SCATTER[i * 3 + 1], SCATTER[i * 3 + 2]];
+      if (dot(d, g.centre) < cosGroup) continue;
+      let count = 0;
+      for (let p = 0; p < N && count < 2; p++) {
+        if (mine.has(p)) continue;
+        const q = rigidNow[p];
+        if (dot(d, q.there.up) < q.cosReach) continue;
+        const [lon, lat] = lonLat(lookBack(d, q, k));
+        const c = Math.min(H - 1, Math.floor((90 - lat) / 180 * H)) * W + Math.min(W - 1, Math.floor((lon + 180) / 360 * W));
+        if (cut.cells[c] === p + 1 && ageOf(c) > ma) count++;
+      }
+      probe.push(d); others.push(count);
+    }
+    const chosenPoses = [...mine].map((p) => [p, rigidNow[p]]);
+    /** Open and double points around the pieces, with the pieces turned by Q. */
+    function cost(Q) {
+      const back = [Q[0], -Q[1], -Q[2], -Q[3]];
+      let bad = 0;
+      for (let i = 0; i < probe.length; i++) {
+        const d = qApply(back, probe[i]);
+        let count = others[i];
+        for (const [p, q] of chosenPoses) {
+          if (count >= 2) break;
+          if (dot(d, q.there.up) < q.cosReach) continue;
+          const [lon, lat] = lonLat(lookBack(d, q, k));
+          const c = Math.min(H - 1, Math.floor((90 - lat) / 180 * H)) * W + Math.min(W - 1, Math.floor((lon + 180) / 360 * W));
+          if (cut.cells[c] === p + 1 && ageOf(c) > ma) count++;
+        }
+        if (count !== 1) bad++;
+      }
+      return bad;
+    }
+    const MARGIN = 1200 / m.radiusKm;
+    const angleOf = (Q) => 2 * Math.acos(Math.min(1, Math.abs(Q[0])));
+    const before = cost([1, 0, 0, 0]);
+    let best = [1, 0, 0, 0], bestCost = before;
+    // First the rims are drawn together, and the best of the steps kept.
+    let Q = [1, 0, 0, 0], within = reach;
+    for (let it = 0; it < 30; it++) {
+      const { a, b } = pairs(Q, within);
+      if (a.length < 9) break;
+      const dq = bestTurn(a, b), next = qMul(dq, Q);
+      if (next[0] < 0) next.forEach((x, i) => { next[i] = -x; });
+      if (angleOf(next) > MARGIN) break;
+      Q = next;
+      const c = cost(Q);
+      if (c < bestCost) { bestCost = c; best = Q; }
+      within = Math.max(6 * slack, within * 0.85);
+      if (angleOf(dq) < 1e-6) break;
+    }
+    // Then small moves north, east and round, smaller and smaller, while they help.
+    const f0 = frame(g.centre);
+    for (const [km, deg] of [[80, 2], [40, 1], [20, 0.5], [10, 0.25], [5, 0.1]]) {
+      for (let round = 0; round < 12; round++) {
+        let gain = false;
+        for (const [axis, angle] of [[f0.east, km / m.radiusKm], [f0.east, -km / m.radiusKm], [f0.north, km / m.radiusKm], [f0.north, -km / m.radiusKm], [qApply(best, g.centre), deg * DEG], [qApply(best, g.centre), -deg * DEG]]) {
+          const h = angle / 2, step = [Math.cos(h), axis[0] * Math.sin(h), axis[1] * Math.sin(h), axis[2] * Math.sin(h)], next = qMul(step, best);
+          if (angleOf(next) > MARGIN) continue;
+          const c = cost(next);
+          if (c < bestCost) { bestCost = c; best = next; gain = true; }
+        }
+        if (!gain) break;
+      }
+    }
+    const ids = g.items.map((it) => it.id), key = ids.join();
+    const area = 4 * Math.PI * m.radiusKm * m.radiusKm / SCATTER_N;
+    if (bestCost >= before) {
+      snapNote = { key, text: `Het ligt al zo goed als het binnen de marge kan (${fmt(1200)} km).` };
+      describeEdit();
+      return;
+    }
+    if (best[0] < 0) best = best.map((x) => -x);
+    const angle = angleOf(best), axis = unit([best[1], best[2], best[3]]), moved = qApply(best, g.centre);
+    pushUndo(mi, ids);
+    turnGroup(g, axis, angle);
+    snapNote = { key, text: `Aangeschoven: ${fmt(Math.acos(Math.max(-1, Math.min(1, dot(moved, g.centre)))) * m.radiusKm)} km verschoven en ${fmt(Math.abs(dot(axis, moved)) * angle / DEG, 1)}° gedraaid; rondom ligt nu ${fmt(Math.round((before - bestCost) * area / 1000) * 1000)} km² minder open of dubbel.` };
+    commit();
   }
 
   // ---------- interaction ----------
@@ -1806,6 +2024,7 @@ const CRUST_B64 = "__CRUST__";
     const key = e.key.toLowerCase();
     if (key === 'o') { overlapBox.click(); }
     else if (key === 'r') { outlineBox.click(); }
+    else if (key === 's') { if (chosen.size) snapGroup(); }
     else if (key === 'i') { setIso(!state.iso); }
     else if (key === '+' || key === '=') { zoomBy(1.5); }
     else if (key === '-' || key === '_') { zoomBy(1 / 1.5); }
