@@ -376,17 +376,31 @@ const CRUST_B64 = "__CRUST__";
         if (q >= 0) list[q].fold = Boolean(op.fold);
       }
     }
-    const count = new Float64Array(list.length);
-    const sum = list.map(() => [0, 0, 0]);
+    // Each piece's centre, about which it is shrunk onto a smaller globe: the
+    // middle of its continental crust, or of all of it when that is less than a
+    // tenth of the piece -- a few specks of land on a lane of sea floor do not
+    // make it a continent. The
+    // centre it used to have -- the build's for a piece the build made, the
+    // middle of all its cells for one cut here -- is kept as well, so that a
+    // placement laid about that one can be carried over.
+    const count = new Float64Array(list.length), landCount = new Float64Array(list.length);
+    const sum = list.map(() => [0, 0, 0]), landSum = list.map(() => [0, 0, 0]);
     let total = 0;
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
       const c = y * W + x, q = owner[c], w = cosLat[y];
       total += w;
       if (q < 0) continue;
       count[q] += w;
-      if (list[q].made) { sum[q][0] += w * cosLat[y] * cosLon[x]; sum[q][1] += w * sinLat[y]; sum[q][2] -= w * cosLat[y] * sinLon[x]; }
+      const vx = w * cosLat[y] * cosLon[x], vy = w * sinLat[y], vz = -w * cosLat[y] * sinLon[x];
+      sum[q][0] += vx; sum[q][1] += vy; sum[q][2] += vz;
+      if (basePx[c * 4 + 1] === 255) { landCount[q] += w; landSum[q][0] += vx; landSum[q][1] += vy; landSum[q][2] += vz; }
     }
-    list.forEach((p, i) => { if (p.made && count[i] > 0) [p.lon, p.lat] = lonLat(unit(sum[i])); });
+    const legacy = {};
+    list.forEach((p, i) => {
+      if (p.made && count[i] > 0) [p.lon, p.lat] = lonLat(unit(sum[i]));
+      legacy[p.id] = { lon: p.lon, lat: p.lat };
+      if (count[i] > 0) [p.lon, p.lat] = lonLat(unit(landCount[i] >= 0.1 * count[i] ? landSum[i] : sum[i]));
+    });
     const centre = list.map((p) => dir(p.lon, p.lat));
     const lowest = new Float64Array(list.length).fill(1);
     for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
@@ -406,7 +420,7 @@ const CRUST_B64 = "__CRUST__";
     const cells = new Uint8Array(W * H);
     for (let c = 0; c < cells.length; c++) cells[c] = owner[c] >= 0 && renumber[owner[c]] >= 0 ? Math.min(255, renumber[owner[c]] + 1) : 0;
     const homes = Object.fromEntries(list.map((p) => [p.id, { lon: p.lon, lat: p.lat }]));
-    return { pieces, cells, parentOf, homes, owner, list, index };
+    return { pieces, cells, parentOf, homes, legacy, owner, list, index };
   }
 
   // Where the cuts are kept: one document per group in the page's store, or
@@ -560,6 +574,45 @@ const CRUST_B64 = "__CRUST__";
     const bearing = Math.atan2(dot(p, q.home.east), dot(p, q.home.north));
     return from(q.there, 2 * Math.asin(Math.min(1, k * Math.sin(dist / 2))), bearing + q.spin);
   }
+
+  // ---------- centres ----------
+  /** A few hundred of a piece's cells, as directions of today. */
+  const ptsCache = new Map();
+  function piecePoints(id) {
+    if (ptsCache.has(id)) return ptsCache.get(id);
+    const p = indexOfId.get(id), cells = [];
+    if (p !== undefined) for (let c = 0; c < W * H; c++) if (cut.cells[c] === p + 1) cells.push(c);
+    const step = Math.max(1, Math.floor(cells.length / 400)), out = [];
+    for (let i = 0; i < cells.length; i += step) { const c = cells[i], x = c % W, y = (c - x) / W; out.push([cosLat[y] * cosLon[x], sinLat[y], -cosLat[y] * sinLon[x]]); }
+    ptsCache.set(id, out);
+    return out;
+  }
+  /**
+   * A placement laid about one centre, as the placement about another that
+   * puts the same piece as nearly as can be in the same place: the one turn
+   * of the sphere that brings its cells, shrunk about the new centre, closest
+   * to where the old placement had them. Shrinking about another point gives
+   * a slightly other shape, most of all at the far edge of a large piece on
+   * an early, small globe, so a little moves all the same.
+   */
+  function recentre(at, src, dst, k, id) {
+    const q0 = { home: frame(dir(src.lon, src.lat)), there: frame(dir(at.lon, at.lat)), spin: (at.spin || 0) * DEG };
+    const h = frame(dir(dst.lon, dst.lat)), q1 = { home: h, there: h, spin: 0 };
+    const a = [], b = [];
+    for (const v of piecePoints(id)) { a.push(...forward(v, q1, k)); b.push(...forward(v, q0, k)); }
+    if (!a.length) return at;
+    const R = bestTurn(a, b), up = qApply(R, h.up), north = qApply(R, h.north), f = frame(up);
+    const [lon, lat] = lonLat(up);
+    return { lat, lon, spin: Math.atan2(dot(north, f.east), dot(north, f.north)) / DEG };
+  }
+  const centreMoved = (a, b) => Math.abs(a.lat - b.lat) > 1e-3 || Math.abs(wrap180(a.lon - b.lon)) > 1e-3;
+  /** The centre a stored placement was laid about: the one it says, or the one the piece had before centres were kept. */
+  const laidAbout = (id, at) => (Array.isArray(at.c) ? { lon: at.c[0], lat: at.c[1] } : cut.legacy[id] || homes[id]);
+  // The build's own placements were laid about the build's centres.
+  C.moments.forEach((m, mi) => {
+    for (const [id, at] of Object.entries(m.place)) if (homes[id] && cut.legacy[id] && centreMoved(cut.legacy[id], homes[id])) m.place[id] = recentre(at, cut.legacy[id], homes[id], m.k, id);
+  });
+  for (let mi = 0; mi < M; mi++) for (let p = 0; p < N; p++) placeOne(mi, p);
 
   // ---------- edges that give ----------
   // A piece whose edges give is laid by hand like any other, and then its
@@ -1503,7 +1556,7 @@ const CRUST_B64 = "__CRUST__";
     const row = document.createElement('div');
     row.className = 'controls';
     row.innerHTML = (rigid.length ? `<button type="button" data-give title="Het stuk blijft waar je het legt; zijn rand gaat naar wat er tegenover ligt">Laat de randen meegeven</button>` : '') +
-      (give.length ? `<button type="button" data-stiff>Randen weer star</button>` : '');
+      (give.length ? `<button type="button" data-stiff title="Het stuk houdt zijn eigen vorm; standaard geven alle randen mee">Randen star</button>` : '');
     if (!row.innerHTML) return;
     box.append(row);
     const on = (sel, fn) => { const b = row.querySelector(sel); if (b) b.addEventListener('click', fn); };
@@ -1519,15 +1572,13 @@ const CRUST_B64 = "__CRUST__";
         <div class="controls">${manyButton}</div>
         <div class="controls">
           <button type="button" data-snap-all title="Elk stuk schuift tot 300 km en een paar graden naar zijn buren toe, allemaal tegelijk">Alles aanschuiven</button>
-          <button type="button" data-give-all title="Elk stuk blijft waar je het legt; zijn rand gaat naar wat er tegenover ligt">Alle randen laten meegeven</button>
-          ${zoneSet.size ? '<button type="button" data-stiff-all>Alles weer star</button>' : ''}
+          ${rigidSet.size ? `<button type="button" data-give-all title="Ook de ${rigidSet.size} stukken die je star hebt gemaakt">Alle randen weer laten meegeven</button>` : ''}
         </div>
         ${snapAllNote ? `<p class="hint">${snapAllNote}</p>` : ''}`;
       box.querySelector('[data-many]').addEventListener('click', () => { many = !many; describeEdit(); });
       box.querySelector('[data-snap-all]').addEventListener('click', snapAll);
-      box.querySelector('[data-give-all]').addEventListener('click', () => setZones(C.pieces.filter((p) => !zoneSet.has(p.id)).map((p) => [p.id, true])));
-      const stiffAll = box.querySelector('[data-stiff-all]');
-      if (stiffAll) stiffAll.addEventListener('click', () => setZones([...zoneSet].map((id) => [id, false])));
+      const giveAll = box.querySelector('[data-give-all]');
+      if (giveAll) giveAll.addEventListener('click', () => setZones([...rigidSet].map((id) => [id, true])));
       return;
     }
     const ids = [...chosen].map((p) => C.pieces[p].id);
@@ -1581,7 +1632,7 @@ const CRUST_B64 = "__CRUST__";
       commit();
     });
     box.querySelector('[data-drop]').addEventListener('click', () => { choose([]); render(); });
-    box.querySelector('[data-snap]').addEventListener('click', snapGroup);
+    box.querySelector('[data-snap]').addEventListener('click', () => snapGroup());
   }
 
   // ---------- editing ----------
@@ -1593,7 +1644,8 @@ const CRUST_B64 = "__CRUST__";
   const undoStack = [];
   function pushUndo(mi, ids) { undoStack.push({ mi, items: ids.map((id) => ({ id, before: edits[mi][id] })) }); }
   function put(mi, id, next) {
-    edits[mi][id] = { lat: +next.lat.toFixed(3), lon: +wrap180(next.lon).toFixed(3), spin: +wrap180(next.spin || 0).toFixed(2) };
+    // Kept with the centre it is laid about, so that it can be carried over when that changes.
+    edits[mi][id] = { lat: +next.lat.toFixed(3), lon: +wrap180(next.lon).toFixed(3), spin: +wrap180(next.spin || 0).toFixed(2), c: [+homes[id].lon.toFixed(4), +homes[id].lat.toFixed(4)] };
     replace(mi, indexOf(id));
     followers(mi, id);
   }
@@ -1635,10 +1687,9 @@ const CRUST_B64 = "__CRUST__";
     return { lat, lon, spin: Math.atan2(dot(h, f.east), dot(h, f.north)) / DEG };
   }
 
-  /** The chosen pieces as they lie now, ready to be turned together. */
-  function group() {
-    const mi = state.moment;
-    const items = [...chosen].map((p) => {
+  /** The chosen pieces as they lie now, ready to be turned together; or other pieces at another moment. */
+  function group(mi = state.moment, list = [...chosen]) {
+    const items = list.map((p) => {
       const id = C.pieces[p].id;
       return { id, before: edits[mi][id], ...headingOf(placementOf(mi, id)), share: C.pieces[p].share };
     });
@@ -1647,8 +1698,8 @@ const CRUST_B64 = "__CRUST__";
     return { items, centre: items.length ? unit(sum) : [0, 0, 1] };
   }
   /** Turn every piece of a group about one axis through the centre of the Earth. */
-  function turnGroup(g, axis, angle) {
-    for (const it of g.items) put(state.moment, it.id, fromHeading(turn(it.up, axis, angle), turn(it.h, axis, angle)));
+  function turnGroup(g, axis, angle, mi = state.moment) {
+    for (const it of g.items) put(mi, it.id, fromHeading(turn(it.up, axis, angle), turn(it.h, axis, angle)));
   }
   /** Turn the chosen pieces about their common centre, degrees clockwise from outside. */
   function spinGroup(degrees) {
@@ -1713,9 +1764,12 @@ const CRUST_B64 = "__CRUST__";
   /** Points spread evenly over the sphere, about 50 km apart on today's: where the fit is judged. */
   const SCATTER_N = 200000;
   let SCATTER = null;
-  function snapGroup() {
-    const mi = state.moment, g = group();
-    if (!g.items.length) return;
+  /**
+   * At the moment shown with the chosen pieces, from the button; or at any
+   * moment with any pieces, quietly, for a piece just cut. Says whether it moved them.
+   */
+  function snapGroup(mi = state.moment, g = group(), quiet = false) {
+    if (!g.items.length) return false;
     const m = C.moments[mi], k = m.k, ma = m.ma;
     const mine = new Set(g.items.map((it) => indexOf(it.id)));
     seamIndex(mi);
@@ -1860,16 +1914,19 @@ const CRUST_B64 = "__CRUST__";
     const ids = g.items.map((it) => it.id), key = ids.join();
     const area = 4 * Math.PI * m.radiusKm * m.radiusKm / SCATTER_N;
     if (bestCost >= before) {
+      if (quiet) return false;
       snapNote = { key, text: `Het ligt al zo goed als het binnen de marge kan (${fmt(1200)} km).` };
       describeEdit();
-      return;
+      return false;
     }
     if (best[0] < 0) best = best.map((x) => -x);
     const angle = angleOf(best), axis = unit([best[1], best[2], best[3]]), moved = qApply(best, g.centre);
+    if (quiet) { turnGroup(g, axis, angle, mi); return true; }
     pushUndo(mi, ids);
     turnGroup(g, axis, angle);
     snapNote = { key, text: `Aangeschoven: ${fmt(Math.acos(Math.max(-1, Math.min(1, dot(moved, g.centre)))) * m.radiusKm)} km verschoven en ${fmt(Math.abs(dot(axis, moved)) * angle / DEG, 1)}° gedraaid; rondom ligt nu ${fmt(Math.round((before - bestCost) * area / 1000) * 1000)} km² minder open of dubbel.` };
     commit();
+    return true;
   }
 
   /**
@@ -2247,19 +2304,29 @@ const CRUST_B64 = "__CRUST__";
       }
     }, 500);
   }
+  /** Moments whose stored placements were laid about a centre a piece no longer has, and were carried over. */
+  const recentred = new Set();
   function adopt(mi, pieces) {
     edits[mi] = {};
     for (const [id, at] of Object.entries(pieces || {})) {
-      if (C.pieces.some((p) => p.id === id) && at && Number.isFinite(at.lat) && Number.isFinite(at.lon)) {
-        edits[mi][id] = { lat: at.lat, lon: at.lon, spin: Number.isFinite(at.spin) ? at.spin : 0 };
+      if (indexOfId.has(id) && at && Number.isFinite(at.lat) && Number.isFinite(at.lon)) {
+        let next = { lat: at.lat, lon: at.lon, spin: Number.isFinite(at.spin) ? at.spin : 0 };
+        const from = laidAbout(id, at);
+        if (centreMoved(from, homes[id])) { next = recentre(next, from, homes[id], C.moments[mi].k, id); recentred.add(mi); }
+        edits[mi][id] = { lat: +next.lat.toFixed(3), lon: +wrap180(next.lon).toFixed(3), spin: +wrap180(next.spin).toFixed(2), c: [+homes[id].lon.toFixed(4), +homes[id].lat.toFixed(4)] };
       }
     }
     refreshAll();
     for (let m = 0; m < M; m++) stale.add(m);
   }
+  /** Write back the moments whose placements were carried over to new centres. */
+  function keepRecentred() {
+    for (const mi of recentred) persist(mi);
+    recentred.clear();
+  }
   // ---------- which pieces give ----------
-  /** The ids of the pieces whose edges give. */
-  const zoneSet = new Set();
+  // Every piece gives unless it is made rigid; the rigid ones are the ones kept.
+  const rigidSet = new Set();
   const zoneBuilt = new Map();
   let zoneWrites = 0;
   /** Build the zones again from the list, and lay the moment shown anew. */
@@ -2268,7 +2335,7 @@ const CRUST_B64 = "__CRUST__";
     zoneMoment = -1;
     zoneList = [];
     zoneOf.clear();
-    for (const id of [...zoneSet].filter((x) => indexOfId.has(x)).slice(0, REK_MAX)) {
+    for (const { id } of C.pieces.filter((x) => !rigidSet.has(x.id)).slice(0, REK_MAX)) {
       const p = indexOfId.get(id);
       const z = zoneBuilt.get(id) || makeZone(p);
       zoneBuilt.set(id, z);
@@ -2283,38 +2350,68 @@ const CRUST_B64 = "__CRUST__";
     for (let m = 0; m < M; m++) stale.add(m);
     thumbsDirty = true;
   }
-  const keepZones = () => { try { localStorage.setItem('concept-zones', JSON.stringify([...zoneSet])); } catch (e) {} };
-  /** Let the edges of pieces give, or make them rigid again: a list of [id, gives]. */
+  const keepRigid = () => { try { localStorage.setItem('concept-rigid', JSON.stringify([...rigidSet])); } catch (e) {} };
+  /** Let the edges of pieces give, or make them rigid: a list of [id, gives]. */
   function setZones(changes) {
-    let room = REK_MAX - zoneSet.size;
     const done = [];
     for (const [id, gives] of changes) {
-      if (gives && !zoneSet.has(id) && room-- <= 0) { say(`Er kunnen ${REK_MAX} stukken tegelijk meegeven.`, true); break; }
-      if (gives ? zoneSet.has(id) : !zoneSet.has(id)) continue;
-      if (gives) zoneSet.add(id); else zoneSet.delete(id);
+      if (gives !== rigidSet.has(id)) continue;
+      if (gives) rigidSet.delete(id); else rigidSet.add(id);
       done.push([id, gives]);
     }
     if (!done.length) return;
     buildZones();
     render();
-    keepZones();
+    keepRigid();
     if (!db) { say('Bewaard in deze browser.'); return; }
     zoneWrites++;
     say('Opslaan…');
     const at = new Date().toISOString();
-    Promise.all(done.map(([id, gives]) => (gives ? db.doc('zones/' + id).set({ at }) : db.doc('zones/' + id).delete())))
+    Promise.all(done.map(([id, gives]) => (gives ? db.doc('rigid/' + id).delete() : db.doc('rigid/' + id).set({ at }))))
       .then(() => say('Opgeslagen.'), (e) => say('Niet opgeslagen: ' + (e && e.message ? e.message : 'onbekende fout'), true))
       .finally(() => { zoneWrites--; });
+  }
+
+  // ---------- a piece just cut ----------
+  // A piece made in Knippen is remembered here until the globe has it, after
+  // the page has loaded again; it is then snapped against its neighbours at
+  // every moment but today's, one moment at a time so the page stays usable.
+  const PENDING = 'concept-snap-pending';
+  function rememberCut(id) {
+    try { const list = JSON.parse(localStorage.getItem(PENDING) || '[]'); if (!list.includes(id)) list.push(id); localStorage.setItem(PENDING, JSON.stringify(list)); } catch (e) {}
+  }
+  let pendingRun = false;
+  async function snapPending() {
+    if (pendingRun) return;
+    let ids = [];
+    try { ids = JSON.parse(localStorage.getItem(PENDING) || '[]').filter((id) => indexOfId.has(id)); } catch (e) { return; }
+    try { localStorage.removeItem(PENDING); } catch (e) {}
+    if (!ids.length) return;
+    pendingRun = true;
+    let busy = 0;
+    const names = ids.map((id) => C.pieces[indexOf(id)].name).join(', ');
+    let count = 0;
+    for (let mi = 1; mi < M; mi++) {
+      say(`${names} aanschuiven: ${C.moments[mi].ma} Ma…`);
+      await new Promise((ok) => setTimeout(ok, 0));
+      const t = performance.now();
+      if (snapGroup(mi, group(mi, ids.map(indexOf)), true)) { count++; persist(mi); }
+      busy += performance.now() - t;
+    }
+    for (let m = 0; m < M; m++) stale.add(m);
+    measure(state.moment); stale.delete(state.moment);
+    thumbsDirty = true;
+    render();
+    say(`${names} aangeschoven op ${count} van de ${M - 1} momenten (${fmt(busy / 1000, 1)} s rekenen).`);
+    pendingRun = false;
   }
   /** Edits this browser kept, for when the page has no store; once the pieces are in. */
   function adoptLocal() {
     try {
-      // A list of ids; an object by id is how it was kept when there were two kinds.
-      const kept = JSON.parse(localStorage.getItem('concept-zones') || 'null');
-      const ids = Array.isArray(kept) ? kept : kept && typeof kept === 'object' ? Object.keys(kept) : [];
-      for (const id of ids) zoneSet.add(String(id));
-      if (zoneSet.size) buildZones();
+      const kept = JSON.parse(localStorage.getItem('concept-rigid') || '[]');
+      if (Array.isArray(kept)) for (const id of kept) rigidSet.add(String(id));
     } catch (e) { /* nothing kept */ }
+    buildZones();
     try {
       // An array is the old way, by position, from when there were five moments:
       // read by today's positions it puts one moment's layout on another.
@@ -2323,9 +2420,9 @@ const CRUST_B64 = "__CRUST__";
     } catch (e) { /* nothing kept */ }
   }
   async function connect() {
-    if (!window.claude || !window.claude.use) { say('Bewaard in deze browser.'); return; }
+    if (!window.claude || !window.claude.use) { say('Bewaard in deze browser.'); keepRecentred(); snapPending(); return; }
     const store = await window.claude.use('db');
-    if (!store) { say('Bewaard in deze browser; kopieer je wijzigingen om ze door te geven.'); return; }
+    if (!store) { say('Bewaard in deze browser; kopieer je wijzigingen om ze door te geven.'); keepRecentred(); snapPending(); return; }
     db = store;
     let first = true;
     db.collection('placements').onSnapshot((snap) => {
@@ -2342,36 +2439,29 @@ const CRUST_B64 = "__CRUST__";
       if (first) {
         first = false;
         edits.forEach((e, mi) => { if (!stored.has(mi) && Object.keys(e).length) persist(mi); });
+        // Only now are the placements in that a piece just cut is snapped against.
+        keepRecentred();
+        setTimeout(snapPending, 0);
       }
       thumbsDirty = true;
       render();
       if (!unsaved.size) say('Opgeslagen bij de pagina; Claude kan je wijzigingen lezen.');
     }, (e) => say('Opslag niet bereikbaar: ' + (e && e.message ? e.message : '') , true));
-    // The pieces that give are kept one document each, zones/<piece>, so that
-    // whoever reads the store sees which they are. A document from when a
-    // piece could also hang between its neighbours says so; such a piece gives
-    // now, and its document is written again without it.
+    // The pieces made rigid are kept one document each, rigid/<piece>; every
+    // other piece gives. (The documents in zones/ are from when giving had to
+    // be switched on piece by piece, and are no longer read.)
     try {
-      db.collection('zones').onSnapshot((snap) => {
+      db.collection('rigid').onSnapshot((snap) => {
         if (zoneWrites || gesture) return;
-        const next = new Set(), old = [];
-        for (const doc of snap.docs) {
-          next.add(doc.id);
-          const body = doc.data() || {};
-          if ('keep' in body || 'loose' in body) old.push(doc.id);
-        }
-        if (old.length) {
-          const at = new Date().toISOString();
-          Promise.all(old.map((id) => db.doc('zones/' + id).set({ at }))).catch(() => { /* read as giving either way */ });
-        }
-        if (next.size === zoneSet.size && [...next].every((id) => zoneSet.has(id))) return;
-        zoneSet.clear();
-        for (const id of next) zoneSet.add(id);
+        const next = new Set(snap.docs.map((doc) => doc.id));
+        if (next.size === rigidSet.size && [...next].every((id) => rigidSet.has(id))) return;
+        rigidSet.clear();
+        for (const id of next) rigidSet.add(id);
         buildZones();
-        keepZones();
+        keepRigid();
         render();
       }, () => { /* the pieces stay as this browser has them */ });
-    } catch (e) { /* no zones in the store */ }
+    } catch (e) { /* nothing rigid in the store */ }
   }
 
   // ---------- controls ----------
@@ -2783,6 +2873,7 @@ const CRUST_B64 = "__CRUST__";
     while (work.index.has(`${parent.id}-${n}`)) n++;
     const id = `${parent.id}-${n}`;
     cs.line = null;
+    rememberCut(id);
     commitGroup([{ t: 'new', id, name: `${parent.name} (${n})`, parent: parent.id }, { t: 'paint', to: id, cells: encodeRuns(cells) }],
       `${parent.name} doorgesneden; het afgesneden deel heet ${parent.name} (${n})`, id);
   }
